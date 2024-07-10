@@ -24,6 +24,7 @@ use crate::platform::chip::Chip;
 use crate::platform::mpu::{self, MPU};
 use crate::process::BinaryVersion;
 use crate::process::ProcessBinary;
+use crate::process::TockProc;
 use crate::process::{Error, FunctionCall, FunctionCallSource, Process, State, Task};
 use crate::process::{FaultAction, ProcessCustomGrantIdentifier, ProcessId};
 use crate::process::{ProcessAddresses, ProcessSizes, ShortId};
@@ -354,7 +355,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
     fn set_fault_state(&self) {
         // Use the per-process fault policy to determine what action the kernel
         // should take since the process faulted.
-        let action = self.fault_policy.action(self);
+        let action = self.fault_policy.action(&TockProc::from_dyn_proc(self));
         match action {
             FaultAction::Panic => {
                 // process faulted. Panic and print status
@@ -1283,8 +1284,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         fault_policy: &'static dyn ProcessFaultPolicy,
         app_id: ShortId,
         index: usize,
-    ) -> Result<(Option<&'static dyn Process>, &'a mut [u8]), (ProcessLoadError, &'a mut [u8])>
-    {
+    ) -> Result<(Option<TockProc<'static>>, &'a mut [u8]), (ProcessLoadError, &'a mut [u8])> {
         let process_name = pb.header.get_package_name();
         let process_ram_requested_size = pb.header.get_minimum_app_ram_size() as usize;
 
@@ -1724,7 +1724,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         });
 
         // Return the process object and a remaining memory for processes slice.
-        Ok((Some(process), unused_memory))
+        Ok((Some(TockProc::from_dyn_proc(process)), unused_memory))
     }
 
     /// Reset the process, resetting all of its state and re-initializing it so

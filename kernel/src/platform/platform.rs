@@ -129,7 +129,7 @@ pub trait SyscallFilter {
     /// future.
     fn filter_syscall(
         &self,
-        _process: &dyn process::Process,
+        _process: &process::TockProc<'_>,
         _syscall: &syscall::Syscall,
     ) -> Result<(), errorcode::ErrorCode> {
         Ok(())
@@ -152,7 +152,7 @@ pub struct TbfHeaderFilterDefaultAllow {}
 impl SyscallFilter for TbfHeaderFilterDefaultAllow {
     fn filter_syscall(
         &self,
-        process: &dyn process::Process,
+        process: &process::TockProc<'_>,
         syscall: &syscall::Syscall,
     ) -> Result<(), errorcode::ErrorCode> {
         match syscall {
@@ -264,7 +264,7 @@ pub trait ProcessFault {
     ///      be handled by the `Platform` to ensure the QPSI is mapped
     ///      correctly.
     #[allow(unused_variables)]
-    fn process_fault_hook(&self, process: &dyn process::Process) -> Result<(), ()> {
+    fn process_fault_hook(&self, process: &process::TockProc<'_>) -> Result<(), ()> {
         Err(())
     }
 }
@@ -277,10 +277,10 @@ pub trait ContextSwitchCallback {
     /// This function is called before the kernel switches to a process.
     ///
     /// `process` is the app that is about to run
-    fn context_switch_hook(&self, process: &dyn process::Process);
+    fn context_switch_hook(&self, process: &process::TockProc<'_>);
 }
 
 /// Implement default ContextSwitchCallback trait for unit.
 impl ContextSwitchCallback for () {
-    fn context_switch_hook(&self, _process: &dyn process::Process) {}
+    fn context_switch_hook(&self, _process: &process::TockProc<'_>) {}
 }

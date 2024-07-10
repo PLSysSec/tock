@@ -9,7 +9,7 @@
 //! decisions such as whether a specific process should be restarted.
 
 use crate::process;
-use crate::process::Process;
+use crate::process::TockProc;
 
 /// Generic trait for implementing a policy on what to do when a process faults.
 ///
@@ -18,14 +18,14 @@ use crate::process::Process;
 pub trait ProcessFaultPolicy {
     /// Decide which action the kernel should take in response to `process`
     /// faulting.
-    fn action(&self, process: &dyn Process) -> process::FaultAction;
+    fn action(&self, process: &TockProc<'_>) -> process::FaultAction;
 }
 
 /// Simply panic the entire board if a process faults.
 pub struct PanicFaultPolicy {}
 
 impl ProcessFaultPolicy for PanicFaultPolicy {
-    fn action(&self, _: &dyn Process) -> process::FaultAction {
+    fn action(&self, _: &TockProc<'_>) -> process::FaultAction {
         process::FaultAction::Panic
     }
 }
@@ -34,7 +34,7 @@ impl ProcessFaultPolicy for PanicFaultPolicy {
 pub struct StopFaultPolicy {}
 
 impl ProcessFaultPolicy for StopFaultPolicy {
-    fn action(&self, _: &dyn Process) -> process::FaultAction {
+    fn action(&self, _: &TockProc<'_>) -> process::FaultAction {
         process::FaultAction::Stop
     }
 }
@@ -45,7 +45,7 @@ impl ProcessFaultPolicy for StopFaultPolicy {
 pub struct StopWithDebugFaultPolicy {}
 
 impl ProcessFaultPolicy for StopWithDebugFaultPolicy {
-    fn action(&self, process: &dyn Process) -> process::FaultAction {
+    fn action(&self, process: &TockProc<'_>) -> process::FaultAction {
         crate::debug!(
             "Process {} faulted and was stopped.",
             process.get_process_name()
@@ -58,7 +58,7 @@ impl ProcessFaultPolicy for StopWithDebugFaultPolicy {
 pub struct RestartFaultPolicy {}
 
 impl ProcessFaultPolicy for RestartFaultPolicy {
-    fn action(&self, _: &dyn Process) -> process::FaultAction {
+    fn action(&self, _: &TockProc<'_>) -> process::FaultAction {
         process::FaultAction::Restart
     }
 }
@@ -78,7 +78,7 @@ impl ThresholdRestartFaultPolicy {
 }
 
 impl ProcessFaultPolicy for ThresholdRestartFaultPolicy {
-    fn action(&self, process: &dyn Process) -> process::FaultAction {
+    fn action(&self, process: &TockProc<'_>) -> process::FaultAction {
         if process.get_restart_count() <= self.threshold {
             process::FaultAction::Restart
         } else {
@@ -101,7 +101,7 @@ impl ThresholdRestartThenPanicFaultPolicy {
 }
 
 impl ProcessFaultPolicy for ThresholdRestartThenPanicFaultPolicy {
-    fn action(&self, process: &dyn Process) -> process::FaultAction {
+    fn action(&self, process: &TockProc<'_>) -> process::FaultAction {
         if process.get_restart_count() <= self.threshold {
             process::FaultAction::Restart
         } else {

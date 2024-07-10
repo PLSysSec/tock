@@ -21,7 +21,7 @@ use crate::debug;
 use crate::deferred_call::{DeferredCall, DeferredCallClient};
 use crate::kernel::Kernel;
 use crate::platform::chip::Chip;
-use crate::process::{Process, ShortId};
+use crate::process::{ShortId, TockProc};
 use crate::process_binary::{ProcessBinary, ProcessBinaryError};
 use crate::process_checker::{AppIdPolicy, ProcessCheckError, ProcessCheckerMachine};
 use crate::process_policies::ProcessFaultPolicy;
@@ -136,7 +136,7 @@ pub fn load_processes<C: Chip>(
     chip: &'static C,
     app_flash: &'static [u8],
     app_memory: &'static mut [u8],
-    mut procs: &'static mut [Option<&'static dyn Process>],
+    mut procs: &'static mut [Option<TockProc<'_>>],
     fault_policy: &'static dyn ProcessFaultPolicy,
     _capability_management: &dyn ProcessManagementCapability,
 ) -> Result<(), ProcessLoadError> {
@@ -186,7 +186,7 @@ fn load_processes_from_flash<C: Chip>(
     chip: &'static C,
     app_flash: &'static [u8],
     app_memory: &'static mut [u8],
-    procs: &mut &'static mut [Option<&'static dyn Process>],
+    procs: &mut &'static mut [Option<TockProc<'_>>],
     fault_policy: &'static dyn ProcessFaultPolicy,
 ) -> Result<(), ProcessLoadError> {
     if config::CONFIG.debug_load_processes {
@@ -349,8 +349,7 @@ fn load_process<C: Chip>(
     app_id: ShortId,
     index: usize,
     fault_policy: &'static dyn ProcessFaultPolicy,
-) -> Result<(&'static mut [u8], Option<&'static dyn Process>), (&'static mut [u8], ProcessLoadError)>
-{
+) -> Result<(&'static mut [u8], Option<TockProc<'static>>), (&'static mut [u8], ProcessLoadError)> {
     if config::CONFIG.debug_load_processes {
         debug!(
             "Loading: process flash={:#010X}-{:#010X} ram={:#010X}-{:#010X}",
@@ -459,7 +458,7 @@ pub struct SequentialProcessLoaderMachine<'a, C: Chip + 'static> {
     /// Machine to use to check process credentials.
     checker: &'static ProcessCheckerMachine,
     /// Array of stored process references for loaded processes.
-    procs: MapCell<&'static mut [Option<&'static dyn Process>]>,
+    procs: MapCell<&'static mut [Option<TockProc<'static>>]>,
     /// Array to store `ProcessBinary`s after checking credentials.
     proc_binaries: MapCell<&'static mut [Option<ProcessBinary>]>,
     /// Flash memory region to load processes from.
@@ -487,7 +486,7 @@ impl<'a, C: Chip> SequentialProcessLoaderMachine<'a, C> {
     /// function.
     pub fn new(
         checker: &'static ProcessCheckerMachine,
-        procs: &'static mut [Option<&'static dyn Process>],
+        procs: &'static mut [Option<TockProc<'_>>],
         proc_binaries: &'static mut [Option<ProcessBinary>],
         kernel: &'static Kernel,
         chip: &'static C,
@@ -686,8 +685,8 @@ impl<'a, C: Chip> SequentialProcessLoaderMachine<'a, C> {
                         for proc in procs.iter() {
                             match proc {
                                 Some(p) => {
-                                    let blocked = self
-                                        .is_blocked_from_loading_by_process(&process_binary, *p);
+                                    let blocked =
+                                        self.is_blocked_from_loading_by_process(&process_binary, p);
 
                                     if blocked {
                                         ok_to_load = false;
@@ -829,7 +828,7 @@ impl<'a, C: Chip> SequentialProcessLoaderMachine<'a, C> {
     fn is_blocked_from_loading_by_process(
         &self,
         pb: &ProcessBinary,
-        process: &dyn Process,
+        process: &TockProc<'_>,
     ) -> bool {
         let same_app_id = self.policy.map_or(false, |policy| {
             !policy.different_identifier_process(pb, process)

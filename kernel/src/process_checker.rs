@@ -15,7 +15,7 @@ use core::fmt;
 
 use crate::config;
 use crate::debug;
-use crate::process::Process;
+use crate::process::TockProc;
 use crate::process::ShortId;
 use crate::process_binary::ProcessBinary;
 use crate::utilities::cells::{NumericCellExt, OptionalCell};
@@ -118,7 +118,7 @@ pub trait AppUniqueness {
     fn different_identifier_process(
         &self,
         process_a: &ProcessBinary,
-        process_b: &dyn Process,
+        process_b: &TockProc<'_>,
     ) -> bool;
 
     /// Returns whether `process_a` and `process_b` have a different identifier,
@@ -126,8 +126,8 @@ pub trait AppUniqueness {
     /// will not run `process_a` and `process_b` at the same time.
     fn different_identifier_processes(
         &self,
-        process_a: &dyn Process,
-        process_b: &dyn Process,
+        process_a: &TockProc<'_>,
+        process_b: &TockProc<'_>,
     ) -> bool;
 }
 
@@ -140,15 +140,15 @@ impl AppUniqueness for () {
     fn different_identifier_process(
         &self,
         _process_a: &ProcessBinary,
-        _process_b: &dyn Process,
+        _process_b: &TockProc<'_>,
     ) -> bool {
         true
     }
 
     fn different_identifier_processes(
         &self,
-        _process_a: &dyn Process,
-        _process_b: &dyn Process,
+        _process_a: &TockProc<'_>,
+        _process_b: &TockProc<'_>,
     ) -> bool {
         true
     }

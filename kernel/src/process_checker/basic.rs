@@ -9,7 +9,8 @@
 use crate::deferred_call::{DeferredCall, DeferredCallClient};
 use crate::hil::digest::{ClientData, ClientHash, ClientVerify};
 use crate::hil::digest::{DigestDataVerify, Sha256};
-use crate::process::{Process, ProcessBinary, ShortId};
+use crate::process::TockProc;
+use crate::process::{ProcessBinary, ShortId};
 use crate::process_checker::CheckResult;
 use crate::process_checker::{AppCredentialsPolicy, AppCredentialsPolicyClient};
 use crate::process_checker::{AppUniqueness, Compress};
@@ -97,7 +98,7 @@ impl AppUniqueness for AppIdAssignerSimulated {
     fn different_identifier_process(
         &self,
         process_binary: &ProcessBinary,
-        process: &dyn Process,
+        process: &TockProc<'_>,
     ) -> bool {
         let a = process_binary.header.get_package_name().unwrap_or("");
         let b = process.get_process_name();
@@ -106,8 +107,8 @@ impl AppUniqueness for AppIdAssignerSimulated {
 
     fn different_identifier_processes(
         &self,
-        process_a: &dyn Process,
-        process_b: &dyn Process,
+        process_a: &TockProc<'_>,
+        process_b: &TockProc<'_>,
     ) -> bool {
         let a = process_a.get_process_name();
         let b = process_b.get_process_name();
@@ -271,15 +272,15 @@ impl<'a, F: Fn(&'static str) -> u32> AppUniqueness for AppIdAssignerNames<'a, F>
     fn different_identifier_process(
         &self,
         process_a: &ProcessBinary,
-        process_b: &dyn Process,
+        process_b: &TockProc<'_>,
     ) -> bool {
         self.to_short_id(process_a) != process_b.short_app_id()
     }
 
     fn different_identifier_processes(
         &self,
-        process_a: &dyn Process,
-        process_b: &dyn Process,
+        process_a: &TockProc<'_>,
+        process_b: &TockProc<'_>,
     ) -> bool {
         process_a.short_app_id() != process_b.short_app_id()
     }

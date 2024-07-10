@@ -6,7 +6,7 @@
 
 use core::fmt::Write;
 
-use crate::process::Process;
+use crate::process::TockProc;
 use crate::utilities::binary_write::BinaryWrite;
 use crate::utilities::binary_write::WriteToBinaryOffsetWrapper;
 
@@ -57,7 +57,7 @@ pub trait ProcessPrinter {
     /// to call `print_overview()` again to finish the printing.
     fn print_overview(
         &self,
-        process: &dyn Process,
+        process: &TockProc<'_>,
         writer: &mut dyn BinaryWrite,
         context: Option<ProcessPrinterContext>,
     ) -> Option<ProcessPrinterContext>;
@@ -100,7 +100,7 @@ impl ProcessPrinter for ProcessPrinterText {
     //    information about it, so this should be a safe assumption.
     fn print_overview(
         &self,
-        process: &dyn Process,
+        process: &TockProc<'_>,
         writer: &mut dyn BinaryWrite,
         context: Option<ProcessPrinterContext>,
     ) -> Option<ProcessPrinterContext> {

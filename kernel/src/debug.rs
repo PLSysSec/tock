@@ -62,7 +62,7 @@ use crate::collections::queue::Queue;
 use crate::collections::ring_buffer::RingBuffer;
 use crate::hil;
 use crate::platform::chip::Chip;
-use crate::process::Process;
+use crate::process::TockProc;
 use crate::process::ProcessPrinter;
 use crate::processbuffer::ReadableProcessSlice;
 use crate::utilities::binary_write::BinaryToWriteWrapper;
@@ -114,7 +114,7 @@ pub unsafe fn panic_print<W: Write + IoWrite, C: Chip, PP: ProcessPrinter>(
     writer: &mut W,
     panic_info: &PanicInfo,
     nop: &dyn Fn(),
-    processes: &'static [Option<&'static dyn Process>],
+    processes: &'static [Option<&'static TockProc<'_>>],
     chip: &'static Option<&'static C>,
     process_printer: &'static Option<&'static PP>,
 ) {
@@ -145,7 +145,7 @@ pub unsafe fn panic<L: hil::led::Led, W: Write + IoWrite, C: Chip, PP: ProcessPr
     writer: &mut W,
     panic_info: &PanicInfo,
     nop: &dyn Fn(),
-    processes: &'static [Option<&'static dyn Process>],
+    processes: &'static [Option<&'static TockProc<'_>>],
     chip: &'static Option<&'static C>,
     process_printer: &'static Option<&'static PP>,
 ) -> ! {
@@ -205,7 +205,7 @@ pub unsafe fn panic_cpu_state<W: Write, C: Chip>(
 /// **NOTE:** The supplied `writer` must be synchronous.
 #[flux::ignore]
 pub unsafe fn panic_process_info<PP: ProcessPrinter, W: Write>(
-    procs: &'static [Option<&'static dyn Process>],
+    procs: &'static [Option<&'static TockProc<'_>>],
     process_printer: &'static Option<&'static PP>,
     writer: &mut W,
 ) {

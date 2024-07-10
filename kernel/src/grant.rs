@@ -136,7 +136,8 @@ use core::ptr::{write, NonNull};
 use core::slice;
 
 use crate::kernel::Kernel;
-use crate::process::{Error, Process, ProcessCustomGrantIdentifier, ProcessId};
+use crate::process::TockProc;
+use crate::process::{Error, ProcessCustomGrantIdentifier, ProcessId};
 use crate::processbuffer::{ReadOnlyProcessBuffer, ReadWriteProcessBuffer};
 use crate::processbuffer::{ReadOnlyProcessBufferRef, ReadWriteProcessBufferRef};
 use crate::upcall::{Upcall, UpcallError, UpcallId};
@@ -226,7 +227,7 @@ impl<const NUM: u8> AllowRwSize for AllowRwCount<NUM> {
 struct EnteredGrantKernelManagedLayout<'a> {
     /// Leaving a grant is handled through the process implementation, so must
     /// keep a reference to the relevant process.
-    process: &'a dyn Process,
+    process: &'a TockProc<'a>,
     /// The grant number of the entered grant that we want to ensure we leave
     /// properly.
     grant_num: usize,
@@ -273,7 +274,7 @@ impl<'a> EnteredGrantKernelManagedLayout<'a> {
     /// slices could be created.
     unsafe fn read_from_base(
         base_ptr: NonNull<u8>,
-        process: &'a dyn Process,
+        process: &'a TockProc<'_>,
         grant_num: usize,
     ) -> Self {
         let counters_ptr = base_ptr.as_ptr() as *mut usize;
@@ -313,7 +314,7 @@ impl<'a> EnteredGrantKernelManagedLayout<'a> {
         upcalls_num_val: UpcallItems,
         allow_ro_num_val: AllowRoItems,
         allow_rw_num_val: AllowRwItems,
-        process: &'a dyn Process,
+        process: &'a TockProc<'_>,
         grant_num: usize,
     ) -> Self {
         let counters_ptr = base_ptr.as_ptr() as *mut usize;
@@ -564,7 +565,7 @@ pub struct GrantKernelData<'a> {
 
     /// A reference to the process that these upcalls are for. This is used for
     /// actually scheduling the upcalls.
-    process: &'a dyn Process,
+    process: &'a TockProc<'a>,
 }
 
 impl<'a> GrantKernelData<'a> {
@@ -575,7 +576,7 @@ impl<'a> GrantKernelData<'a> {
         allow_ro: &'a [SavedAllowRo],
         allow_rw: &'a [SavedAllowRw],
         driver_num: usize,
-        process: &'a dyn Process,
+        process: &'a TockProc<'_>,
     ) -> GrantKernelData<'a> {
         Self {
             upcalls,
@@ -763,10 +764,10 @@ unsafe fn write_default_array<T: Default>(base: *mut T, num: usize) {
 /// Enters the grant for the specified process. Caller must hold on to the grant
 /// lifetime guard while they accessing the memory in the layout (second
 /// element).
-fn enter_grant_kernel_managed(
-    process: &dyn Process,
+fn enter_grant_kernel_managed<'a>(
+    process: &'a TockProc<'a>,
     driver_num: usize,
-) -> Result<EnteredGrantKernelManagedLayout, ErrorCode> {
+) -> Result<EnteredGrantKernelManagedLayout<'a>, ErrorCode> {
     let grant_num = process.lookup_grant_from_driver_num(driver_num)?;
 
     // Check if the grant has been allocated, and if not we cannot enter this
@@ -792,7 +793,7 @@ fn enter_grant_kernel_managed(
 /// Subscribe to an upcall by saving the upcall in the grant region for the
 /// process and returning the existing upcall for the same UpcallId.
 pub(crate) fn subscribe(
-    process: &dyn Process,
+    process: &TockProc<'_>,
     upcall: Upcall,
 ) -> Result<Upcall, (Upcall, ErrorCode)> {
     // Enter grant and keep it open until _grant_open goes out of scope.
@@ -838,7 +839,7 @@ pub(crate) fn subscribe(
 /// region for this process and driver. The previous read-only process buffer
 /// stored at the same allow_num id is returned.
 pub(crate) fn allow_ro(
-    process: &dyn Process,
+    process: &TockProc<'_>,
     driver_num: usize,
     allow_num: usize,
     buffer: ReadOnlyProcessBuffer,
@@ -886,7 +887,7 @@ pub(crate) fn allow_ro(
 /// region for this process and driver. The previous read-write process buffer
 /// stored at the same allow_num id is returned.
 pub(crate) fn allow_rw(
-    process: &dyn Process,
+    process: &TockProc<'_>,
     driver_num: usize,
     allow_num: usize,
     buffer: ReadWriteProcessBuffer,
@@ -951,7 +952,7 @@ pub struct ProcessGrant<
     /// short lived. They only exist while a `Grant` is being entered, so we can
     /// be sure the process still exists while a `ProcessGrant` exists. No
     /// `ProcessGrant` can be stored.
-    process: &'a dyn Process,
+    process: &'a TockProc<'a>,
 
     /// The syscall driver number this grant is associated with.
     driver_num: usize,
@@ -996,7 +997,7 @@ impl<'a, T: Default, Upcalls: UpcallSize, AllowROs: AllowRoSize, AllowRWs: Allow
             num_allow_ros: AllowRoItems,
             num_allow_rws: AllowRwItems,
             processid: ProcessId,
-        ) -> Result<(Option<NonNull<u8>>, &'a dyn Process), Error> {
+        ) -> Result<(Option<NonNull<u8>>, &'a TockProc<'a>), Error> {
             // Here is an example of how the grants are laid out in the grant
             // region of process's memory:
             //
@@ -1163,7 +1164,7 @@ impl<'a, T: Default, Upcalls: UpcallSize, AllowROs: AllowRoSize, AllowRWs: Allow
     /// otherwise.
     fn new_if_allocated(
         grant: &Grant<T, Upcalls, AllowROs, AllowRWs>,
-        process: &'a dyn Process,
+        process: &'a TockProc<'_>,
     ) -> Option<Self> {
         if let Some(is_allocated) = process.grant_is_allocated(grant.grant_num) {
             if is_allocated {
@@ -1782,8 +1783,8 @@ pub struct Iter<
 
     /// Iterator over valid processes.
     subiter: core::iter::FilterMap<
-        core::slice::Iter<'a, Option<&'static dyn Process>>,
-        fn(&Option<&'static dyn Process>) -> Option<&'static dyn Process>,
+        core::slice::Iter<'a, Option<&'static TockProc<'static>>>,
+        fn(&Option<&'static TockProc<'static>>) -> Option<&'static TockProc<'static>>,
     >,
 }
 

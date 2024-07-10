@@ -1025,123 +1025,128 @@ pub struct ProcessSizes {
 }
 
 #[allow(dead_code, unused_variables)]
+#[derive(Clone, Copy)]
 pub struct TockProc<'a> {
     inner: &'a dyn Process,
 }
 
 #[allow(dead_code, unused_variables)]
 impl<'a> TockProc<'a> {
-    fn processid(&self) -> ProcessId {
+    pub fn from_dyn_proc(proc: &'a dyn Process) -> Self {
+        TockProc { inner: proc }
+    }
+
+    pub fn processid(&self) -> ProcessId {
         unimplemented!()
     }
-    fn short_app_id(&self) -> ShortId {
+    pub fn short_app_id(&self) -> ShortId {
         unimplemented!()
     }
-    fn binary_version(&self) -> Option<BinaryVersion> {
+    pub fn binary_version(&self) -> Option<BinaryVersion> {
         unimplemented!()
     }
-    fn get_restart_count(&self) -> usize {
+    pub fn get_restart_count(&self) -> usize {
         unimplemented!()
     }
-    fn get_process_name(&self) -> &'static str {
+    pub fn get_process_name(&self) -> &'static str {
         unimplemented!()
     }
-    fn has_tasks(&self) -> bool {
+    pub fn has_tasks(&self) -> bool {
         unimplemented!()
     }
-    fn pending_tasks(&self) -> usize {
+    pub fn pending_tasks(&self) -> usize {
         unimplemented!()
     }
-    fn enqueue_task(&self, task: Task) -> Result<(), ErrorCode> {
+    pub fn enqueue_task(&self, task: Task) -> Result<(), ErrorCode> {
         unimplemented!()
     }
-    fn dequeue_task(&self) -> Option<Task> {
+    pub fn dequeue_task(&self) -> Option<Task> {
         unimplemented!()
     }
-    fn remove_pending_upcalls(&self, upcall_id: UpcallId) {
+    pub fn remove_pending_upcalls(&self, upcall_id: UpcallId) {
         unimplemented!()
     }
-    fn get_state(&self) -> State {
+    pub fn get_state(&self) -> State {
         unimplemented!()
     }
-    fn ready(&self) -> bool {
+    pub fn ready(&self) -> bool {
         unimplemented!()
     }
-    fn is_running(&self) -> bool {
+    pub fn is_running(&self) -> bool {
         unimplemented!()
     }
-    fn set_yielded_state(&self) {
+    pub fn set_yielded_state(&self) {
         unimplemented!()
     }
-    fn stop(&self) {
+    pub fn stop(&self) {
         unimplemented!()
     }
-    fn resume(&self) {
+    pub fn resume(&self) {
         unimplemented!()
     }
-    fn set_fault_state(&self) {
+    pub fn set_fault_state(&self) {
         unimplemented!()
     }
-    fn start(&self, cap: &dyn crate::capabilities::ProcessStartCapability) {
+    pub fn start(&self, cap: &dyn crate::capabilities::ProcessStartCapability) {
         unimplemented!()
     }
-    fn try_restart(&self, completion_code: Option<u32>) {
+    pub fn try_restart(&self, completion_code: Option<u32>) {
         unimplemented!()
     }
-    fn terminate(&self, completion_code: Option<u32>) {
+    pub fn terminate(&self, completion_code: Option<u32>) {
         unimplemented!()
     }
-    fn get_completion_code(&self) -> Option<Option<u32>> {
+    pub fn get_completion_code(&self) -> Option<Option<u32>> {
         unimplemented!()
     }
     // memop operations
-    fn brk(&self, new_break: *const u8) -> Result<*const u8, Error> {
+    pub fn brk(&self, new_break: *const u8) -> Result<*const u8, Error> {
         unimplemented!()
     }
-    fn sbrk(&self, increment: isize) -> Result<*const u8, Error> {
+    pub fn sbrk(&self, increment: isize) -> Result<*const u8, Error> {
         unimplemented!()
     }
-    fn number_writeable_flash_regions(&self) -> usize {
+    pub fn number_writeable_flash_regions(&self) -> usize {
         unimplemented!()
     }
-    fn get_writeable_flash_region(&self, region_index: usize) -> (u32, u32) {
+    pub fn get_writeable_flash_region(&self, region_index: usize) -> (u32, u32) {
         unimplemented!()
     }
-    fn update_stack_start_pointer(&self, stack_pointer: *const u8) {
+    pub fn update_stack_start_pointer(&self, stack_pointer: *const u8) {
         unimplemented!()
     }
-    fn update_heap_start_pointer(&self, heap_pointer: *const u8) {
+    pub fn update_heap_start_pointer(&self, heap_pointer: *const u8) {
         unimplemented!()
     }
-    fn build_readwrite_process_buffer(
+    pub fn build_readwrite_process_buffer(
         &self,
         buf_start_addr: *mut u8,
         size: usize,
     ) -> Result<ReadWriteProcessBuffer, ErrorCode> {
         unimplemented!()
     }
-    fn build_readonly_process_buffer(
+    pub fn build_readonly_process_buffer(
         &self,
         buf_start_addr: *const u8,
         size: usize,
     ) -> Result<ReadOnlyProcessBuffer, ErrorCode> {
         unimplemented!()
     }
-    unsafe fn set_byte(&self, addr: *mut u8, value: u8) -> bool {
+    pub unsafe fn set_byte(&self, addr: *mut u8, value: u8) -> bool {
         unimplemented!()
     }
-    fn get_command_permissions(&self, driver_num: usize, offset: usize) -> CommandPermissions {
+    pub fn get_command_permissions(&self, driver_num: usize, offset: usize) -> CommandPermissions {
         unimplemented!()
     }
-    fn get_storage_permissions(&self) -> Option<storage_permissions::StoragePermissions> {
+    pub fn get_storage_permissions(&self) -> Option<storage_permissions::StoragePermissions> {
         unimplemented!()
     }
 
     // mpu
-    fn setup_mpu(&self) {
+    pub fn setup_mpu(&self) {
         unimplemented!()
     }
-    fn add_mpu_region(
+    pub fn add_mpu_region(
         &self,
         unallocated_memory_start: *const u8,
         unallocated_memory_size: usize,
@@ -1149,12 +1154,12 @@ impl<'a> TockProc<'a> {
     ) -> Option<mpu::Region> {
         unimplemented!()
     }
-    fn remove_mpu_region(&self, region: mpu::Region) -> Result<(), ErrorCode> {
+    pub fn remove_mpu_region(&self, region: mpu::Region) -> Result<(), ErrorCode> {
         unimplemented!()
     }
 
     // grants
-    fn allocate_grant(
+    pub fn allocate_grant(
         &self,
         grant_num: usize,
         driver_num: usize,
@@ -1163,76 +1168,76 @@ impl<'a> TockProc<'a> {
     ) -> Result<(), ()> {
         unimplemented!()
     }
-    fn grant_is_allocated(&self, grant_num: usize) -> Option<bool> {
+    pub fn grant_is_allocated(&self, grant_num: usize) -> Option<bool> {
         unimplemented!()
     }
-    fn allocate_custom_grant(
+    pub fn allocate_custom_grant(
         &self,
         size: usize,
         align: usize,
     ) -> Result<(ProcessCustomGrantIdentifier, NonNull<u8>), ()> {
         unimplemented!()
     }
-    fn enter_grant(&self, grant_num: usize) -> Result<NonNull<u8>, Error> {
+    pub fn enter_grant(&self, grant_num: usize) -> Result<NonNull<u8>, Error> {
         unimplemented!()
     }
-    fn enter_custom_grant(
+    pub fn enter_custom_grant(
         &self,
         identifier: ProcessCustomGrantIdentifier,
     ) -> Result<*mut u8, Error> {
         unimplemented!()
     }
-    unsafe fn leave_grant(&self, grant_num: usize) {
+    pub unsafe fn leave_grant(&self, grant_num: usize) {
         unimplemented!()
     }
-    fn grant_allocated_count(&self) -> Option<usize> {
+    pub fn grant_allocated_count(&self) -> Option<usize> {
         unimplemented!()
     }
-    fn lookup_grant_from_driver_num(&self, driver_num: usize) -> Result<usize, Error> {
+    pub fn lookup_grant_from_driver_num(&self, driver_num: usize) -> Result<usize, Error> {
         unimplemented!()
     }
     // subscribe
-    fn is_valid_upcall_function_pointer(&self, upcall_fn: NonNull<()>) -> bool {
+    pub fn is_valid_upcall_function_pointer(&self, upcall_fn: NonNull<()>) -> bool {
         unimplemented!()
     }
     // functions for processes that are architecture specific
-    fn set_syscall_return_value(&self, return_value: SyscallReturn) {
+    pub fn set_syscall_return_value(&self, return_value: SyscallReturn) {
         unimplemented!()
     }
-    fn set_process_function(&self, callback: FunctionCall) {
+    pub fn set_process_function(&self, callback: FunctionCall) {
         unimplemented!()
     }
-    fn switch_to(&self) -> Option<syscall::ContextSwitchReason> {
+    pub fn switch_to(&self) -> Option<syscall::ContextSwitchReason> {
         unimplemented!()
     }
-    fn get_addresses(&self) -> ProcessAddresses {
+    pub fn get_addresses(&self) -> ProcessAddresses {
         unimplemented!()
     }
-    fn get_sizes(&self) -> ProcessSizes {
+    pub fn get_sizes(&self) -> ProcessSizes {
         unimplemented!()
     }
-    fn get_stored_state(&self, out: &mut [u8]) -> Result<usize, ErrorCode> {
+    pub fn get_stored_state(&self, out: &mut [u8]) -> Result<usize, ErrorCode> {
         unimplemented!()
     }
-    fn print_full_process(&self, writer: &mut dyn Write) {
+    pub fn print_full_process(&self, writer: &mut dyn Write) {
         unimplemented!()
     }
-    fn debug_syscall_count(&self) -> usize {
+    pub fn debug_syscall_count(&self) -> usize {
         unimplemented!()
     }
-    fn debug_dropped_upcall_count(&self) -> usize {
+    pub fn debug_dropped_upcall_count(&self) -> usize {
         unimplemented!()
     }
-    fn debug_timeslice_expiration_count(&self) -> usize {
+    pub fn debug_timeslice_expiration_count(&self) -> usize {
         unimplemented!()
     }
-    fn debug_timeslice_expired(&self) {
+    pub fn debug_timeslice_expired(&self) {
         unimplemented!()
     }
-    fn debug_syscall_called(&self, last_syscall: Syscall) {
+    pub fn debug_syscall_called(&self, last_syscall: Syscall) {
         unimplemented!()
     }
-    fn debug_syscall_last(&self) -> Option<Syscall> {
+    pub fn debug_syscall_last(&self) -> Option<Syscall> {
         unimplemented!()
     }
 }

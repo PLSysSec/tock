@@ -124,7 +124,7 @@ impl Upcall {
     /// the stored process_id.
     pub(crate) fn schedule(
         &mut self,
-        process: &dyn process::Process,
+        process: &process::TockProc<'_>,
         r0: usize,
         r1: usize,
         r2: usize,

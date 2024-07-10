@@ -44,7 +44,7 @@ pub(crate) const MIN_QUANTA_THRESHOLD_US: u32 = 500;
 /// Main object for the kernel. Each board will need to create one.
 pub struct Kernel {
     /// This holds a pointer to the static array of Process pointers.
-    processes: &'static [Option<&'static dyn process::Process>],
+    processes: &'static [Option<&'static process::TockProc<'static>>],
 
     /// A counter which keeps track of how many process identifiers have been
     /// created. This is used to create new unique identifiers for processes.
@@ -71,7 +71,7 @@ enum AllocResult {
 
 /// Tries to allocate the grant region for specified driver and process.
 /// Returns if a new grant was allocated or not
-fn try_allocate_grant(driver: &dyn SyscallDriver, process: &dyn process::Process) -> AllocResult {
+fn try_allocate_grant(driver: &dyn SyscallDriver, process: &process::TockProc<'_>) -> AllocResult {
     let before_count = process.grant_allocated_count().unwrap_or(0);
     match driver.allocate_grant(process.processid()).is_ok() {
         true if before_count == process.grant_allocated_count().unwrap_or(0) => {
@@ -88,7 +88,7 @@ impl Kernel {
     /// Crucially, the processes included in the `processes` array MUST be valid
     /// to execute. Any credential checks or validation MUST happen before the
     /// `Process` object is included in this array.
-    pub fn new(processes: &'static [Option<&'static dyn process::Process>]) -> Kernel {
+    pub fn new(processes: &'static [Option<&'static process::TockProc<'_>>]) -> Kernel {
         Kernel {
             processes,
             process_identifier_max: Cell::new(0),
@@ -99,7 +99,7 @@ impl Kernel {
 
     /// Helper function that moves all non-generic portions of process_map_or
     /// into a non-generic function to reduce code bloat from monomorphization.
-    pub(crate) fn get_process(&self, processid: ProcessId) -> Option<&dyn process::Process> {
+    pub(crate) fn get_process(&self, processid: ProcessId) -> Option<&process::TockProc<'_>> {
         // We use the index in the `processid` so we can do a direct lookup.
         // However, we are not guaranteed that the app still exists at that
         // index in the processes array. To avoid additional overhead, we do the
@@ -130,7 +130,7 @@ impl Kernel {
     /// but is in any "stopped" state.
     pub(crate) fn process_map_or<F, R>(&self, default: R, processid: ProcessId, closure: F) -> R
     where
-        F: FnOnce(&dyn process::Process) -> R,
+        F: FnOnce(&process::TockProc<'_>) -> R,
     {
         match self.get_process(processid) {
             Some(process) => closure(process),
@@ -160,7 +160,7 @@ impl Kernel {
         _capability: &dyn capabilities::ProcessManagementCapability,
     ) -> R
     where
-        F: FnOnce(&dyn process::Process) -> R,
+        F: FnOnce(&process::TockProc<'_>) -> R,
     {
         match self.get_process(processid) {
             Some(process) => closure(process),
@@ -172,7 +172,7 @@ impl Kernel {
     /// processes and call the closure on every process that exists.
     pub(crate) fn process_each<F>(&self, mut closure: F)
     where
-        F: FnMut(&dyn process::Process),
+        F: FnMut(&process::TockProc<'_>),
     {
         for process in self.processes.iter() {
             match process {
@@ -188,12 +188,14 @@ impl Kernel {
     pub(crate) fn get_process_iter(
         &self,
     ) -> core::iter::FilterMap<
-        core::slice::Iter<Option<&dyn process::Process>>,
-        fn(&Option<&'static dyn process::Process>) -> Option<&'static dyn process::Process>,
+        core::slice::Iter<Option<&process::TockProc<'static>>>,
+        fn(
+            &Option<&'static process::TockProc<'static>>,
+        ) -> Option<&'static process::TockProc<'static>>,
     > {
         fn keep_some(
-            &x: &Option<&'static dyn process::Process>,
-        ) -> Option<&'static dyn process::Process> {
+            &x: &Option<&'static process::TockProc<'static>>,
+        ) -> Option<&'static process::TockProc<'static>> {
             x
         }
         self.processes.iter().filter_map(keep_some)
@@ -210,7 +212,7 @@ impl Kernel {
         _capability: &dyn capabilities::ProcessManagementCapability,
         mut closure: F,
     ) where
-        F: FnMut(&dyn process::Process),
+        F: FnMut(&process::TockProc<'_>),
     {
         for process in self.processes.iter() {
             match process {
@@ -227,7 +229,7 @@ impl Kernel {
     /// this function to the called.
     pub(crate) fn process_until<T, F>(&self, closure: F) -> Option<T>
     where
-        F: Fn(&dyn process::Process) -> Option<T>,
+        F: Fn(&process::TockProc<'_>) -> Option<T>,
     {
         for process in self.processes.iter() {
             match process {
@@ -476,7 +478,7 @@ impl Kernel {
         &self,
         resources: &KR,
         chip: &C,
-        process: &dyn process::Process,
+        process: &process::TockProc<'_>,
         ipc: Option<&crate::ipc::IPC<NUM_PROCS>>,
         timeslice_us: Option<u32>,
     ) -> (process::StoppedExecutingReason, Option<u32>) {
@@ -685,7 +687,7 @@ impl Kernel {
     fn handle_syscall<KR: KernelResources<C>, C: Chip>(
         &self,
         resources: &KR,
-        process: &dyn process::Process,
+        process: &process::TockProc<'_>,
         syscall: Syscall,
     ) {
         // Hook for process debugging.
