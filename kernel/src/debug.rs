@@ -740,15 +740,15 @@ pub trait Debug {
     fn write(&self, buf: &'static mut [u8], len: usize) -> usize;
 }
 
-#[cfg(debug = "true")]
-impl Default for Debug {
-    fn write(&self, buf: &'static mut [u8], len: usize) {
-        panic!(
-            "No registered kernel debug printer. Thrown printing {:?}",
-            buf
-        );
-    }
-}
+// #[cfg(debug = "true")]
+// impl Default for Debug {
+//     fn write(&self, buf: &'static mut [u8], len: usize) {
+//         panic!(
+//             "No registered kernel debug printer. Thrown printing {:?}",
+//             buf
+//         );
+//     }
+// }
 
 #[flux::ignore]
 pub unsafe fn flush<W: Write + IoWrite>(writer: &mut W) {

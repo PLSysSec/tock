@@ -41,6 +41,7 @@ use crate::{RegisterLongName, UIntLike};
 // casting a pointer to a larger struct that containts this type). As such, it
 // does not have a public constructor and Rust thinks it's dead code and should
 // be removed. We `allow(dead_code)` here to suppress this warning.
+// struct must be exactly the size of the `T`.
 #[allow(dead_code)]
 #[repr(transparent)]
 pub struct ReadWrite<T: UIntLike, R: RegisterLongName = ()> {
@@ -79,6 +80,7 @@ impl<T: UIntLike, R: RegisterLongName> Writeable for ReadWrite<T, R> {
 // casting a pointer to a larger struct that containts this type). As such, it
 // does not have a public constructor and Rust thinks it's dead code and should
 // be removed. We `allow(dead_code)` here to suppress this warning.
+// struct must be exactly the size of the `T`.
 #[allow(dead_code)]
 #[repr(transparent)]
 pub struct ReadOnly<T: UIntLike, R: RegisterLongName = ()> {
@@ -110,6 +112,7 @@ impl<T: UIntLike, R: RegisterLongName> Readable for ReadOnly<T, R> {
 // be removed. We `allow(dead_code)` here to suppress this warning.
 #[allow(dead_code)]
 #[repr(transparent)]
+#[allow(dead_code)]
 pub struct WriteOnly<T: UIntLike, R: RegisterLongName = ()> {
     value: UnsafeCell<T>,
     associated_register: PhantomData<R>,
@@ -138,6 +141,7 @@ impl<T: UIntLike, R: RegisterLongName> Writeable for WriteOnly<T, R> {
 /// type parameters `R` and `W` are identical, in which case a
 /// [`ReadWrite`] register might be a better choice).
 // To successfully alias this structure onto hardware registers in memory, this
+<<<<<<< HEAD
 // struct must be exactly the size of the `T` and is thus marked
 // `repr(transparent)` over an `UnsafeCell<T>`, which itself is
 // `repr(transparent)` over `T`.
@@ -146,6 +150,9 @@ impl<T: UIntLike, R: RegisterLongName> Writeable for WriteOnly<T, R> {
 // casting a pointer to a larger struct that containts this type). As such, it
 // does not have a public constructor and Rust thinks it's dead code and should
 // be removed. We `allow(dead_code)` here to suppress this warning.
+=======
+// struct must be exactly the size of the `T`.
+>>>>>>> 2a512f5bf (no more warnings)
 #[allow(dead_code)]
 #[repr(transparent)]
 pub struct Aliased<T: UIntLike, R: RegisterLongName = (), W: RegisterLongName = ()> {
