@@ -139,6 +139,7 @@ impl ProcessId {
     ///
     /// This constructor is public but protected with a capability so that
     /// external implementations of `Process` can use it.
+    #[flux::ignore]
     pub fn new_external(
         kernel: &'static Kernel,
         identifier: usize,
@@ -393,6 +394,7 @@ pub trait Process {
     /// The caller MUST verify this process is unique before calling this
     /// function. This requires a capability to call to ensure that the caller
     /// have verified that this process is unique before trying to start it.
+    #[flux::ignore]
     fn start(&self, cap: &dyn crate::capabilities::ProcessStartCapability);
 
     /// Terminates and attempts to restart the process. The process and current
@@ -743,6 +745,7 @@ pub trait Process {
 
     /// Print out the full state of the process: its memory map, its context,
     /// and the state of the memory protection unit (MPU).
+    #[flux::ignore]
     fn print_full_process(&self, writer: &mut dyn Write);
 
     // debug
@@ -1026,11 +1029,13 @@ pub struct ProcessSizes {
 
 #[allow(dead_code, unused_variables)]
 #[derive(Clone, Copy)]
+#[flux::ignore]
 pub struct TockProc<'a> {
     inner: &'a dyn Process,
 }
 
 #[allow(dead_code, unused_variables)]
+#[flux::ignore]
 impl<'a> TockProc<'a> {
     pub fn from_dyn_proc(proc: &'a dyn Process) -> Self {
         TockProc { inner: proc }

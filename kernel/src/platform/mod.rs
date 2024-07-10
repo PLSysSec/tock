@@ -5,7 +5,6 @@
 //! Traits for implementing various layers and components in Tock.
 //!
 //! Implementations of these traits are used by the core kernel.
-#[flux::ignore]
 pub mod chip;
 pub mod mpu;
 #[flux::ignore]

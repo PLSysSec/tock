@@ -108,7 +108,6 @@ pub const KERNEL_MINOR_VERSION: u16 = 1;
 pub mod capabilities;
 #[flux::ignore]
 pub mod collections;
-#[flux::ignore]
 pub mod component;
 pub mod debug;
 #[flux::ignore]
@@ -131,16 +130,13 @@ pub mod process_checker;
 pub mod processbuffer;
 #[flux::ignore]
 pub mod scheduler;
-#[flux::ignore]
 pub mod storage_permissions;
 #[flux::ignore]
 pub mod syscall;
 #[flux::ignore]
 pub mod upcall;
-//#[flux::ignore]
 pub mod utilities;
 
-#[flux::ignore]
 mod config;
 #[flux::ignore]
 mod kernel;
