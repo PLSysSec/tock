@@ -239,7 +239,6 @@ pub trait SyscallDriver {
     fn allocate_grant(&self, process_id: ProcessId) -> Result<(), crate::process::Error>;
 }
 
-
 #[allow(dead_code, unused_variables)]
 #[derive(Clone, Copy)]
 #[flux::opaque]
@@ -250,9 +249,6 @@ pub struct SyscallDriverProxy<'a> {
 
 #[allow(dead_code, unused_variables)]
 impl SyscallDriverProxy<'_> {
-
-
-
     pub fn command(
         &self,
         command_num: usize,

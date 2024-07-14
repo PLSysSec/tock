@@ -12,8 +12,8 @@ use core::fmt;
 
 use crate::config;
 use crate::debug;
-use crate::process::Process;
 use crate::process::ShortId;
+use crate::process::TockProc;
 use crate::process_binary::ProcessBinary;
 use crate::utilities::cells::{NumericCellExt, OptionalCell};
 use crate::ErrorCode;
