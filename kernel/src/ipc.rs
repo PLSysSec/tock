@@ -44,12 +44,7 @@ struct IPCData;
 /// The IPC mechanism struct.
 pub struct IPC<const NUM_PROCS: u8> {
     /// The grant regions for each process that holds the per-process IPC data.
-    data: Grant<
-        IPCData,
-        UpcallCount<NUM_PROCS>,
-        AllowRoCount<{ ro_allow::COUNT }>,
-        AllowRwCount<NUM_PROCS>,
-    >,
+    data: Grant<IPCData, UpcallCount<NUM_PROCS>, AllowRoCount<1>, AllowRwCount<NUM_PROCS>>,
 }
 
 impl<const NUM_PROCS: u8> IPC<NUM_PROCS> {
