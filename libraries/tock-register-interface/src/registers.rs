@@ -34,6 +34,7 @@ use crate::{RegisterLongName, UIntLike};
 /// implemented.
 // To successfully alias this structure onto hardware registers in memory, this
 // struct must be exactly the size of the `T`.
+#[allow(dead_code)]
 #[repr(transparent)]
 pub struct ReadWrite<T: UIntLike, R: RegisterLongName = ()> {
     value: UnsafeCell<T>,
@@ -64,6 +65,7 @@ impl<T: UIntLike, R: RegisterLongName> Writeable for ReadWrite<T, R> {
 /// implemented.
 // To successfully alias this structure onto hardware registers in memory, this
 // struct must be exactly the size of the `T`.
+#[allow(dead_code)]
 #[repr(transparent)]
 pub struct ReadOnly<T: UIntLike, R: RegisterLongName = ()> {
     value: T,
@@ -86,6 +88,7 @@ impl<T: UIntLike, R: RegisterLongName> Readable for ReadOnly<T, R> {
 // To successfully alias this structure onto hardware registers in memory, this
 // struct must be exactly the size of the `T`.
 #[repr(transparent)]
+#[allow(dead_code)]
 pub struct WriteOnly<T: UIntLike, R: RegisterLongName = ()> {
     value: UnsafeCell<T>,
     associated_register: PhantomData<R>,
@@ -115,6 +118,7 @@ impl<T: UIntLike, R: RegisterLongName> Writeable for WriteOnly<T, R> {
 /// [`ReadWrite`] register might be a better choice).
 // To successfully alias this structure onto hardware registers in memory, this
 // struct must be exactly the size of the `T`.
+#[allow(dead_code)]
 #[repr(transparent)]
 pub struct Aliased<T: UIntLike, R: RegisterLongName = (), W: RegisterLongName = ()> {
     value: UnsafeCell<T>,
