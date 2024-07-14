@@ -54,6 +54,7 @@
 /// process execution, such as related to creating, restarting, and
 /// otherwise managing processes.
 pub unsafe trait ProcessManagementCapability {}
+#[allow(dead_code, unused_variables)]
 #[flux::opaque]
 #[flux::trusted]
 pub struct ProcessManagementCap<'a> {
@@ -67,6 +68,7 @@ pub struct ProcessManagementCap<'a> {
 /// process must have a unique application identifier and so only modules which
 /// check this may do so.
 pub unsafe trait ProcessStartCapability {}
+#[allow(dead_code, unused_variables)]
 #[flux::opaque]
 #[flux::trusted]
 pub struct ProcessStartCap<'a> {
@@ -80,6 +82,7 @@ pub struct ProcessStartCap<'a> {
 /// main.rs file to start the kernel. It also allows an external implementation
 /// of `Process` to update state in the kernel struct used by the main loop.
 pub unsafe trait MainLoopCapability {}
+#[allow(dead_code, unused_variables)]
 #[flux::opaque]
 #[flux::trusted]
 pub struct MainLoopCap<'a> {
@@ -90,6 +93,7 @@ pub struct MainLoopCap<'a> {
 /// The `MemoryAllocationCapability` capability allows the holder to allocate
 /// memory, for example by creating grants.
 pub unsafe trait MemoryAllocationCapability {}
+#[allow(dead_code, unused_variables)]
 #[flux::opaque]
 #[flux::trusted]
 pub struct MemoryAllocationCap<'a> {
@@ -102,6 +106,7 @@ pub struct MemoryAllocationCap<'a> {
 /// objects can be used outside of the core kernel, but the constructors must be
 /// restricted.
 pub unsafe trait ExternalProcessCapability {}
+#[allow(dead_code, unused_variables)]
 #[flux::opaque]
 #[flux::trusted]
 pub struct ExternalProcessCap<'a> {
@@ -110,6 +115,7 @@ pub struct ExternalProcessCap<'a> {
 /// The KernelruserStorageCapability` capability allows the holder to create
 /// permissions to access kernel-only stored values on the system.
 pub unsafe trait KerneluserStorageCapability {}
+#[allow(dead_code, unused_variables)]
 #[flux::opaque]
 #[flux::trusted]
 pub struct KerneluserStorageCap<'a> {
@@ -123,6 +129,7 @@ pub struct KerneluserStorageCap<'a> {
 /// table a reference to the UDP driver so that it can check which ports have
 /// been bound by apps.
 pub unsafe trait UdpDriverCapability {}
+#[allow(dead_code, unused_variables)]
 #[flux::opaque]
 #[flux::trusted]
 pub struct UdpDriverCap<'a> {
@@ -134,6 +141,7 @@ pub struct UdpDriverCap<'a> {
 /// capsules at all, as the port table should only be instantiated once by the
 /// kernel
 pub unsafe trait CreatePortTableCapability {}
+#[allow(dead_code, unused_variables)]
 #[flux::opaque]
 #[flux::trusted]
 pub struct CreatePortTableCap<'a> {
@@ -144,6 +152,7 @@ pub struct CreatePortTableCap<'a> {
 /// of the networking stack. A capsule would never hold this capability although
 /// it may hold capabilities created via this capability.
 pub unsafe trait NetworkCapabilityCreationCapability {}
+#[allow(dead_code, unused_variables)]
 #[flux::opaque]
 #[flux::trusted]
 pub struct NetworkCapabilityCreationCap<'a> {

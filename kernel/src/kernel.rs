@@ -29,7 +29,6 @@ use crate::platform::scheduler_timer::SchedulerTimer;
 use crate::platform::watchdog::WatchDog;
 use crate::process::{self, ProcessId, Task};
 use crate::scheduler::{Scheduler, SchedulingDecision};
-use crate::syscall::SyscallDriver;
 use crate::syscall::{ContextSwitchReason, SyscallReturn};
 use crate::syscall::{Syscall, YieldCall};
 use crate::syscall_driver::CommandReturn;
