@@ -238,3 +238,41 @@ pub trait SyscallDriver {
     // implement this function.
     fn allocate_grant(&self, process_id: ProcessId) -> Result<(), crate::process::Error>;
 }
+
+
+#[allow(dead_code, unused_variables)]
+#[derive(Clone, Copy)]
+#[flux::opaque]
+#[flux::trusted]
+pub struct SyscallDriverProxy<'a> {
+    inner: &'a dyn SyscallDriver,
+}
+
+#[allow(dead_code, unused_variables)]
+impl SyscallDriverProxy<'_> {
+
+
+
+    pub fn command(
+        &self,
+        command_num: usize,
+        r2: usize,
+        r3: usize,
+        process_id: ProcessId,
+    ) -> CommandReturn {
+        unimplemented!()
+    }
+
+    pub fn allow_userspace_readable(
+        &self,
+        app: ProcessId,
+        which: usize,
+        slice: UserspaceReadableProcessBuffer,
+    ) -> Result<UserspaceReadableProcessBuffer, (UserspaceReadableProcessBuffer, ErrorCode)> {
+        unimplemented!()
+    }
+
+    pub fn allocate_grant(&self, process_id: ProcessId) -> Result<(), crate::process::Error> {
+        unimplemented!()
+    }
+}
