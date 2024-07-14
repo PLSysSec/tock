@@ -89,7 +89,6 @@ pub struct MainLoopCap<'a> {
     _inner: &'a dyn MainLoopCapability,
 }
 
-
 /// The `MemoryAllocationCapability` capability allows the holder to allocate
 /// memory, for example by creating grants.
 pub unsafe trait MemoryAllocationCapability {}
@@ -159,13 +158,8 @@ pub struct NetworkCapabilityCreationCap<'a> {
     _inner: &'a dyn NetworkCapabilityCreationCapability,
 }
 
-
 // #[allow(dead_code, unused_variables)]
 // #[derive(Clone, Copy)]
-
-
-
-
 
 // #[flux::opaque]
 // #[flux::trusted]
