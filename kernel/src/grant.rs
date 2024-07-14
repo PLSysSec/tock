@@ -272,6 +272,7 @@ impl<'a> EnteredGrantKernelManagedLayout<'a> {
     /// `EnteredGrantKernelManagedLayout` for the given `base_ptr` at the same
     /// time, otherwise multiple mutable references to the same upcall/allow
     /// slices could be created.
+    #[flux::trusted]
     unsafe fn read_from_base(
         base_ptr: NonNull<u8>,
         process: &'a TockProc<'_>,
@@ -309,6 +310,7 @@ impl<'a> EnteredGrantKernelManagedLayout<'a> {
     /// not be any other `EnteredGrantKernelManagedLayout` for
     /// the given `base_ptr` at the same time, otherwise multiple mutable
     /// references to the same upcall/allow slices could be created.
+    #[flux::trusted]
     unsafe fn initialize_from_counts(
         base_ptr: NonNull<u8>,
         upcalls_num_val: UpcallItems,
@@ -347,6 +349,7 @@ impl<'a> EnteredGrantKernelManagedLayout<'a> {
     /// Returns the entire grant size including the kernel owned memory,
     /// padding, and data for T. Requires that grant_t_align be a power of 2,
     /// which is guaranteed from align_of rust calls.
+    #[flux::trusted]
     fn grant_size(
         upcalls_num: UpcallItems,
         allow_ro_num: AllowRoItems,
@@ -385,6 +388,7 @@ impl<'a> EnteredGrantKernelManagedLayout<'a> {
     /// The caller must ensure that the specified base pointer is aligned to at
     /// least the alignment of T and points to a grant that is of size
     /// grant_size bytes.
+    #[flux::trusted]
     unsafe fn offset_of_grant_data_t(
         base_ptr: NonNull<u8>,
         grant_size: usize,
@@ -571,6 +575,7 @@ pub struct GrantKernelData<'a> {
 impl<'a> GrantKernelData<'a> {
     /// Create a `GrantKernelData` object to provide a handle for capsules to
     /// call Upcalls.
+    #[flux::trusted]
     fn new(
         upcalls: &'a [SavedUpcall],
         allow_ro: &'a [SavedAllowRo],
@@ -1771,6 +1776,7 @@ impl<T: Default, Upcalls: UpcallSize, AllowROs: AllowRoSize, AllowRWs: AllowRwSi
 }
 
 /// Type to iterate `ProcessGrant`s across processes.
+#[flux::ignore]
 pub struct Iter<
     'a,
     T: 'a + Default,

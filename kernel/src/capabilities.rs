@@ -54,23 +54,47 @@
 /// process execution, such as related to creating, restarting, and
 /// otherwise managing processes.
 pub unsafe trait ProcessManagementCapability {}
+#[flux::opaque]
+#[flux::trusted]
+pub struct ProcessManagementCap<'a> {
+    _inner: &'a dyn ProcessManagementCapability,
+}
+
+// impl ProcessManagementCap<'_> {}
 
 /// The `ProcessStartCapability` allows the holder to start a process. This is
 /// controlled and separate from `ProcessManagementCapability` because the
 /// process must have a unique application identifier and so only modules which
 /// check this may do so.
 pub unsafe trait ProcessStartCapability {}
+#[flux::opaque]
+#[flux::trusted]
+pub struct ProcessStartCap<'a> {
+    _inner: &'a dyn ProcessStartCapability,
+}
+
+// impl ProcessStartCap<'_> {}
 
 /// The `MainLoopCapability` capability allows the holder to start executing as
 /// well as manage the main scheduler loop in Tock. This is needed in a board's
 /// main.rs file to start the kernel. It also allows an external implementation
 /// of `Process` to update state in the kernel struct used by the main loop.
 pub unsafe trait MainLoopCapability {}
+#[flux::opaque]
+#[flux::trusted]
+pub struct MainLoopCap<'a> {
+    _inner: &'a dyn MainLoopCapability,
+}
+
 
 /// The `MemoryAllocationCapability` capability allows the holder to allocate
 /// memory, for example by creating grants.
 pub unsafe trait MemoryAllocationCapability {}
-
+#[flux::opaque]
+#[flux::trusted]
+pub struct MemoryAllocationCap<'a> {
+    _inner: &'a dyn MemoryAllocationCapability,
+}
 /// The `ExternalProcessCapability` capability allows the holder to use the core
 /// kernel resources needed to successfully implement the `Process` trait
 /// from outside of the core kernel crate. Many of these operations are very
@@ -78,11 +102,19 @@ pub unsafe trait MemoryAllocationCapability {}
 /// objects can be used outside of the core kernel, but the constructors must be
 /// restricted.
 pub unsafe trait ExternalProcessCapability {}
-
+#[flux::opaque]
+#[flux::trusted]
+pub struct ExternalProcessCap<'a> {
+    _inner: &'a dyn ExternalProcessCapability,
+}
 /// The KernelruserStorageCapability` capability allows the holder to create
 /// permissions to access kernel-only stored values on the system.
 pub unsafe trait KerneluserStorageCapability {}
-
+#[flux::opaque]
+#[flux::trusted]
+pub struct KerneluserStorageCap<'a> {
+    _inner: &'a dyn KerneluserStorageCapability,
+}
 /// The `UdpDriverCapability` capability allows the holder to use two functions
 /// only allowed by the UDP driver. The first is the `driver_send_to()` function
 /// in udp_send.rs, which does not require being bound to a single port, since
@@ -91,16 +123,45 @@ pub unsafe trait KerneluserStorageCapability {}
 /// table a reference to the UDP driver so that it can check which ports have
 /// been bound by apps.
 pub unsafe trait UdpDriverCapability {}
-
+#[flux::opaque]
+#[flux::trusted]
+pub struct UdpDriverCap<'a> {
+    _inner: &'a dyn UdpDriverCapability,
+}
 /// The `CreatePortTableCapability` capability allows the holder to instantiate
 /// a new copy of the UdpPortTable struct. There should only ever be one
 /// instance of this struct, so this capability should not be distributed to
 /// capsules at all, as the port table should only be instantiated once by the
 /// kernel
 pub unsafe trait CreatePortTableCapability {}
-
+#[flux::opaque]
+#[flux::trusted]
+pub struct CreatePortTableCap<'a> {
+    _inner: &'a dyn CreatePortTableCapability,
+}
 /// The `NetworkCapabilityCreationCapability` allows the holder to instantiate
 /// `NetworkCapability`S and visibility capabilities for the IP and UDP layers
 /// of the networking stack. A capsule would never hold this capability although
 /// it may hold capabilities created via this capability.
 pub unsafe trait NetworkCapabilityCreationCapability {}
+#[flux::opaque]
+#[flux::trusted]
+pub struct NetworkCapabilityCreationCap<'a> {
+    _inner: &'a dyn NetworkCapabilityCreationCapability,
+}
+
+
+// #[allow(dead_code, unused_variables)]
+// #[derive(Clone, Copy)]
+
+
+
+
+
+// #[flux::opaque]
+// #[flux::trusted]
+// pub struct NetworkCapabilityCreationCap<'a> {
+//     inner: &'a dyn NetworkCapabilityCreationCapability,
+// }
+
+// impl NetworkCapabilityCreationCap<'_> {}

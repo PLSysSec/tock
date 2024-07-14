@@ -11,7 +11,7 @@ pub mod mpu;
 pub mod scheduler_timer;
 pub mod watchdog;
 
-#[flux::ignore]
+// #[flux::ignore]
 pub(crate) mod platform;
 
 pub use self::platform::ContextSwitchCallback;

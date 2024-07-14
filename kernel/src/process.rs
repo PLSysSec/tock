@@ -1029,14 +1029,16 @@ pub struct ProcessSizes {
 
 #[allow(dead_code, unused_variables)]
 #[derive(Clone, Copy)]
-#[flux::ignore]
+#[flux::opaque]
+#[flux::trusted]
 pub struct TockProc<'a> {
     inner: &'a dyn Process,
 }
 
 #[allow(dead_code, unused_variables)]
-#[flux::ignore]
+// #[flux::trusted]
 impl<'a> TockProc<'a> {
+    #[flux::ignore]
     pub fn from_dyn_proc(proc: &'a dyn Process) -> Self {
         TockProc { inner: proc }
     }
@@ -1092,6 +1094,7 @@ impl<'a> TockProc<'a> {
     pub fn set_fault_state(&self) {
         unimplemented!()
     }
+    #[flux::ignore]
     pub fn start(&self, cap: &dyn crate::capabilities::ProcessStartCapability) {
         unimplemented!()
     }
@@ -1224,6 +1227,7 @@ impl<'a> TockProc<'a> {
     pub fn get_stored_state(&self, out: &mut [u8]) -> Result<usize, ErrorCode> {
         unimplemented!()
     }
+    #[flux::ignore]
     pub fn print_full_process(&self, writer: &mut dyn Write) {
         unimplemented!()
     }

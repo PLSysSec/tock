@@ -11,7 +11,7 @@ use crate::platform::watchdog;
 use crate::process;
 use crate::scheduler::Scheduler;
 use crate::syscall;
-use crate::syscall_driver::SyscallDriver;
+use crate::syscall_driver::SyscallDriverProxy;
 use tock_tbf::types::CommandPermissions;
 
 /// Combination trait that boards provide to the kernel that includes all of
@@ -113,7 +113,7 @@ pub trait SyscallDriverLookup {
     /// An implementation
     fn with_driver<F, R>(&self, driver_num: usize, f: F) -> R
     where
-        F: FnOnce(Option<&dyn SyscallDriver>) -> R;
+        F: FnOnce(Option<SyscallDriverProxy>) -> R;
 }
 
 /// Trait for implementing system call filters that the kernel uses to decide

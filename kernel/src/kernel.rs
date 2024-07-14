@@ -33,6 +33,7 @@ use crate::syscall::SyscallDriver;
 use crate::syscall::{ContextSwitchReason, SyscallReturn};
 use crate::syscall::{Syscall, YieldCall};
 use crate::syscall_driver::CommandReturn;
+use crate::syscall_driver::SyscallDriverProxy;
 use crate::upcall::{Upcall, UpcallId};
 use crate::utilities::cells::NumericCellExt;
 
@@ -71,7 +72,8 @@ enum AllocResult {
 
 /// Tries to allocate the grant region for specified driver and process.
 /// Returns if a new grant was allocated or not
-fn try_allocate_grant(driver: &dyn SyscallDriver, process: &process::TockProc<'_>) -> AllocResult {
+#[flux::trusted]
+fn try_allocate_grant(driver: SyscallDriverProxy, process: &process::TockProc<'_>) -> AllocResult {
     let before_count = process.grant_allocated_count().unwrap_or(0);
     match driver.allocate_grant(process.processid()).is_ok() {
         true if before_count == process.grant_allocated_count().unwrap_or(0) => {
@@ -128,6 +130,7 @@ impl Kernel {
     /// different index in the processes array. Note that a match _will_ be
     /// found if the process still exists in the correct location in the array
     /// but is in any "stopped" state.
+    #[flux::trusted]
     pub(crate) fn process_map_or<F, R>(&self, default: R, processid: ProcessId, closure: F) -> R
     where
         F: FnOnce(&process::TockProc<'_>) -> R,
@@ -152,12 +155,13 @@ impl Kernel {
     /// This is functionally the same as `process_map_or()`, but this method is
     /// available outside the kernel crate and requires a
     /// `ProcessManagementCapability` to use.
+    #[flux::trusted]
     pub fn process_map_or_external<F, R>(
         &self,
         default: R,
         processid: ProcessId,
         closure: F,
-        _capability: &dyn capabilities::ProcessManagementCapability,
+        _capability: &capabilities::ProcessManagementCap,
     ) -> R
     where
         F: FnOnce(&process::TockProc<'_>) -> R,
@@ -185,6 +189,7 @@ impl Kernel {
     }
 
     /// Returns an iterator over all processes loaded by the kernel
+    #[flux::ignore]
     pub(crate) fn get_process_iter(
         &self,
     ) -> core::iter::FilterMap<
@@ -209,7 +214,7 @@ impl Kernel {
     /// `ProcessManagementCapability` to use.
     pub fn process_each_capability<F>(
         &'static self,
-        _capability: &dyn capabilities::ProcessManagementCapability,
+        _capability: &capabilities::ProcessManagementCap,
         mut closure: F,
     ) where
         F: FnMut(&process::TockProc<'_>),
@@ -227,6 +232,7 @@ impl Kernel {
     /// Run a closure on every process, but only continue if the closure returns `None`. That is,
     /// if the closure returns any non-`None` value, iteration stops and the value is returned from
     /// this function to the called.
+    #[flux::trusted]
     pub(crate) fn process_until<T, F>(&self, closure: F) -> Option<T>
     where
         F: Fn(&process::TockProc<'_>) -> Option<T>,
@@ -276,7 +282,7 @@ impl Kernel {
     >(
         &'static self,
         driver_num: usize,
-        _capability: &dyn capabilities::MemoryAllocationCapability,
+        _capability: &capabilities::MemoryAllocationCap,
     ) -> Grant<T, Upcalls, AllowROs, AllowRWs> {
         if self.grants_finalized.get() {
             panic!("Grants finalized. Cannot create a new grant.");
@@ -313,7 +319,7 @@ impl Kernel {
     /// retrieve the final number of grants.
     pub fn get_grant_count_and_finalize_external(
         &self,
-        _capability: &dyn capabilities::ExternalProcessCapability,
+        _capability: &capabilities::ExternalProcessCap,
     ) -> usize {
         self.get_grant_count_and_finalize()
     }
@@ -367,7 +373,7 @@ impl Kernel {
         chip: &C,
         ipc: Option<&ipc::IPC<NUM_PROCS>>,
         no_sleep: bool,
-        _capability: &dyn capabilities::MainLoopCapability,
+        _capability: &capabilities::MainLoopCap,
     ) {
         let scheduler = resources.scheduler();
 
@@ -433,7 +439,7 @@ impl Kernel {
         resources: &KR,
         chip: &C,
         ipc: Option<&ipc::IPC<NUM_PROCS>>,
-        capability: &dyn capabilities::MainLoopCapability,
+        capability: &capabilities::MainLoopCap,
     ) -> ! {
         resources.watchdog().setup();
         // Before we begin, verify that deferred calls were soundly setup.

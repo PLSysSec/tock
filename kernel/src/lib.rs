@@ -104,7 +104,7 @@ pub const KERNEL_MAJOR_VERSION: u16 = 2;
 /// loaded apps.
 pub const KERNEL_MINOR_VERSION: u16 = 1;
 
-#[flux::ignore]
+// #[flux::ignore]
 pub mod capabilities;
 #[flux::ignore]
 pub mod collections;
@@ -113,7 +113,7 @@ pub mod debug;
 #[flux::ignore]
 pub mod deferred_call;
 pub mod errorcode;
-#[flux::ignore]
+// #[flux::ignore]
 pub mod grant;
 #[flux::ignore]
 pub mod hil;
@@ -122,23 +122,23 @@ pub mod introspection;
 #[flux::ignore]
 pub mod ipc;
 pub mod platform;
-#[flux::ignore]
+// #[flux::ignore]
 pub mod process;
 #[flux::ignore]
 pub mod process_checker;
-#[flux::ignore]
+// #[flux::ignore]
 pub mod processbuffer;
 #[flux::ignore]
 pub mod scheduler;
 pub mod storage_permissions;
-#[flux::ignore]
+// #[flux::ignore]
 pub mod syscall;
-#[flux::ignore]
+// #[flux::ignore]
 pub mod upcall;
 pub mod utilities;
 
 mod config;
-#[flux::ignore]
+// #[flux::ignore]
 mod kernel;
 #[flux::ignore]
 mod memop;
@@ -152,7 +152,7 @@ mod process_policies;
 mod process_printer;
 #[flux::ignore]
 mod process_standard;
-#[flux::ignore]
+// #[flux::ignore]
 mod syscall_driver;
 
 // Core resources exposed as `kernel::Type`.
