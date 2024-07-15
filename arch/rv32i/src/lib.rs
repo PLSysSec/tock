@@ -164,6 +164,7 @@ pub enum PermissionMode {
 /// some platforms have added more bits to the `mtvec` register.
 ///
 /// The trap handler is called on exceptions and for interrupts.
+#[flux::ignore]
 pub unsafe fn configure_trap_handler(mode: PermissionMode) {
     match mode {
         PermissionMode::Machine => csr::CSR.mtvec.write(
