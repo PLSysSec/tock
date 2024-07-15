@@ -126,6 +126,7 @@ pub struct ProcessBinary {
 }
 
 impl ProcessBinary {
+    #[flux::ignore]
     pub(crate) fn create(
         app_flash: &'static [u8],
         header_length: usize,
