@@ -23,7 +23,7 @@ pub const DRIVER_NUM: usize = 0x10000;
 mod ro_allow {
     pub(super) const SEARCH: usize = 0;
     /// The number of allow buffers the kernel stores for this grant.
-    pub(super) const COUNT: u8 = 1;
+    pub(super) const _COUNT: u8 = 1;
 }
 
 /// Enum to mark which type of upcall is scheduled for the IPC mechanism.

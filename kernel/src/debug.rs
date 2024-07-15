@@ -395,6 +395,8 @@ macro_rules! debug_flush_queue {
 
 /// Wrapper type that we need a mutable reference to for the core::fmt::Write
 /// interface.
+#[flux::trusted]
+#[flux::opaque]
 pub struct DebugWriterWrapper {
     dw: MapCell<&'static DebugWriter>,
 }
