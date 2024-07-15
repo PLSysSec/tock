@@ -134,11 +134,9 @@ pub mod utilities;
 mod config;
 mod kernel;
 mod memop;
-#[flux::ignore]
 mod process_binary;
 #[flux::ignore]
 mod process_loading;
-#[flux::ignore]
 mod process_policies;
 #[flux::ignore]
 mod process_printer;

@@ -377,7 +377,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         }
     }
 
-    fn start(&self, _cap: &dyn crate::capabilities::ProcessStartCapability) {
+    fn start(&self, _cap: &crate::capabilities::ProcessStartCap) {
         // `start()` can only be called on a terminated process.
         if self.get_state() != State::Terminated {
             return;

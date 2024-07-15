@@ -394,8 +394,7 @@ pub trait Process {
     /// The caller MUST verify this process is unique before calling this
     /// function. This requires a capability to call to ensure that the caller
     /// have verified that this process is unique before trying to start it.
-    #[flux::ignore]
-    fn start(&self, cap: &dyn crate::capabilities::ProcessStartCapability);
+    fn start(&self, cap: &crate::capabilities::ProcessStartCap);
 
     /// Terminates and attempts to restart the process. The process and current
     /// application always terminate. The kernel may, based on its own policy,
@@ -1094,8 +1093,7 @@ impl<'a> TockProc<'a> {
     pub fn set_fault_state(&self) {
         unimplemented!()
     }
-    #[flux::ignore]
-    pub fn start(&self, cap: &dyn crate::capabilities::ProcessStartCapability) {
+    pub fn start(&self, cap: &crate::capabilities::ProcessStartCap) {
         unimplemented!()
     }
     pub fn try_restart(&self, completion_code: Option<u32>) {
