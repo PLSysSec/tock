@@ -52,6 +52,9 @@ in
       # --- Toolchains ---
       rustBuild
       openocd
+      cargo
+      rustup
+      z3
 
       # --- Convenience and support packages ---
       python3Full
@@ -85,8 +88,11 @@ in
 
     # The defaults "objcopy" and "objdump" are wrong (stem from the standard
     # environment for x86), use "llvm-obj{copy,dump}" as defined in the makefile
+
+    # need to get `fixpoint` from the absolute path.
     shellHook = ''
       unset OBJCOPY
       unset OBJDUMP
+      export PATH="/home/mod/.local/bin:$PATH"
     '';
   }
