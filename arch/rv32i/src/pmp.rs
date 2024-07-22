@@ -132,8 +132,8 @@ impl NAPOTRegionSpec {
     /// [`NAPOTRegionSpec`]'s documentation are satisfied, otherwise `None`.
     // #[flux::ignore]
     pub fn new(start: *const u8, size: usize) -> Option<Self> {
-        assume(size > 0); // I thought the struct has already refined this property?
-        if !size.is_power_of_two() || (start as usize) % size != 0 || size < 8 {
+        //assume(size > 0); // I thought the struct has already refined this property?
+        if size < 8 || !size.is_power_of_two() || (start as usize) % size != 0  {
             None
         } else {
             Some(NAPOTRegionSpec { start, size })
