@@ -93,7 +93,7 @@ members = [
     "libraries/riscv-csr",
     "libraries/tock-cells",
     "libraries/tock-register-interface",
-    "libraries/tickv",
+    "libraries/tickv", "flux_support",
 ]
 exclude = ["tools/"]
 resolver = "2"

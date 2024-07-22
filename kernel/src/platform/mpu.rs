@@ -6,6 +6,7 @@
 
 use core::cmp;
 use core::fmt::{self, Display};
+ use flux_support::*;
 
 /// User mode access permissions.
 #[derive(Copy, Clone, Debug)]
@@ -312,6 +313,8 @@ impl MPU for () {
         _permissions: Permissions,
         _config: &mut Self::MpuConfig,
     ) -> Option<(*const u8, usize)> {
+        assume(initial_app_memory_size < usize::MAX / 2);
+        assume(initial_kernel_memory_size < usize::MAX / 2);
         let memory_size = cmp::max(
             min_memory_size,
             initial_app_memory_size + initial_kernel_memory_size,

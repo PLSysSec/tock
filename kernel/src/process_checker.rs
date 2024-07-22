@@ -169,6 +169,37 @@ impl Compress for () {
 pub trait AppIdPolicy: AppUniqueness + Compress {}
 impl<T: AppUniqueness + Compress> AppIdPolicy for T {}
 
+#[allow(dead_code, unused_variables)]
+#[flux::opaque]
+#[flux::trusted]
+pub struct AppIdPolicyProxy<'a> {
+    _inner: &'a dyn AppIdPolicy,
+}
+
+impl<'a> AppIdPolicyProxy<'a> {
+    pub fn to_short_id(&self, _process: &ProcessBinary) -> ShortId { unimplemented!() }
+    pub fn different_identifier(&self, _process_a: &ProcessBinary, _process_b: &ProcessBinary) -> bool {
+        unimplemented!()
+    }
+
+    pub fn different_identifier_process(
+        &self,
+        _process_a: &ProcessBinary,
+        _process_b: &TockProc<'_>,
+    ) -> bool {
+        unimplemented!()
+    }
+
+    pub fn different_identifier_processes(
+        &self,
+        _process_a: &TockProc<'_>,
+        _process_b: &TockProc<'_>,
+    ) -> bool {
+        unimplemented!()
+    }
+}
+
+
 /// Client interface for the outcome of a process credential check.
 pub trait ProcessCheckerMachineClient {
     /// Check is finished, and the check result is in `result`.0

@@ -16,7 +16,10 @@ use kernel::utilities::math;
 use kernel::utilities::registers::interfaces::{Readable, Writeable};
 use kernel::utilities::registers::{register_bitfields, FieldValue, ReadOnly, ReadWrite};
 use kernel::utilities::StaticRef;
+use flux_support::*;
 
+/*
+#[allow(dead_code)]
 #[flux::sig(fn(x: bool[true]))]
 fn assert(_x: bool) {}
 
@@ -26,6 +29,7 @@ pub fn assume(b: bool) {
         panic!("assume fails")
     }
 }
+*/
 
 // VTOCK-TODO: supplementary proof?
 #[flux::sig(fn(n: u32{n < 32}) -> usize {r: r > 0 })]
@@ -651,9 +655,8 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         // Region size is the actual size the MPU region will be set to, and is
         // half of the total power of two size we are allocating to the app.
 
-        //assume(memory_size_po2 > 1);
         let mut region_size = memory_size_po2 / 2;
-        //assume(region_size > 0);
+
         // The region should start as close as possible to the start of the
         // unallocated memory.
         let mut region_start = unallocated_memory_start as usize;
@@ -760,6 +763,9 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         let app_memory_break = app_memory_break as usize;
         let kernel_memory_break = kernel_memory_break as usize;
 
+        assume(app_memory_break > region_start);
+        assume(region_size > 7);
+
         // Out of memory
         if app_memory_break > kernel_memory_break {
             return Err(());
@@ -785,6 +791,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
 
         // Get the number of subregions enabled in each of the two MPU regions.
         let num_enabled_subregions0 = cmp::min(num_enabled_subregions, 8);
+        assume(num_enabled_subregions0 >= 8);
         let num_enabled_subregions1 = num_enabled_subregions.saturating_sub(8);
 
         let region0 = CortexMRegion::new(

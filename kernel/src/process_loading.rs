@@ -15,7 +15,7 @@
 use core::cell::Cell;
 use core::fmt;
 
-use crate::capabilities::ProcessManagementCapability;
+use crate::capabilities::ProcessManagementCap;
 use crate::config;
 use crate::debug;
 use crate::deferred_call::{DeferredCall, DeferredCallClient};
@@ -23,8 +23,8 @@ use crate::kernel::Kernel;
 use crate::platform::chip::Chip;
 use crate::process::{ShortId, TockProc};
 use crate::process_binary::{ProcessBinary, ProcessBinaryError};
-use crate::process_checker::{AppIdPolicy, ProcessCheckError, ProcessCheckerMachine};
-use crate::process_policies::ProcessFaultPolicy;
+use crate::process_checker::{AppIdPolicyProxy, ProcessCheckError, ProcessCheckerMachine};
+use crate::process_policies::ProcessFaultPolicyProxy;
 use crate::process_standard::ProcessStandard;
 use crate::utilities::cells::{MapCell, OptionalCell};
 
@@ -137,8 +137,8 @@ pub fn load_processes<C: Chip>(
     app_flash: &'static [u8],
     app_memory: &'static mut [u8],
     mut procs: &'static mut [Option<TockProc<'_>>],
-    fault_policy: &'static dyn ProcessFaultPolicy,
-    _capability_management: &dyn ProcessManagementCapability,
+    fault_policy: &'static ProcessFaultPolicyProxy,
+    _capability_management: &ProcessManagementCap,
 ) -> Result<(), ProcessLoadError> {
     load_processes_from_flash(
         kernel,
@@ -187,7 +187,7 @@ fn load_processes_from_flash<C: Chip>(
     app_flash: &'static [u8],
     app_memory: &'static mut [u8],
     procs: &mut &'static mut [Option<TockProc<'_>>],
-    fault_policy: &'static dyn ProcessFaultPolicy,
+    fault_policy: &'static ProcessFaultPolicyProxy,
 ) -> Result<(), ProcessLoadError> {
     if config::CONFIG.debug_load_processes {
         debug!(
@@ -348,7 +348,7 @@ fn load_process<C: Chip>(
     app_memory: &'static mut [u8],
     app_id: ShortId,
     index: usize,
-    fault_policy: &'static dyn ProcessFaultPolicy,
+    fault_policy: &'static ProcessFaultPolicyProxy,
 ) -> Result<(&'static mut [u8], Option<TockProc<'static>>), (&'static mut [u8], ProcessLoadError)> {
     if config::CONFIG.debug_load_processes {
         debug!(
@@ -418,6 +418,20 @@ pub trait ProcessLoadingAsyncClient {
     fn process_loading_finished(&self);
 }
 
+#[allow(dead_code, unused_variables)]
+#[flux::opaque]
+#[flux::trusted]
+pub struct ProcessLoadingAsyncClientProxy<'a> {
+    _inner: &'a dyn ProcessLoadingAsyncClient,
+}
+
+impl<'a> ProcessLoadingAsyncClientProxy<'a> {
+    fn process_loaded(&self, _result: Result<(), ProcessLoadError>) {unimplemented!()}
+
+    fn process_loading_finished(&self) {unimplemented!()}
+}
+
+
 /// Asynchronous process loading.
 ///
 /// Machines which implement this trait perform asynchronous process loading and
@@ -428,10 +442,10 @@ pub trait ProcessLoadingAsyncClient {
 pub trait ProcessLoadingAsync<'a> {
     /// Set the client to receive callbacks about process loading and when
     /// process loading has finished.
-    fn set_client(&self, client: &'a dyn ProcessLoadingAsyncClient);
+    fn set_client(&self, client: &'a ProcessLoadingAsyncClientProxy<'a>);
 
     /// Set the credential checking policy for the loader.
-    fn set_policy(&self, policy: &'a dyn AppIdPolicy);
+    fn set_policy(&self, policy: &'a AppIdPolicyProxy);
 
     /// Start the process loading operation.
     fn start(&self);
@@ -454,7 +468,7 @@ enum SequentialProcessLoaderMachineState {
 /// the checker to decide whether the process has sufficient credentials to run.
 pub struct SequentialProcessLoaderMachine<'a, C: Chip + 'static> {
     /// Client to notify as processes are loaded and process loading finishes.
-    client: OptionalCell<&'a dyn ProcessLoadingAsyncClient>,
+    client: OptionalCell<&'a ProcessLoadingAsyncClientProxy<'a>>,
     /// Machine to use to check process credentials.
     checker: &'static ProcessCheckerMachine,
     /// Array of stored process references for loaded processes.
@@ -472,9 +486,9 @@ pub struct SequentialProcessLoaderMachine<'a, C: Chip + 'static> {
     /// Reference to the Chip object for creating Processes.
     chip: &'static C,
     /// The policy to use when determining ShortIds and process uniqueness.
-    policy: OptionalCell<&'a dyn AppIdPolicy>,
+    policy: OptionalCell<&'a AppIdPolicyProxy<'a>>,
     /// The fault policy to assign to each created Process.
-    fault_policy: &'static dyn ProcessFaultPolicy,
+    fault_policy: &'static ProcessFaultPolicyProxy<'static>,
     /// Current mode of the loading machine.
     state: OptionalCell<SequentialProcessLoaderMachineState>,
 }
@@ -492,9 +506,9 @@ impl<'a, C: Chip> SequentialProcessLoaderMachine<'a, C> {
         chip: &'static C,
         flash: &'static [u8],
         app_memory: &'static mut [u8],
-        fault_policy: &'static dyn ProcessFaultPolicy,
-        policy: &'static dyn AppIdPolicy,
-        _capability_management: &dyn ProcessManagementCapability,
+        fault_policy: &'static ProcessFaultPolicyProxy<'static>,
+        policy: &'static AppIdPolicyProxy,
+        _capability_management: &ProcessManagementCap,
     ) -> Self {
         Self {
             deferred_call: DeferredCall::new(),
@@ -855,11 +869,11 @@ impl<'a, C: Chip> SequentialProcessLoaderMachine<'a, C> {
 }
 
 impl<'a, C: Chip> ProcessLoadingAsync<'a> for SequentialProcessLoaderMachine<'a, C> {
-    fn set_client(&self, client: &'a dyn ProcessLoadingAsyncClient) {
+    fn set_client(&self, client: &'a ProcessLoadingAsyncClientProxy<'a>) {
         self.client.set(client);
     }
 
-    fn set_policy(&self, policy: &'a dyn AppIdPolicy) {
+    fn set_policy(&self, policy: &'a AppIdPolicyProxy) {
         self.policy.replace(policy);
     }
 

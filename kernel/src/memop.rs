@@ -7,6 +7,7 @@
 use crate::process::TockProc;
 use crate::syscall::SyscallReturn;
 use crate::ErrorCode;
+use flux_support::*;
 
 /// Handle the `memop` syscall.
 ///
@@ -80,6 +81,7 @@ pub(crate) fn memop(process: &TockProc<'_>, op_type: usize, r1: usize) -> Syscal
             if size == 0 {
                 SyscallReturn::Failure(ErrorCode::FAIL)
             } else {
+                assume(flash_start < u32::MAX / 2 && offset < u32::MAX / 4);
                 SyscallReturn::SuccessU32(flash_start + offset)
             }
         }
@@ -93,6 +95,7 @@ pub(crate) fn memop(process: &TockProc<'_>, op_type: usize, r1: usize) -> Syscal
             if size == 0 {
                 SyscallReturn::Failure(ErrorCode::FAIL)
             } else {
+                assume(flash_start < u32::MAX / 2 && offset < u32::MAX / 4 && size < u32::MAX / 4);
                 SyscallReturn::SuccessU32(flash_start + offset + size)
             }
         }

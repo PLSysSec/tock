@@ -29,12 +29,13 @@ use crate::process::{Error, FunctionCall, FunctionCallSource, Process, State, Ta
 use crate::process::{FaultAction, ProcessCustomGrantIdentifier, ProcessId};
 use crate::process::{ProcessAddresses, ProcessSizes, ShortId};
 use crate::process_loading::ProcessLoadError;
-use crate::process_policies::ProcessFaultPolicy;
 use crate::processbuffer::{ReadOnlyProcessBuffer, ReadWriteProcessBuffer};
 use crate::storage_permissions;
 use crate::syscall::{self, Syscall, SyscallReturn, UserspaceKernelBoundary};
 use crate::upcall::UpcallId;
 use crate::utilities::cells::{MapCell, NumericCellExt, OptionalCell};
+use crate::process_policies::ProcessFaultPolicyProxy;
+
 
 use tock_tbf::types::CommandPermissions;
 
@@ -203,7 +204,7 @@ pub struct ProcessStandard<'a, C: 'static + Chip> {
     state: Cell<State>,
 
     /// How to respond if this process faults.
-    fault_policy: &'a dyn ProcessFaultPolicy,
+    fault_policy: &'a ProcessFaultPolicyProxy<'a>,
 
     /// Configuration data for the MPU
     mpu_config: MapCell<<<C as Chip>::MPU as MPU>::MpuConfig>,
@@ -1162,7 +1163,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             process_control_block: Self::PROCESS_STRUCT_OFFSET,
         }
     }
-
+    #[flux::ignore]
     fn print_full_process(&self, writer: &mut dyn Write) {
         if !config::CONFIG.debug_panics {
             return;
@@ -1281,7 +1282,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         chip: &'static C,
         pb: ProcessBinary,
         remaining_memory: &'a mut [u8],
-        fault_policy: &'static dyn ProcessFaultPolicy,
+        fault_policy: &'static ProcessFaultPolicyProxy,
         app_id: ShortId,
         index: usize,
     ) -> Result<(Option<TockProc<'static>>, &'a mut [u8]), (ProcessLoadError, &'a mut [u8])> {

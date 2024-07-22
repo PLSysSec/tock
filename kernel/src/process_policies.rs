@@ -21,6 +21,18 @@ pub trait ProcessFaultPolicy {
     fn action(&self, process: &TockProc<'_>) -> process::FaultAction;
 }
 
+#[allow(dead_code, unused_variables)]
+#[flux::opaque]
+#[flux::trusted]
+pub struct ProcessFaultPolicyProxy<'a> {
+    _inner: &'a dyn ProcessFaultPolicy,
+}
+
+impl<'a> ProcessFaultPolicyProxy<'a> {
+    pub fn action(&self, _process: &TockProc<'_>) -> process::FaultAction {unimplemented!()}
+}
+
+
 /// Simply panic the entire board if a process faults.
 pub struct PanicFaultPolicy {}
 
