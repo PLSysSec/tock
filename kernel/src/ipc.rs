@@ -46,7 +46,6 @@ pub struct IPC<const NUM_PROCS: u8> {
     /// The grant regions for each process that holds the per-process IPC data.
     data: Grant<IPCData, UpcallCount<NUM_PROCS>, AllowRoCount<1>, AllowRwCount<NUM_PROCS>>,
 }
-
 impl<const NUM_PROCS: u8> IPC<NUM_PROCS> {
     pub fn new(
         kernel: &'static Kernel,
@@ -60,6 +59,7 @@ impl<const NUM_PROCS: u8> IPC<NUM_PROCS> {
 
     /// Schedule an IPC upcall for a process. This is called by the main
     /// scheduler loop if an IPC task was queued for the process.
+    #[flux::trusted]
     pub(crate) unsafe fn schedule_upcall(
         &self,
         schedule_on: ProcessId,
@@ -119,6 +119,7 @@ impl<const NUM_PROCS: u8> SyscallDriver for IPC<NUM_PROCS> {
     /// - `3`: Notify a client with descriptor `target_id`, typically in response to a previous
     ///        notify from the client. Returns an error if `target_id` refers to an invalid client
     ///        or the notify fails to enqueue.
+    #[flux::trusted]
     fn command(
         &self,
         command_number: usize,

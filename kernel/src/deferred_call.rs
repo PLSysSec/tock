@@ -79,6 +79,7 @@ pub trait DeferredCallClient: Sized {
 /// (e.g. `&dyn DeferredCall`). Using a trait object, will include a 20 byte vtable
 /// per instance, but this alternative stores only the data and function pointers,
 /// 8 bytes per instance.
+#[flux::opaque]
 #[derive(Copy, Clone)]
 struct DynDefCallRef<'a> {
     data: *const (),

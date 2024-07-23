@@ -55,6 +55,7 @@ pub trait ProcessPrinter {
     /// ready to accept more data. If `print_overview()` returns `None`, the
     /// `writer` indicated it accepted all output and the caller does not need
     /// to call `print_overview()` again to finish the printing.
+    #[flux::ignore]
     fn print_overview(
         &self,
         process: &TockProc<'_>,
@@ -98,6 +99,7 @@ impl ProcessPrinter for ProcessPrinterText {
     //    being duplicated. However, it does not make sense that the kernel
     //    would want to run the process while it is displaying debugging
     //    information about it, so this should be a safe assumption.
+    #[flux::ignore]
     fn print_overview(
         &self,
         process: &TockProc<'_>,

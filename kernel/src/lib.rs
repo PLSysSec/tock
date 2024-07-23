@@ -108,16 +108,15 @@ pub mod capabilities;
 pub mod collections;
 pub mod component;
 pub mod debug;
-#[flux::ignore]
+#[flux::ignore] // Uses pointers in a way that flux doesn't like
 pub mod deferred_call;
 pub mod errorcode;
 #[flux::trusted]
 pub mod grant;
-#[flux::ignore]
+#[flux::ignore] // Waiting on dyn trait objects
 pub mod hil;
 #[flux::ignore]
 pub mod introspection;
-#[flux::trusted]
 pub mod ipc;
 pub mod platform;
 pub mod process;
@@ -138,7 +137,6 @@ mod process_binary;
 #[flux::ignore]
 mod process_loading;
 mod process_policies;
-#[flux::ignore]
 mod process_printer;
 #[flux::ignore]
 mod process_standard;
