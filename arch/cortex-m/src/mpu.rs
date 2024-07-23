@@ -10,26 +10,13 @@ use core::cmp;
 use core::fmt;
 use core::num::NonZeroUsize;
 
+use flux_support::*;
 use kernel::platform::mpu;
 use kernel::utilities::cells::OptionalCell;
 use kernel::utilities::math;
 use kernel::utilities::registers::interfaces::{Readable, Writeable};
 use kernel::utilities::registers::{register_bitfields, FieldValue, ReadOnly, ReadWrite};
 use kernel::utilities::StaticRef;
-use flux_support::*;
-
-/*
-#[allow(dead_code)]
-#[flux::sig(fn(x: bool[true]))]
-fn assert(_x: bool) {}
-
-#[flux::sig(fn(b:bool) ensures b)]
-pub fn assume(b: bool) {
-    if !b {
-        panic!("assume fails")
-    }
-}
-*/
 
 // VTOCK-TODO: supplementary proof?
 #[flux::sig(fn(n: u32{n < 32}) -> usize {r: r > 0 })]
@@ -266,7 +253,7 @@ impl fmt::Display for CortexMConfig {
 
 impl CortexMConfig {
     #[flux::trusted]
-    #[flux::sig(fn(&CortexMConfig) -> Option<usize{r: r < 8}>)]
+    #[flux::sig(fn(&CortexMConfig) -> Option<usize{r: r > 1 && r < 8}>)]
     fn unused_region_number(&self) -> Option<usize> {
         for (number, region) in self.regions.iter().enumerate() {
             if number <= APP_MEMORY_REGION_MAX_NUM {
