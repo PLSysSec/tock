@@ -10,7 +10,7 @@ use core::{cmp, fmt};
 use kernel::platform::mpu;
 use kernel::utilities::cells::OptionalCell;
 use kernel::utilities::registers::{register_bitfields, LocalRegisterCopy};
-
+use flux_support::FluxPtrU8;
 use crate::csr;
 
 register_bitfields![u8,
@@ -37,6 +37,7 @@ register_bitfields![u8,
 
 /// A `pmpcfg` octet for a user-mode (non-locked) TOR-addressed PMP region.
 ///
+/// VTOCK-TODO: (samir) should add refinements for these properties
 /// This is a wrapper around a [`pmpcfg_octet`] (`u8`) register type, which
 /// guarantees that the wrapped `pmpcfg` octet is always set to be either
 /// [`TORUserPMPCFG::OFF`] (set to `0x00`), or in a non-locked, TOR-addressed
@@ -46,7 +47,14 @@ register_bitfields![u8,
 /// hold by construction and avoid runtime checks. For example, this type is
 /// used in the [`TORUserPMP::configure_pmp`] method.
 #[derive(Copy, Clone, Debug)]
+// #[flux::opaque]
+// #[flux::refined_by(a: int)]
+// #[flux::invariant(a % 1000 = 0)]
 pub struct TORUserPMPCFG(LocalRegisterCopy<u8, pmpcfg_octet::Register>);
+// {
+    // #[flux::field({i32[b] | b >= a})]
+    // anonymous: LocalRegisterCopy<u8, pmpcfg_octet::Register>,
+// }
 
 impl TORUserPMPCFG {
     pub const OFF: TORUserPMPCFG = TORUserPMPCFG(LocalRegisterCopy::new(0));
@@ -111,10 +119,13 @@ impl From<mpu::Permissions> for TORUserPMPCFG {
 /// [`NAPOTRegionSpec::napot_addr`] convenience method to retrieve an `pmpaddrX`
 /// CSR value encoding this region's address and length.
 #[derive(Copy, Clone, Debug)]
-#[flux::refined_by(size: int)]
+#[flux::refined_by(size: int)]//, start: FluxPtrU8)]
+#[flux::invariant(size % 1000 == 0)]
 pub struct NAPOTRegionSpec {
-    start: *const u8,
-    #[flux::field({ usize[size] | size > 0 })]
+    start: FluxPtrU8,
+    #[flux::field({ usize[size] | size >= 8  })]
+    // && size.is_power_of_two() && (start.as_u32() % size == 0)
+    // size & (size - 1) == 0
     size: usize,
 }
 #[flux::sig(fn(b:bool) ensures b)]
@@ -131,9 +142,9 @@ impl NAPOTRegionSpec {
     /// `Some(region)` when all constraints specified in the
     /// [`NAPOTRegionSpec`]'s documentation are satisfied, otherwise `None`.
     // #[flux::ignore]
-    pub fn new(start: *const u8, size: usize) -> Option<Self> {
+    pub fn new(start: FluxPtrU8, size: usize) -> Option<Self> {
         //assume(size > 0); // I thought the struct has already refined this property?
-        if size < 8 || !size.is_power_of_two() || (start as usize) % size != 0  {
+        if size < 8 || !size.is_power_of_two() || (start.as_usize()) % size != 0  {
             None
         } else {
             Some(NAPOTRegionSpec { start, size })
@@ -142,7 +153,7 @@ impl NAPOTRegionSpec {
 
     /// Retrieve the start address of this [`NAPOTRegionSpec`].
     pub fn start(&self) -> *const u8 {
-        self.start
+        self.start.as_u8()
     }
 
     /// Retrieve the size of this [`NAPOTRegionSpec`].
@@ -152,7 +163,7 @@ impl NAPOTRegionSpec {
 
     /// Retrieve the end address of this [`NAPOTRegionSpec`].
     pub fn end(&self) -> *const u8 {
-        unsafe { self.start.add(self.size) }
+        unsafe { self.start.add(self.size).as_u8() }
     }
 
     /// Retrieve a `pmpaddrX`-CSR compatible representation of this
@@ -160,7 +171,7 @@ impl NAPOTRegionSpec {
     /// a `CSR` register, the `pmpcfgX` octet's `A` (address mode) value
     /// belonging to this `pmpaddrX`-CSR must be set to `NAPOT` (0b11).
     pub fn napot_addr(&self) -> usize {
-        ((self.start as usize) + (self.size - 1).overflowing_shr(1).0)
+        ((self.start.as_usize()) + (self.size - 1).overflowing_shr(1).0)
             .overflowing_shr(2)
             .0
     }
@@ -448,7 +459,7 @@ pub trait TORUserPMP<const MAX_REGIONS: usize> {
     /// The tuples as passed in the `regions` parameter are defined as follows:
     ///
     /// - first value ([`TORUserPMPCFG`]): the memory protection mode as
-    ///   enforced on the region. A `TORUserPMPCFG` can be created from the
+    ///   enforced on the region. A [`TORUserPMPCFG`] can be created from the
     ///   [`mpu::Permissions`] type. It is in a format compatible to the pmpcfgX
     ///   register, guaranteed to not have the lock (`L`) bit set, and
     ///   configured either as a TOR region (`A = 0b01`), or disabled (all bits
