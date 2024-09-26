@@ -167,7 +167,7 @@
 //!
 //! Author: Amit Levy
 
-use core::ops::{Bound, RangeBounds};
+use core::ops::{Bound, Range, RangeBounds};
 use core::ops::{Index, IndexMut};
 use core::slice::SliceIndex;
 use flux_support::*;
@@ -182,7 +182,7 @@ pub struct SubSliceMut<'a, T> {
     // #[field(&mut [T][len])]
     internal: &'a mut [T],
     // #[field(FluxRange[lo, hi])]
-    active_range: FluxRange,
+    active_range: Range<usize>,
 }
 
 /// An immutable leasable buffer implementation.
@@ -195,7 +195,7 @@ pub struct SubSlice<'a, T> {
     // #[field(&[T][len])]
     internal: &'a [T],
     // #[field(FluxRange[lo, hi])]
-    active_range: FluxRange,
+    active_range: Range<usize>,
 }
 
 /// Holder for either a mutable or immutable SubSlice.
@@ -253,7 +253,7 @@ impl<'a, T> SubSliceMut<'a, T> {
         let len = buffer.len();
         SubSliceMut {
             internal: buffer,
-            active_range: FluxRange { start: 0, end: len },
+            active_range: 0..len
         }
     }
 
@@ -278,10 +278,7 @@ impl<'a, T> SubSliceMut<'a, T> {
     /// Most commonly, this is called once a sliced leasable buffer is returned
     /// through a callback.
     pub fn reset(&mut self) {
-        self.active_range = FluxRange {
-            start: 0,
-            end: self.internal.len(),
-        };
+        self.active_range = 0..self.internal.len();
     }
 
     /// Returns the length of the currently accessible portion of the SubSlice.
@@ -325,7 +322,6 @@ impl<'a, T> SubSliceMut<'a, T> {
     /// s.slice(0..250);
     /// network.send(s);
     /// ```
-    #[flux_rs::trusted] // Arithmetic - needs range extern_spec
     pub fn slice<R: RangeBounds<usize>>(&mut self, range: R) {
         let start = match range.start_bound() {
             Bound::Included(s) => *s,
@@ -343,10 +339,7 @@ impl<'a, T> SubSliceMut<'a, T> {
         assume(end > start);
         let new_end = new_start + (end - start);
 
-        self.active_range = FluxRange {
-            start: new_start,
-            end: new_end,
-        };
+        self.active_range = new_start..new_end;
     }
 }
 
@@ -376,7 +369,7 @@ impl<'a, T> SubSlice<'a, T> {
         let len = buffer.len();
         SubSlice {
             internal: buffer,
-            active_range: FluxRange { start: 0, end: len },
+            active_range: 0..len,
         }
     }
 
@@ -401,10 +394,7 @@ impl<'a, T> SubSlice<'a, T> {
     /// Most commonly, this is called once a sliced leasable buffer is returned
     /// through a callback.
     pub fn reset(&mut self) {
-        self.active_range = FluxRange {
-            start: 0,
-            end: self.internal.len(),
-        };
+        self.active_range = 0..self.internal.len();
     }
 
     /// Returns the length of the currently accessible portion of the SubSlice.
@@ -450,7 +440,6 @@ impl<'a, T> SubSlice<'a, T> {
     /// s.slice(0..250);
     /// network.send(s);
     /// ```
-    #[flux_rs::trusted] // Arithmetic - needs range extern_spec
     pub fn slice<R: RangeBounds<usize>>(&mut self, range: R) {
         let start = match range.start_bound() {
             Bound::Included(s) => *s,
@@ -467,10 +456,7 @@ impl<'a, T> SubSlice<'a, T> {
         let new_start = self.active_range.start + start;
         let new_end = new_start + (end - start);
 
-        self.active_range = FluxRange {
-            start: new_start,
-            end: new_end,
-        };
+        self.active_range = new_start..new_end;
     }
 }
 

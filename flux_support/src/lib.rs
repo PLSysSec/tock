@@ -1,10 +1,8 @@
 mod extern_specs;
 mod flux_ptr;
-mod flux_range;
 mod flux_register_interface;
 mod math;
 pub use flux_ptr::*;
-pub use flux_range::*;
 pub use flux_register_interface::*;
 pub use math::*;
 
