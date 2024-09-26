@@ -26,6 +26,10 @@ pub struct ListIterator<'a, T: 'a + ?Sized + ListNode<'a, T>> {
     cur: Option<&'a T>,
 }
 
+// #[flux_rs::generics(T as base)]
+// #[flux_rs::assoc(fn done(li: ListIterator<T>) -> bool { li.cur } )]
+// VTOCK TODO: I think this might clash with the definition for Iterator defined in extern specs
+#[flux_rs::ignore]
 impl<'a, T: ?Sized + ListNode<'a, T>> Iterator for ListIterator<'a, T> {
     type Item = &'a T;
 
