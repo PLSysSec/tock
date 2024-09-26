@@ -1,7 +1,12 @@
+mod bound;
+mod into_iter;
 mod iter;
+mod iterator;
 mod mem;
 mod non_null;
 mod num;
 mod option;
-mod slice;
+mod range;
 mod result;
+mod slice;
+mod step;

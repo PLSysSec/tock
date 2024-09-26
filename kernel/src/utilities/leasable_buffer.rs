@@ -171,18 +171,23 @@ use core::ops::{Bound, Range, RangeBounds};
 use core::ops::{Index, IndexMut};
 use core::slice::SliceIndex;
 #[allow(clippy::wildcard_imports)]
-use flux_support::*;
+
+flux_rs::defs! {
+    fn is_proper_usize(x: int) -> bool { x >= usize::MIN && x <= usize::MAX }
+    fn sub_slice_range_le(r: SubSlice) -> bool { r.start <= r.end }
+}
 
 /// A mutable leasable buffer implementation.
 ///
 /// A leasable buffer can be used to pass a section of a larger mutable buffer
 /// but still get the entire buffer back in a callback.
 #[derive(Debug, PartialEq)]
-// #[flux_rs::refined_by(lo: int, hi: int, len: int)]
+#[flux_rs::refined_by(len: int, start: int, end: int)]
+#[flux_rs::invariant(len > 0)]
 pub struct SubSliceMut<'a, T> {
-    // #[field(&mut [T][len])]
+    #[field({ &mut [T][len] | len > 0 })]
     internal: &'a mut [T],
-    // #[field(FluxRange[lo, hi])]
+    #[field({ Range<usize>[start, end] | start <= end && end <= len && is_proper_usize(start) && is_proper_usize(end) })]
     active_range: Range<usize>,
 }
 
@@ -191,11 +196,12 @@ pub struct SubSliceMut<'a, T> {
 /// A leasable buffer can be used to pass a section of a larger mutable buffer
 /// but still get the entire buffer back in a callback.
 #[derive(Debug, PartialEq)]
-// #[flux_rs::refined_by(lo: int, hi: int, len: int)]
+#[flux_rs::refined_by(len: int, start: int, end: int)]
+#[flux_rs::invariant(len > 0)]
 pub struct SubSlice<'a, T> {
-    // #[field(&[T][len])]
+    #[field({ &[T][len] | len > 0 })]
     internal: &'a [T],
-    // #[field(FluxRange[lo, hi])]
+    #[field({ Range<usize>[start, end] | start <= end && end <= len && is_proper_usize(start) && is_proper_usize(end) })]
     active_range: Range<usize>,
 }
 
@@ -204,12 +210,16 @@ pub struct SubSlice<'a, T> {
 /// In cases where code needs to support either a mutable or immutable SubSlice,
 /// `SubSliceMutImmut` allows the code to store a single type which can
 /// represent either option.
+#[flux_rs::refined_by(len: int, start: int, end: int)]
 pub enum SubSliceMutImmut<'a, T> {
+    #[variant((SubSlice<T>[@l, @s, @e]) -> SubSliceMutImmut<T>[l, s, e])]
     Immutable(SubSlice<'a, T>),
+    #[variant((SubSliceMut<T>[@l, @s, @e]) -> SubSliceMutImmut<T>[l, s, e])]
     Mutable(SubSliceMut<'a, T>),
 }
 
 impl<'a, T> SubSliceMutImmut<'a, T> {
+    #[flux_rs::sig(fn(self: &strg SubSliceMutImmut<T>[@len, @start, @end]) ensures self: SubSliceMutImmut<T>[len, 0, len])]
     pub fn reset(&mut self) {
         match *self {
             SubSliceMutImmut::Immutable(ref mut buf) => buf.reset(),
@@ -226,6 +236,7 @@ impl<'a, T> SubSliceMutImmut<'a, T> {
         }
     }
 
+    #[flux_rs::trusted] // unfolding mutable references
     pub fn slice<R: RangeBounds<usize>>(&mut self, range: R) {
         match *self {
             SubSliceMutImmut::Immutable(ref mut buf) => buf.slice(range),
@@ -250,11 +261,12 @@ where
 
 impl<'a, T> SubSliceMut<'a, T> {
     /// Create a SubSlice from a passed reference to a raw buffer.
+    #[flux_rs::sig(fn({&mut [T][@n] | is_proper_usize(n) && n > 0 }) -> SubSliceMut<T>[n, 0, n])]
     pub fn new(buffer: &'a mut [T]) -> Self {
         let len = buffer.len();
         SubSliceMut {
             internal: buffer,
-            active_range: 0..len
+            active_range: 0..len,
         }
     }
 
@@ -264,6 +276,7 @@ impl<'a, T> SubSliceMut<'a, T> {
 
     /// Retrieve the raw buffer used to create the SubSlice. Consumes the
     /// SubSlice.
+    #[flux_rs::sig(fn(SubSliceMut<T>[@old]) -> &mut [T][old.len])]
     pub fn take(self) -> &'a mut [T] {
         self.internal
     }
@@ -278,6 +291,7 @@ impl<'a, T> SubSliceMut<'a, T> {
     ///
     /// Most commonly, this is called once a sliced leasable buffer is returned
     /// through a callback.
+    #[flux_rs::sig(fn(self: &strg SubSliceMut<T>[@internal_len, @start, @end]) ensures self: SubSliceMut<T>[internal_len, 0, internal_len])]
     pub fn reset(&mut self) {
         self.active_range = 0..self.internal.len();
     }
@@ -294,6 +308,7 @@ impl<'a, T> SubSliceMut<'a, T> {
 
     /// Returns a slice of the currently accessible portion of the
     /// LeasableBuffer.
+    // #[flux_rs::sig(fn(&mut SubSliceMut<T>[@internal_len, @start, @end]) -> &mut [T][end - start])]
     pub fn as_slice(&mut self) -> &mut [T] {
         &mut self.internal[self.active_range.start..self.active_range.end]
     }
@@ -337,7 +352,6 @@ impl<'a, T> SubSliceMut<'a, T> {
         };
 
         let new_start = self.active_range.start + start;
-        assume(end > start);
         let new_end = new_start + (end - start);
 
         self.active_range = new_start..new_end;
@@ -350,6 +364,7 @@ where
 {
     type Output = <I as SliceIndex<[T]>>::Output;
 
+    #[flux_rs::sig(fn(&SubSliceMut<T>[@old], I) -> &Self::Output)]
     fn index(&self, idx: I) -> &Self::Output {
         &self.internal[self.active_range.start..self.active_range.end][idx]
     }
@@ -359,6 +374,7 @@ impl<'a, T, I> IndexMut<I> for SubSliceMut<'a, T>
 where
     I: SliceIndex<[T]>,
 {
+    #[flux_rs::sig(fn({ &mut SubSliceMut<T>[@internal_len, @start, @end] | internal_len > 0 && start < internal_len && end < internal_len && start < end }, I) -> &mut Self::Output)]
     fn index_mut(&mut self, idx: I) -> &mut Self::Output {
         &mut self.internal[self.active_range.start..self.active_range.end][idx]
     }
@@ -366,6 +382,7 @@ where
 
 impl<'a, T> SubSlice<'a, T> {
     /// Create a SubSlice from a passed reference to a raw buffer.
+    #[flux_rs::sig(fn({&[T][@n] | is_proper_usize(n) && n > 0 }) -> SubSlice<T>[n, 0, n])]
     pub fn new(buffer: &'a [T]) -> Self {
         let len = buffer.len();
         SubSlice {
@@ -394,6 +411,7 @@ impl<'a, T> SubSlice<'a, T> {
     ///
     /// Most commonly, this is called once a sliced leasable buffer is returned
     /// through a callback.
+    #[flux_rs::sig(fn(self: &strg SubSlice<T>[@internal_len, @start, @end]) ensures self: SubSlice<T>[internal_len, 0, internal_len])]
     pub fn reset(&mut self) {
         self.active_range = 0..self.internal.len();
     }
@@ -410,6 +428,7 @@ impl<'a, T> SubSlice<'a, T> {
 
     /// Returns a slice of the currently accessible portion of the
     /// LeasableBuffer.
+    // #[flux_rs::sig(fn(&SubSlice<T>[@internal_len, @start, @end]) -> &[T][end - start])]
     pub fn as_slice(&self) -> &[T] {
         &self.internal[self.active_range.start..self.active_range.end]
     }
@@ -441,6 +460,8 @@ impl<'a, T> SubSlice<'a, T> {
     /// s.slice(0..250);
     /// network.send(s);
     /// ```
+    #[flux_rs::sig(fn(self: &strg SubSlice<T>, R) ensures self: SubSlice<T>{ new: sub_slice_range_le(new) } )]
+    #[flux_rs::generics(R as base)]
     pub fn slice<R: RangeBounds<usize>>(&mut self, range: R) {
         let start = match range.start_bound() {
             Bound::Included(s) => *s,

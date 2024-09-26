@@ -1,4 +1,7 @@
-#![no_std]
+// This is kind of annoying
+// but it is a required trait bound
+// for Range's generics
+#![feature(step_trait)]
 
 mod extern_specs;
 mod flux_ptr;
