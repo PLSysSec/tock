@@ -174,7 +174,6 @@ use core::slice::SliceIndex;
 
 flux_rs::defs! {
     fn is_proper_usize(x: int) -> bool { x >= usize::MIN && x <= usize::MAX }
-    fn sub_slice_range_le(r: SubSlice) -> bool { r.start <= r.end }
 }
 
 /// A mutable leasable buffer implementation.
@@ -184,10 +183,11 @@ flux_rs::defs! {
 #[derive(Debug, PartialEq)]
 #[flux_rs::refined_by(len: int, start: int, end: int)]
 #[flux_rs::invariant(len > 0)]
+#[flux_rs::invariant(start >= 0 && start <= end && end <= len && is_proper_usize(start) && is_proper_usize(end))]
 pub struct SubSliceMut<'a, T> {
     #[field({ &mut [T][len] | len > 0 })]
     internal: &'a mut [T],
-    #[field({ Range<usize>[start, end] | start <= end && end <= len && is_proper_usize(start) && is_proper_usize(end) })]
+    #[field({ Range<usize>[start, end] | start >= 0 && start <= end && end <= len && is_proper_usize(start) && is_proper_usize(end) })]
     active_range: Range<usize>,
 }
 
@@ -198,10 +198,11 @@ pub struct SubSliceMut<'a, T> {
 #[derive(Debug, PartialEq)]
 #[flux_rs::refined_by(len: int, start: int, end: int)]
 #[flux_rs::invariant(len > 0)]
+#[flux_rs::invariant(start >= 0 && start <= end && end <= len && is_proper_usize(start) && is_proper_usize(end))]
 pub struct SubSlice<'a, T> {
     #[field({ &[T][len] | len > 0 })]
     internal: &'a [T],
-    #[field({ Range<usize>[start, end] | start <= end && end <= len && is_proper_usize(start) && is_proper_usize(end) })]
+    #[field({ Range<usize>[start, end] | start >= 0 && start <= end && end <= len && is_proper_usize(start) && is_proper_usize(end) })]
     active_range: Range<usize>,
 }
 
@@ -462,8 +463,7 @@ impl<'a, T> SubSlice<'a, T> {
     /// s.slice(0..250);
     /// network.send(s);
     /// ```
-    #[flux_rs::sig(fn(self: &strg SubSlice<T>, R) ensures self: SubSlice<T>{ new: sub_slice_range_le(new) } )]
-    #[flux_rs::generics(R as base)]
+    #[flux_rs::sig(fn(&mut SubSlice<T>, R))]
     pub fn slice<R: RangeBounds<usize>>(&mut self, range: R) {
         let start = match range.start_bound() {
             Bound::Included(s) => *s,
