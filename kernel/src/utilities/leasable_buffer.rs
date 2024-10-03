@@ -270,6 +270,7 @@ impl<'a, T> SubSliceMut<'a, T> {
         }
     }
 
+    #[flux_rs::sig(fn(&SubSliceMut<T>[@internal_len, @start, @end]) -> &[T])]
     fn active_slice(&self) -> &[T] {
         &self.internal[self.active_range.start..self.active_range.end]
     }
@@ -308,7 +309,7 @@ impl<'a, T> SubSliceMut<'a, T> {
 
     /// Returns a slice of the currently accessible portion of the
     /// LeasableBuffer.
-    // #[flux_rs::sig(fn(&mut SubSliceMut<T>[@internal_len, @start, @end]) -> &mut [T][end - start])]
+    #[flux_rs::sig(fn(&mut SubSliceMut<T>[@old]) -> &mut [T])]
     pub fn as_slice(&mut self) -> &mut [T] {
         &mut self.internal[self.active_range.start..self.active_range.end]
     }
@@ -374,7 +375,7 @@ impl<'a, T, I> IndexMut<I> for SubSliceMut<'a, T>
 where
     I: SliceIndex<[T]>,
 {
-    #[flux_rs::sig(fn({ &mut SubSliceMut<T>[@internal_len, @start, @end] | internal_len > 0 && start < internal_len && end < internal_len && start < end }, I) -> &mut Self::Output)]
+    #[flux_rs::sig(fn(&mut SubSliceMut<T>[@internal_len, @start, @end], I) -> &mut Self::Output)]
     fn index_mut(&mut self, idx: I) -> &mut Self::Output {
         &mut self.internal[self.active_range.start..self.active_range.end][idx]
     }
@@ -391,6 +392,7 @@ impl<'a, T> SubSlice<'a, T> {
         }
     }
 
+    #[flux_rs::sig(fn(&SubSlice<T>[@old]) -> &[T])]
     fn active_slice(&self) -> &[T] {
         &self.internal[self.active_range.start..self.active_range.end]
     }
@@ -428,7 +430,7 @@ impl<'a, T> SubSlice<'a, T> {
 
     /// Returns a slice of the currently accessible portion of the
     /// LeasableBuffer.
-    // #[flux_rs::sig(fn(&SubSlice<T>[@internal_len, @start, @end]) -> &[T][end - start])]
+    #[flux_rs::sig(fn(&SubSlice<T>[@old]) -> &[T])]
     pub fn as_slice(&self) -> &[T] {
         &self.internal[self.active_range.start..self.active_range.end]
     }

@@ -1,7 +1,9 @@
 // This is kind of annoying
 // but it is a required trait bound
 // for Range's generics
+// and for Index generics
 #![feature(step_trait)]
+#![feature(slice_index_methods)]
 
 mod extern_specs;
 mod flux_ptr;

@@ -1,6 +1,8 @@
 mod bound;
+mod index;
 mod into_iter;
 mod iter;
+mod iterator;
 mod iterator;
 mod mem;
 mod non_null;
