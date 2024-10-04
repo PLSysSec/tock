@@ -31,7 +31,7 @@ impl<T> [T] {
     fn get_mut<I>(&mut self, index: I) -> Option<&mut I::Output>
     where
         I: SliceIndex<Self>;
-    // #[flux::generics(I as base)]
-    // #[flux_rs::sig(fn(&[T][@len], I[@idx]) -> Option<_>[<I as SliceIndex<[T]>>::in_bounds(idx, len)])]
-    // fn get(&self, index: I) -> Option<&<I as SliceIndex<[T]>>::Output>;
+
+    #[flux_rs::sig(fn(&[T][@len], { usize[@mid] | mid <= len } ) -> (&[T][mid], &[T][len - mid]))]
+    fn split_at(&self, mid: usize) -> (&[T], &[T]);
 }

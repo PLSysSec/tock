@@ -40,12 +40,12 @@ impl<T, I: SliceIndex<[T]>> IndexMut<I> for [T] {
 }
 
 #[flux_rs::extern_spec(std::slice)]
-#[flux::assoc(fn in_bounds(idx: Range<int>, len: int) -> bool { idx.start >= 0 && idx.start <= idx.end && idx.end < len } )]
+#[flux::assoc(fn in_bounds(idx: Range<int>, len: int) -> bool { idx.start >= 0 && idx.start <= idx.end && idx.end <= len } )]
 impl<T> SliceIndex<[T]> for Range<usize> {
-    #[flux_rs::sig(fn(Range<usize>[@start, @end], &[T][@len]) -> Option<&[T][end - start]>[start >= 0 && start <= end && end < len])]
+    #[flux_rs::sig(fn(Range<usize>[@start, @end], &[T][@len]) -> Option<&[T][end - start]>[start >= 0 && start <= end && end <= len])]
     fn get(self, slice: &[T]) -> Option<&[T]>;
 
-    #[flux_rs::sig(fn(Range<usize>[@start, @end], &mut [T][@len]) -> Option<&mut [T][end - start]>[start >= 0 && start <= end && end < len])]
+    #[flux_rs::sig(fn(Range<usize>[@start, @end], &mut [T][@len]) -> Option<&mut [T][end - start]>[start >= 0 && start <= end && end <= len])]
     fn get_mut(self, slice: &mut [T]) -> Option<&mut [T]>;
 
     #[flux_rs::sig(fn(Range<usize>[@start, @end], &[T][@len]) -> &[T][end - start])]
@@ -56,12 +56,12 @@ impl<T> SliceIndex<[T]> for Range<usize> {
 }
 
 #[flux_rs::extern_spec(std::slice)]
-#[flux::assoc(fn in_bounds(idx: RangeTo<int>, len: int) -> bool { idx.end >= 0 && idx.end < len } )]
+#[flux::assoc(fn in_bounds(idx: RangeTo<int>, len: int) -> bool { idx.end >= 0 && idx.end <= len } )]
 impl<T> SliceIndex<[T]> for RangeTo<usize> {
-    #[flux_rs::sig(fn(RangeTo<usize>[@end], &[T][@len]) -> Option<&[T][end]>[end >= 0 && end < len])]
+    #[flux_rs::sig(fn(RangeTo<usize>[@end], &[T][@len]) -> Option<&[T][end]>[end >= 0 && end <= len])]
     fn get(self, slice: &[T]) -> Option<&[T]>;
 
-    #[flux_rs::sig(fn(RangeTo<usize>[@end], &mut [T][@len]) -> Option<&mut [T][end]>[end >= 0 && end < len])]
+    #[flux_rs::sig(fn(RangeTo<usize>[@end], &mut [T][@len]) -> Option<&mut [T][end]>[end >= 0 && end <= len])]
     fn get_mut(self, slice: &mut [T]) -> Option<&mut [T]>;
 
     #[flux_rs::sig(fn(RangeTo<usize>[@end], &[T][@len]) -> &[T][end])]

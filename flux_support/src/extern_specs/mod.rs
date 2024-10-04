@@ -10,3 +10,4 @@ mod into_iter;
 mod step;
 mod iterator;
 mod index;
+mod string;

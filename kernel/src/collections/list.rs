@@ -60,7 +60,8 @@ impl<'a, T: ?Sized + ListNode<'a, T>> List<'a, T> {
         node.next().0.set(self.head.0.get());
         self.head.0.set(Some(node));
     }
-
+    
+    #[flux_rs::trusted] // VTOCK TODO: ignore above causes issues with Iterator
     pub fn push_tail(&self, node: &'a T) {
         node.next().0.set(None);
         match self.iter().last() {
