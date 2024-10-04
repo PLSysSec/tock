@@ -1763,6 +1763,7 @@ impl<T: Default, Upcalls: UpcallSize, AllowROs: AllowRoSize, AllowRWs: AllowRwSi
     ///
     /// Calling this function when an [`ProcessGrant`] for a process is
     /// currently entered will result in a panic.
+    #[flux_rs::ignore] // VTOCK TODO: Once Iterator below is implemented should be good
     pub fn each<F>(&self, mut fun: F)
     where
         F: FnMut(ProcessId, &mut GrantData<T>, &GrantKernelData),
@@ -1808,6 +1809,7 @@ pub struct Iter<
     >,
 }
 
+#[flux_rs::ignore] // VTOCK TODO: Add associated refinements for this
 impl<'a, T: Default, Upcalls: UpcallSize, AllowROs: AllowRoSize, AllowRWs: AllowRwSize> Iterator
     for Iter<'a, T, Upcalls, AllowROs, AllowRWs>
 {

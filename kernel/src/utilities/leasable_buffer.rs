@@ -237,7 +237,8 @@ impl<'a, T> SubSliceMutImmut<'a, T> {
         }
     }
 
-    #[flux_rs::trusted] // unfolding mutable references
+    // #[flux_rs::trusted] // unfolding mutable references
+    #[flux_rs::sig(fn<R as base>(&mut SubSliceMutImmut<T>[@s], R[@r]) requires <R as RangeBounds<usize>>::start(r) + 1 <= <R as RangeBounds<usize>>::end(r))]
     pub fn slice<R: RangeBounds<usize>>(&mut self, range: R) {
         match *self {
             SubSliceMutImmut::Immutable(ref mut buf) => buf.slice(range),
@@ -246,6 +247,7 @@ impl<'a, T> SubSliceMutImmut<'a, T> {
     }
 }
 
+#[flux_rs::generics(I as base)]
 impl<'a, T, I> Index<I> for SubSliceMutImmut<'a, T>
 where
     I: SliceIndex<[T]>,
@@ -340,6 +342,7 @@ impl<'a, T> SubSliceMut<'a, T> {
     /// s.slice(0..250);
     /// network.send(s);
     /// ```
+    #[flux_rs::sig(fn<R as base>(&mut SubSliceMut<T>[@ss], R[@r]) requires <R as RangeBounds<usize>>::start(r) + 1 <= <R as RangeBounds<usize>>::end(r))]
     pub fn slice<R: RangeBounds<usize>>(&mut self, range: R) {
         let start = match range.start_bound() {
             Bound::Included(s) => *s,
@@ -360,23 +363,25 @@ impl<'a, T> SubSliceMut<'a, T> {
     }
 }
 
+#[flux_rs::generics(I as base)]
 impl<'a, T, I> Index<I> for SubSliceMut<'a, T>
 where
     I: SliceIndex<[T]>,
 {
     type Output = <I as SliceIndex<[T]>>::Output;
 
-    #[flux_rs::sig(fn(&SubSliceMut<T>[@old], I) -> &Self::Output)]
+    #[flux_rs::sig(fn(&SubSliceMut<T>[@old], I[@idx]) -> &Self::Output)]
     fn index(&self, idx: I) -> &Self::Output {
         &self.internal[self.active_range.start..self.active_range.end][idx]
     }
 }
 
+#[flux_rs::generics(I as base)]
 impl<'a, T, I> IndexMut<I> for SubSliceMut<'a, T>
 where
     I: SliceIndex<[T]>,
 {
-    #[flux_rs::sig(fn(&mut SubSliceMut<T>[@internal_len, @start, @end], I) -> &mut Self::Output)]
+    #[flux_rs::sig(fn(&mut SubSliceMut<T>[@internal_len, @start, @end], I[@idx]) -> &mut Self::Output requires <I as SliceIndex<[T]>>::in_bounds(idx, end - start))]
     fn index_mut(&mut self, idx: I) -> &mut Self::Output {
         &mut self.internal[self.active_range.start..self.active_range.end][idx]
     }
@@ -463,7 +468,7 @@ impl<'a, T> SubSlice<'a, T> {
     /// s.slice(0..250);
     /// network.send(s);
     /// ```
-    #[flux_rs::sig(fn(&mut SubSlice<T>, R))]
+    #[flux_rs::sig(fn<R as base>(&mut SubSlice<T>[@ss], R[@r]) requires <R as RangeBounds<usize>>::start(r) + 1 <= <R as RangeBounds<usize>>::end(r))]
     pub fn slice<R: RangeBounds<usize>>(&mut self, range: R) {
         let start = match range.start_bound() {
             Bound::Included(s) => *s,
@@ -484,12 +489,14 @@ impl<'a, T> SubSlice<'a, T> {
     }
 }
 
+#[flux_rs::generics(I as base)]
 impl<'a, T, I> Index<I> for SubSlice<'a, T>
 where
     I: SliceIndex<[T]>,
 {
     type Output = <I as SliceIndex<[T]>>::Output;
 
+    #[flux_rs::sig(fn(&SubSlice<T>[@s], I[@idx]) -> &Self::Output)]
     fn index(&self, idx: I) -> &Self::Output {
         &self.internal[self.active_range.start..self.active_range.end][idx]
     }

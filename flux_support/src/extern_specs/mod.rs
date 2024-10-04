@@ -1,7 +1,9 @@
 mod bound;
 mod index;
+mod index;
 mod into_iter;
 mod iter;
+mod iterator;
 mod iterator;
 mod iterator;
 mod mem;
@@ -12,3 +14,4 @@ mod range;
 mod result;
 mod slice;
 mod step;
+mod string;
