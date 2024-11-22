@@ -1357,7 +1357,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     const PROCESS_STRUCT_OFFSET: usize = mem::size_of::<ProcessStandard<C>>();
 
     /// Create a `ProcessStandard` object based on the found `ProcessBinary`.
-    #[flux_rs::trusted] // ICE: UnsolvedEvar
+    // #[flux_rs::trusted] // ICE: UnsolvedEvar
     pub(crate) unsafe fn create<'a>(
         kernel: &'static Kernel,
         chip: &'static C,
