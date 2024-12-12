@@ -1345,6 +1345,10 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
     }
 }
 
+fn flux_test(n: usize) -> usize {
+    n - 1
+}
+
 impl<C: 'static + Chip> ProcessStandard<'_, C> {
     // Memory offset for upcall ring buffer (10 element length).
     const CALLBACK_LEN: usize = 10;
