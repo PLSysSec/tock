@@ -11,5 +11,5 @@
         "flux",
         "--workspace",
         "--message-format=json-diagnostic-rendered-ansi"
-      ]
+    ]
 }

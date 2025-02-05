@@ -13,6 +13,155 @@ use kernel::platform::mpu;
 use kernel::utilities::cells::OptionalCell;
 use kernel::utilities::registers::{register_bitfields, LocalRegisterCopy};
 
+// VTOCK-TODO: NUM_REGIONS currently fixed to 8. Need to also handle 16
+flux_rs::defs! {
+    fn bv32(x:int) -> bitvec<32> { bv_int_to_bv32(x) }
+    fn bit(reg: bitvec<32>, power_of_two:int) -> bool { bv_bv32_to_int(bv_and(reg, bv32(power_of_two))) != 0}
+    fn extract(reg: bitvec<32>, mask:int, offset: int) -> int { bv_bv32_to_int(bv_lshr(bv_and(reg, bv32(mask)), bv32(offset)) ) }
+
+    // CTRL
+    fn enable(reg:bitvec<32>) -> bool { bit(reg, 0x00000001)}
+    fn hfnmiena(reg:bitvec<32>) -> bool { bit(reg, 0x00000002)}
+    fn privdefena(reg:bitvec<32>) -> bool { bit(reg, 0x00000004)}
+    // RNR
+    fn num(reg:bitvec<32>) -> int { extract(reg, 0x000000ff, 0) }
+    // Rbar
+    fn valid(reg:bitvec<32>) -> bool { bit(reg, 0x00000010)}
+    fn region(reg:bitvec<32>) -> int { extract(reg, 0x0000000f, 0)}
+    fn addr(reg:bitvec<32>) -> int {  extract(reg, 0xffffffe0, 5)}
+    // Rasr
+    fn xn(reg:bitvec<32>) -> bool { bit(reg, 0x08000000)}
+    fn region_enable(reg:bitvec<32>) -> bool { bit(reg, 0x00000001)}
+    fn ap(reg:bitvec<32>) -> int { extract(reg, 0x07000000, 24) }
+    fn srd(reg:bitvec<32>) -> int { extract(reg, 0x0000ff00, 8) }
+    fn size(reg:bitvec<32>) -> int { extract(reg, 0x0000003e, 1) }
+
+    fn value(fv: FieldValueU32) -> bitvec<32> { fv.value}
+
+
+    fn map_set(m: Map<int, bitvec<32>>, k: int, v: bitvec<32>) -> Map<int, bitvec<32>> { map_store(m, k, v) }
+    fn map_get(m: Map<int, bitvec<32>>, k:int) -> bitvec<32> { map_select(m, k) }
+    fn map_def(v: bitvec<32>) -> Map<int, bitvec<32>> { map_default(v) }
+
+
+    // fn enabled(mpu: MPU) -> bool { enable(mpu.ctrl)}
+    // VTOCK_TODO: simplify
+    fn mpu_configured_for(mpu: MPU, config: CortexMConfig) -> bool {
+        map_get(mpu.regions, 0) == map_get(config.regions, 0) &&
+        map_get(mpu.attrs, 0) == map_get(config.attrs, 0) &&
+        map_get(mpu.regions, 1) == map_get(config.regions, 1) &&
+        map_get(mpu.attrs, 1) == map_get(config.attrs, 1) &&
+        map_get(mpu.regions, 2) == map_get(config.regions, 2) &&
+        map_get(mpu.attrs, 2) == map_get(config.attrs, 2) &&
+        map_get(mpu.regions, 3) == map_get(config.regions, 3) &&
+        map_get(mpu.attrs, 3) == map_get(config.attrs, 3) &&
+        map_get(mpu.regions, 4) == map_get(config.regions, 4) &&
+        map_get(mpu.attrs, 4) == map_get(config.attrs, 4) &&
+        map_get(mpu.regions, 5) == map_get(config.regions, 5) &&
+        map_get(mpu.attrs, 5) == map_get(config.attrs, 5) &&
+        map_get(mpu.regions, 6) == map_get(config.regions, 6) &&
+        map_get(mpu.attrs, 6) == map_get(config.attrs, 6) &&
+        map_get(mpu.regions, 7) == map_get(config.regions, 7) &&
+        map_get(mpu.attrs, 7) == map_get(config.attrs, 7)
+    }
+
+    fn contains(rbar: bitvec<32>, rasr: bitvec<32>, ptr: int, sz: int) -> bool {
+        (ptr >= addr(rbar)) && (ptr + sz < addr(rbar) + size(rasr))
+    }
+
+    fn subregion_enabled(rasr: bitvec<32>, rbar: bitvec<32>, ptr: int, sz: int) -> bool {
+        size(rasr) >= 8 && // must be at least 256 bits
+        // {
+            // let subregion_size = size(rasr) - 3;
+            // let offset = ptr % size(rasr);
+            // let subregion_id = (addr(rbar) & size(rasr)) / (size(rasr) - 3);
+            bit(bv_int_to_bv32(srd(rasr)), (ptr % size(rasr)) / (size(rasr) - 3))
+        // }
+    }
+
+    fn can_service(rbar: bitvec<32>, rasr: bitvec<32>, ptr: int, sz: int) -> bool {
+        region_enable(rasr) &&
+        contains(rbar, rasr, ptr, sz) &&
+        subregion_enabled(rasr, rbar, ptr, sz)
+    }
+
+    // https://developer.arm.com/documentation/dui0552/a/cortex-m3-peripherals/optional-memory-protection-unit/mpu-access-permission-attributes?lang=en
+    fn user_can_read(rasr: bitvec<32>) -> bool {
+        ap(rasr) == 2 ||
+        ap(rasr) == 3 ||
+        ap(rasr) == 6 ||
+        ap(rasr) == 7
+    }
+
+    // https://developer.arm.com/documentation/dui0552/a/cortex-m3-peripherals/optional-memory-protection-unit/mpu-access-permission-attributes?lang=en
+    fn user_can_write(rasr: bitvec<32>) -> bool {
+        ap(rasr) == 3
+    }
+
+    fn user_access_succeeds(rbar: bitvec<32>, rasr: bitvec<32>, perms: mpu::Permissions) -> bool {
+        xn(rasr) => !perms.x &&
+        user_can_read(rasr) => perms.r &&
+        user_can_write(rasr) => perms.w
+    }
+
+    /*
+
+    // Need to verify non-overlapping? or implement last?
+    // desugar into 28 line predicate?
+    // TODO: verify whole thing, not little toy one
+    // Idea: safely overapproximate -- every region that can service an address must satisfy the rules
+    // -- is this actually sound?
+
+    forall region in self.regions. last(|r|
+        r.can_service(addr, size))) ==>
+        user_access_succeeds(region.rbar, region.rasr, perms) // Done
+        addr.aligned_to(arch.alignment) &&
+        addr.aligned_to(size))
+    */
+
+    fn region_can_access(mpu: MPU, addr: int, sz: int, perms: mpu::Permissions, idx: int) -> bool {
+        can_service(map_get(mpu.regions, 0), map_get(mpu.attrs, 0), addr, sz) =>
+        user_access_succeeds(map_get(mpu.regions, 0), map_get(mpu.attrs, 0), perms)
+    }
+
+    fn config_region_can_access(config: CortexMConfig, addr: int, sz: int, perms: mpu::Permissions, idx: int) -> bool {
+        can_service(map_get(config.regions, 0), map_get(config.attrs, 0), addr, sz) =>
+        user_access_succeeds(map_get(config.regions, 0), map_get(config.attrs, 0), perms)
+    }
+
+    fn can_access(mpu: MPU, addr: int, sz: int, perms: mpu::Permissions) -> bool {
+        region_can_access(mpu, addr, sz, perms, 0) &&
+        region_can_access(mpu, addr, sz, perms, 1) &&
+        region_can_access(mpu, addr, sz, perms, 2) &&
+        region_can_access(mpu, addr, sz, perms, 3) &&
+        region_can_access(mpu, addr, sz, perms, 4) &&
+        region_can_access(mpu, addr, sz, perms, 5) &&
+        region_can_access(mpu, addr, sz, perms, 6) &&
+        region_can_access(mpu, addr, sz, perms, 7)
+
+
+        // can_service(map_get(mpu.regions, 0), map_get(mpu.attrs, 0), addr, sz) => user_access_succeeds(map_get(mpu.regions, 0), map_get(mpu.attrs, 0), perms)
+        // true
+    }
+
+    fn config_can_access(config: CortexMConfig, addr: int, sz: int, perms: mpu::Permissions) -> bool {
+        config_region_can_access(config, addr, sz, perms, 0) //&&
+        // config_region_can_access(config, addr, sz, perms, 1) &&
+        // config_region_can_access(config, addr, sz, perms, 2) &&
+        // config_region_can_access(config, addr, sz, perms, 3) &&
+        // config_region_can_access(config, addr, sz, perms, 4) &&
+        // config_region_can_access(config, addr, sz, perms, 5) &&
+        // config_region_can_access(config, addr, sz, perms, 6) &&
+        // config_region_can_access(config, addr, sz, perms, 7)
+        // true // TODO:
+    }
+
+    fn config_cant_access(config: CortexMConfig, addr: int, sz: int) -> bool {
+        true
+    }
+}
+
+/// Register values to refine
 register_bitfields![u8,
     /// Generic `pmpcfg` octet.
     ///
@@ -387,7 +536,11 @@ pub unsafe fn format_pmp_entries<const PHYSICAL_ENTRIES: usize>(
 /// for userspace protection, `MAX_REGIONS` can be used to reduce the memory
 /// footprint allocated by stored PMP configurations, as well as the
 /// re-configuration overhead.
+
+// #[flux_rs::refined_by(ctrl: bitvec<32>, rnr: bitvec<32>, rbar: bitvec<32>, rasr: bitvec<32>, regions: Map<int, bitvec<32>>, attrs: Map<int, bitvec<32>>)]
 pub trait TORUserPMP<const MAX_REGIONS: usize> {
+    // #[field(HwGhostState[regions, attrs])]
+    // hw_state: HwGhostState,
     /// A placeholder to define const-assertions which are evaluated in
     /// [`PMPUserMPU::new`]. This can be used to, for instance, assert that the
     /// number of userspace regions does not exceed the number of hardware
@@ -479,6 +632,9 @@ pub trait TORUserPMP<const MAX_REGIONS: usize> {
 }
 
 /// Struct storing userspace memory protection regions for the [`PMPUserMPU`].
+/// TODO: The actual config is stored here. This maps to mpu.rs:MPU:321
+#[flux_rs::invariant(MAX_REGIONS > 0 && MAX_REGIONS < 16)]
+#[flux_rs::refined_by(ctrl: bitvec<32>, rnr: bitvec<32>, rbar: bitvec<32>, rasr: bitvec<32>, regions: Map<int, bitvec<32>>, attrs: Map<int, bitvec<32>>)]
 pub struct PMPUserMPUConfig<const MAX_REGIONS: usize> {
     /// PMP config identifier, as generated by the issuing PMP implementation.
     id: NonZeroUsize,
@@ -534,6 +690,8 @@ impl<const MAX_REGIONS: usize> fmt::Display for PMPUserMPUConfig<MAX_REGIONS> {
 
 /// Adapter from a generic PMP implementation exposing TOR-type regions to the
 /// Tock [`mpu::MPU`] trait. See [`TORUserPMP`].
+// #[flux_rs::sig(fn())]
+/// TODO: The actual config is stored here. This maps to mpu.rs:MPU:321
 pub struct PMPUserMPU<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> {
     /// Monotonically increasing counter for allocated configurations, used to
     /// assign unique IDs to `PMPUserMPUConfig` instances.
@@ -571,7 +729,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
 
     fn enable_app_mpu(&mut self) {
         // TODO: This operation may fail when the PMP is not exclusively used
-        // for userspace. Instead of panicing, we should handle this case more
+        // for userspace. Instead of panicking, we should handle this case more
         // gracefully and return an error in the `MPU` trait. Process
         // infrastructure can then attempt to re-schedule the process later on,
         // try to revoke some optional shared memory regions, or suspend the
@@ -1121,6 +1279,7 @@ pub mod test {
     }
 }
 
+// TODO: refine this one
 pub mod simple {
     use super::{pmpcfg_octet, TORUserPMP, TORUserPMPCFG};
     use crate::csr;
@@ -1204,6 +1363,9 @@ pub mod simple {
         }
     }
 
+    #[flux_rs::assoc(fn enabled(self: Self) -> bool {enable(self.ctrl)} )]
+    #[flux_rs::assoc(fn configured_for(self: Self, config: CortexMConfig) -> bool {mpu_configured_for(self, config)} )]
+    // #[flux_rs::assoc(fn can_access(self: Self, addr: int, sz: int, perms: Permissions) -> bool {false} )]
     impl<const AVAILABLE_ENTRIES: usize, const MPU_REGIONS: usize> TORUserPMP<MPU_REGIONS>
         for SimplePMP<AVAILABLE_ENTRIES>
     {
@@ -1221,6 +1383,7 @@ pub mod simple {
         // `u32::from_be_bytes` and then cast to usize, as it manages to compile
         // on 64-bit systems as well. However, this implementation will not work
         // on RV64I systems, due to the changed pmpcfgX CSR layout.
+        #[flux_rs::sig(fn(self: &strg Self, &CortexMConfig[@config]) ensures self: Self{mpu: mpu_configured_for(mpu, config)})]
         fn configure_pmp(
             &self,
             regions: &[(TORUserPMPCFG, *const u8, *const u8); MPU_REGIONS],
@@ -1295,11 +1458,13 @@ pub mod simple {
             Ok(())
         }
 
+        #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: enable(mpu.ctrl)})]
         fn enable_user_pmp(&self) -> Result<(), ()> {
             // No-op. The SimplePMP does not have any kernel-enforced regions.
             Ok(())
         }
 
+        #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: !enable(mpu.ctrl)})]
         fn disable_user_pmp(&self) {
             // No-op. The SimplePMP does not have any kernel-enforced regions.
         }
@@ -2157,14 +2322,6 @@ pub mod kernel_protection_mml_epmp {
         for KernelProtectionMMLEPMP<AVAILABLE_ENTRIES, MPU_REGIONS>
     {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write!(
-                f,
-                " ePMP configuration:\r\n  mseccfg: {:#08X}, user-mode PMP active: {:?}, entries:\r\n",
-                csr::CSR.mseccfg.get(),
-                self.user_pmp_enabled.get()
-            )?;
-            unsafe { super::format_pmp_entries::<AVAILABLE_ENTRIES>(f) }?;
-
             write!(f, "  Shadow PMP entries for user-mode:\r\n")?;
             for (i, shadowed_pmpcfg) in self.shadow_user_pmpcfgs.iter().enumerate() {
                 let (start_pmpaddr_label, startaddr_pmpaddr, endaddr, mode) =
@@ -2193,30 +2350,9 @@ pub mod kernel_protection_mml_epmp {
 
                 write!(
                     f,
-                    "  [{:02}]: {}={:#010X}, end={:#010X}, cfg={:#04X} ({}  ) ({}{}{}{})\r\n",
-                    (i + Self::TOR_REGIONS_OFFSET) * 2 + 1,
-                    start_pmpaddr_label,
-                    startaddr_pmpaddr,
-                    endaddr,
-                    shadowed_pmpcfg.get().get(),
-                    mode,
+                    "  ({})\r\n",
                     if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::l) {
                         "l"
-                    } else {
-                        "-"
-                    },
-                    if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::r) {
-                        "r"
-                    } else {
-                        "-"
-                    },
-                    if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::w) {
-                        "w"
-                    } else {
-                        "-"
-                    },
-                    if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::x) {
-                        "x"
                     } else {
                         "-"
                     },
