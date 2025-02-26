@@ -903,10 +903,15 @@ impl Kernel {
                         // > immediately return a failure with a error code of
                         // > `INVALID`.
                         let rval1 = ptr.and_then(|upcall_ptr_nonnull| {
-                            if !process.is_valid_upcall_function_pointer(upcall_ptr_nonnull) {
-                                Some(ErrorCode::INVAL)
+                            let is_valid_maybe = process.is_valid_upcall_function_pointer(upcall_ptr_nonnull);
+                            if let Some(is_valid_upcall) = is_valid_maybe {
+                                if !is_valid_upcall {
+                                    Some(ErrorCode::INVAL)
+                                } else {
+                                    None
+                                }
                             } else {
-                                None
+                                Some(ErrorCode::FAIL)
                             }
                         });
 
