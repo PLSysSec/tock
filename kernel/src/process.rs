@@ -203,10 +203,10 @@ impl ProcessId {
     /// the app owns and can write to. This includes the app's code and data and
     /// any padding at the end of the app. It does not include the TBF header,
     /// or any space that the kernel is using for any potential bookkeeping.
-    pub fn get_editable_flash_range(&self) -> Option<(usize, usize)> {
-        self.kernel.process_map_or(Some((0, 0)), *self, |process| {
+    pub fn get_editable_flash_range(&self) -> Result<(usize, usize), ()> {
+        self.kernel.process_map_or(Ok((0, 0)), *self, |process| {
             let addresses = process.get_addresses()?;
-            Some((addresses.flash_non_protected_start, addresses.flash_end))
+            Ok((addresses.flash_non_protected_start, addresses.flash_end))
         })
     }
 
@@ -828,7 +828,7 @@ pub trait Process {
 
     /// Return process state information related to the location in memory of
     /// various process data structures.
-    fn get_addresses(&self) -> Option<ProcessAddresses>;
+    fn get_addresses(&self) -> Result<ProcessAddresses, ()>;
 
     /// Flash start
     fn get_flash_start(&self) -> usize;

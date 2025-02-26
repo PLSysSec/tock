@@ -71,8 +71,8 @@ pub(crate) fn memop(process: &dyn Process, op_type: usize, r1: usize) -> Syscall
 
         // Op Type 6: Grant region begin
         6 => match process.get_addresses() {
-            None => SyscallReturn::Failure(ErrorCode::FAIL),
-            Some(addresses) => SyscallReturn::SuccessU32(addresses.sram_grant_start as u32),
+            Err(_) => SyscallReturn::Failure(ErrorCode::FAIL),
+            Ok(addresses) => SyscallReturn::SuccessU32(addresses.sram_grant_start as u32),
         },
 
         // Op Type 7: Number of defined writeable regions in the TBF header.
