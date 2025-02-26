@@ -122,6 +122,11 @@ struct ProcessBreaks {
     pub allow_high_water_mark: FluxPtrU8Mut,
 }
 
+#[flux_rs::refined_by(
+    kernel_break: int,
+    app_break: int,
+    allow_high_water_mark: int
+)]
 struct BreaksAndMPUConfig<C: 'static + Chip> {
     /// Configuration data for the MPU
     pub mpu_config: <<C as Chip>::MPU as MPU>::MpuConfig,
@@ -130,8 +135,63 @@ struct BreaksAndMPUConfig<C: 'static + Chip> {
     mpu_regions: [Cell<Option<mpu::Region>>; 6], // VTOCK TODO: Need to get rid of these cells
 
     /// Pointers that demarcate kernel-managed regions and userspace-managed regions.
-    // #[field(Cell<ProcessBreaks[breaks]>)]
+    #[field(ProcessBreaks[kernel_break, app_break, allow_high_water_mark])]
     breaks: ProcessBreaks,
+}
+
+impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
+    #[flux_rs::sig(
+        fn (
+            &mut Self[@c],
+            FluxPtrU8Mut[@nab],
+            FluxPtrU8Mut[@me],
+            &mut <C as Chip>::MPU
+        ) -> Result<FluxPtrU8Mut[c.app_break], Error>
+    )]
+    pub(crate) fn brk(
+        &mut self,
+        new_break: FluxPtrU8Mut,
+        mem_end: FluxPtrU8Mut,
+        mpu: &mut <C as Chip>::MPU,
+    ) -> Result<FluxPtrU8Mut, Error> {
+        let high_water_mark = self.breaks.allow_high_water_mark;
+        if new_break < high_water_mark || new_break >= mem_end {
+            Err(Error::AddressOutOfBounds)
+        } else if new_break > self.breaks.kernel_memory_break {
+            Err(Error::OutOfMemory)
+        } else if let Err(()) = mpu.update_app_memory_region(
+            new_break,
+            self.breaks.kernel_memory_break,
+            mpu::Permissions::ReadWriteOnly,
+            &mut self.mpu_config,
+        ) {
+            Err(Error::OutOfMemory)
+        } else {
+            let old_break = self.breaks.app_break;
+            self.breaks.app_break = new_break;
+            mpu.configure_mpu(&self.mpu_config);
+            Ok(old_break)
+        }
+    }
+
+    #[flux_rs::sig(
+        fn(
+            &Self[@c],
+            FluxPtr[@buf_start],
+            FluxPtr[@buf_end],
+            FluxPtr[@mem_start]
+        ) -> bool[buf_end >= buf_start && buf_start >= mem_start && buf_end <= c.app_break]
+    )]
+    pub(crate) fn in_app_owned_memory(
+        &self,
+        buf_start_addr: FluxPtr,
+        buf_end_addr: FluxPtr,
+        mem_start: FluxPtr,
+    ) -> bool {
+        buf_end_addr >= buf_start_addr
+            && buf_start_addr >= mem_start
+            && buf_end_addr <= self.breaks.app_break
+    }
 }
 
 /// A type for userspace processes in Tock.
@@ -638,25 +698,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
 
         self.breaks_and_config
             .map_or(Err(Error::KernelError), |breaks_and_config| {
-                let breaks = &mut breaks_and_config.breaks;
-                let high_water_mark = breaks.allow_high_water_mark;
-                if new_break < high_water_mark || new_break >= self.mem_end() {
-                    Err(Error::AddressOutOfBounds)
-                } else if new_break > breaks.kernel_memory_break {
-                    Err(Error::OutOfMemory)
-                } else if let Err(()) = self.chip.mpu().update_app_memory_region(
-                    new_break,
-                    breaks.kernel_memory_break,
-                    mpu::Permissions::ReadWriteOnly,
-                    &mut breaks_and_config.mpu_config,
-                ) {
-                    Err(Error::OutOfMemory)
-                } else {
-                    let old_break = breaks.app_break;
-                    breaks.app_break = new_break;
-                    self.chip.mpu().configure_mpu(&breaks_and_config.mpu_config);
-                    Ok(old_break)
-                }
+                breaks_and_config.brk(new_break, self.mem_end(), self.chip.mpu())
             })
     }
 
@@ -694,7 +736,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             Ok(unsafe { ReadWriteProcessBuffer::new(buf_start_addr, 0, self.processid()) })
         } else if self
             .in_app_owned_memory(buf_start_addr, size)
-            .map_or_else(|| Err(ErrorCode::FAIL), Ok)?
+            .map_err(|_| ErrorCode::FAIL)?
         {
             self.breaks_and_config
                 .map_or(Err(ErrorCode::FAIL), |breaks_and_config| {
@@ -773,14 +815,14 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             Ok(unsafe { ReadOnlyProcessBuffer::new(buf_start_addr, 0, self.processid()) })
         } else if self
             .in_app_owned_memory(buf_start_addr, size)
-            .map_or_else(|| Err(ErrorCode::FAIL), Ok)?
+            .map_err(|_| ErrorCode::FAIL)?
             || self.in_app_flash_memory(buf_start_addr, size)
         {
             // TODO: Check for buffer aliasing here
 
             if self
                 .in_app_owned_memory(buf_start_addr, size)
-                .map_or_else(|| Err(ErrorCode::FAIL), Ok)?
+                .map_err(|_| ErrorCode::FAIL)?
             {
                 // Valid buffer, and since this is in read-write memory (i.e.
                 // not flash), we need to adjust the process's watermark. Note:
@@ -821,15 +863,15 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         }
     }
 
-    unsafe fn set_byte(&self, mut addr: FluxPtrU8Mut, value: u8) -> Option<bool> {
+    unsafe fn set_byte(&self, mut addr: FluxPtrU8Mut, value: u8) -> Result<bool, ()> {
         if self.in_app_owned_memory(addr, 1)? {
             // We verify that this will only write process-accessible memory,
             // but this can still be undefined behavior if something else holds
             // a reference to this memory.
             *addr = value;
-            Some(true)
+            Ok(true)
         } else {
-            Some(false)
+            Ok(false)
         }
     }
 
@@ -1050,12 +1092,12 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             })
     }
 
-    fn is_valid_upcall_function_pointer(&self, upcall_fn: NonNull<()>) -> Option<bool> {
+    fn is_valid_upcall_function_pointer(&self, upcall_fn: NonNull<()>) -> Result<bool, ()> {
         let ptr = upcall_fn.as_fluxptr();
         let size = mem::size_of::<FluxPtrU8Mut>();
 
         // It is okay if this function is in memory or flash.
-        Some(self.in_app_flash_memory(ptr, size) || self.in_app_owned_memory(ptr, size)?)
+        Ok(self.in_app_flash_memory(ptr, size) || self.in_app_owned_memory(ptr, size)?)
     }
 
     fn get_process_name(&self) -> &'static str {
@@ -2044,14 +2086,16 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     /// at `app_break`). If this method returns `true`, the buffer is guaranteed
     /// to be accessible to the process and to not overlap with the grant
     /// region.
-    #[flux_rs::sig(fn(&Self[@p], FluxPtr[@ptr], usize[@sz]) -> bool{b: b == true => ptr >= p.mem_start})]
+    #[flux_rs::sig(fn(&Self[@p], FluxPtr[@ptr], usize[@sz]) -> Result<bool{b: b == true => ptr >= p.mem_start}, ()>)]
     // ptr + sz <= usize::MAX
-    fn in_app_owned_memory(&self, buf_start_addr: FluxPtrU8Mut, size: usize) -> Option<bool> {
+    fn in_app_owned_memory(&self, buf_start_addr: FluxPtrU8Mut, size: usize) -> Result<bool, ()> {
         let buf_end_addr = buf_start_addr.wrapping_add(size);
-        self.breaks_and_config.map(|breaks_and_config| {
-            buf_end_addr >= buf_start_addr
-                && buf_start_addr >= self.mem_start()
-                && buf_end_addr <= breaks_and_config.breaks.app_break
+        self.breaks_and_config.map_or(Err(()), |breaks_and_config| {
+            Ok(breaks_and_config.in_app_owned_memory(
+                buf_start_addr,
+                buf_end_addr,
+                self.mem_start(),
+            ))
         })
         // buf_start_addr >= self.mem_start()
     }

@@ -644,7 +644,7 @@ pub trait Process {
     /// accessible memory. However, to avoid undefined behavior the caller needs
     /// to ensure that no other references exist to the process's memory before
     /// calling this function.
-    unsafe fn set_byte(&self, addr: FluxPtrU8Mut, value: u8) -> Option<bool>;
+    unsafe fn set_byte(&self, addr: FluxPtrU8Mut, value: u8) -> Result<bool, ()>;
 
     /// Return the permissions for this process for a given `driver_num`.
     ///
@@ -791,7 +791,7 @@ pub trait Process {
     ///
     /// Returns `true` if the upcall function pointer is valid for this process,
     /// and `false` otherwise.
-    fn is_valid_upcall_function_pointer(&self, upcall_fn: NonNull<()>) -> Option<bool>;
+    fn is_valid_upcall_function_pointer(&self, upcall_fn: NonNull<()>) -> Result<bool, ()>;
 
     // functions for processes that are architecture specific
 
