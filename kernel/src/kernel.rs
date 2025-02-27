@@ -835,7 +835,14 @@ impl Kernel {
                         // so we can safely call `set_byte()`.
                         unsafe {
                             let address = param_a.as_fluxptr();
-                            process.set_byte(address, has_tasks as u8);
+                            let maybe_set_byte = process.set_byte(address, has_tasks as u8);
+                            if maybe_set_byte.is_err() {
+                                debug!("Uh oh, value in map cell in use");
+                                process.set_syscall_return_value(SyscallReturn::Failure(
+                                    ErrorCode::FAIL,
+                                ));
+                                return;
+                            }
                         }
 
                         if has_tasks {

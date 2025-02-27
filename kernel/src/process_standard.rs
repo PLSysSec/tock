@@ -122,11 +122,36 @@ struct ProcessBreaks {
     pub allow_high_water_mark: FluxPtrU8Mut,
 }
 
-#[flux_rs::refined_by(
-    kernel_break: int,
-    app_break: int,
-    allow_high_water_mark: int
-)]
+impl ProcessBreaks {
+    #[flux_rs::sig(
+        fn (self: &strg Self[@pb], FluxPtrU8Mut[@new_break]) 
+            requires pb.kernel_break >= new_break && new_break >= pb.allow_high_water_mark
+            ensures self: Self{ new_pb:  new_pb.app_break == new_break }
+    )]
+    pub(crate) fn set_app_break(&mut self, new_break: FluxPtrU8Mut) {
+        self.app_break = new_break;
+    }
+
+    #[flux_rs::sig(
+        fn (self: &strg Self[@pb], FluxPtrU8Mut[@new_hwm]) 
+            requires pb.app_break >= new_hwm
+            ensures self: Self{ new_pb:  new_pb.allow_high_water_mark == new_hwm }
+    )]
+    pub(crate) fn set_high_water_mark(&mut self, new_high_water_mark: FluxPtrU8Mut) {
+        self.allow_high_water_mark = new_high_water_mark;
+    }
+
+    #[flux_rs::sig(
+        fn (self: &strg Self[@pb], FluxPtrU8Mut[@new_break]) 
+            requires new_break >= pb.app_break 
+            ensures self: Self{ new_pb:  new_pb.kernel_break == new_break }
+    )]
+    pub(crate) fn set_kernel_break(&mut self, new_kernel_break: FluxPtrU8Mut) {
+        self.kernel_memory_break = new_kernel_break;
+    }
+}
+
+#[flux_rs::refined_by(kernel_break: int, app_break: int, allow_high_water_mark: int)]
 struct BreaksAndMPUConfig<C: 'static + Chip> {
     /// Configuration data for the MPU
     pub mpu_config: <<C as Chip>::MPU as MPU>::MpuConfig,
@@ -142,11 +167,12 @@ struct BreaksAndMPUConfig<C: 'static + Chip> {
 impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
     #[flux_rs::sig(
         fn (
-            &mut Self[@c],
-            FluxPtrU8Mut[@nab],
-            FluxPtrU8Mut[@me],
+            self: &strg Self[@bc],
+            FluxPtrU8Mut,
+            FluxPtrU8Mut,
             &mut <C as Chip>::MPU
-        ) -> Result<FluxPtrU8Mut[c.app_break], Error>
+        ) -> Result<FluxPtrU8Mut[bc.app_break], Error>
+            ensures self: Self
     )]
     pub(crate) fn brk(
         &mut self,
@@ -154,8 +180,7 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
         mem_end: FluxPtrU8Mut,
         mpu: &mut <C as Chip>::MPU,
     ) -> Result<FluxPtrU8Mut, Error> {
-        let high_water_mark = self.breaks.allow_high_water_mark;
-        if new_break < high_water_mark || new_break >= mem_end {
+        if new_break < self.breaks.allow_high_water_mark || new_break >= mem_end {
             Err(Error::AddressOutOfBounds)
         } else if new_break > self.breaks.kernel_memory_break {
             Err(Error::OutOfMemory)
@@ -168,9 +193,79 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
             Err(Error::OutOfMemory)
         } else {
             let old_break = self.breaks.app_break;
-            self.breaks.app_break = new_break;
+            self.breaks.set_app_break(new_break);
             mpu.configure_mpu(&self.mpu_config);
             Ok(old_break)
+        }
+    }
+
+    #[flux_rs::sig(fn (self: &strg Self[@bc], FluxPtrU8Mut[@buf_start], usize[@size]) ensures self: Self)]
+    pub(crate) fn build_readwrite_process_buffer(&mut self, buf_start_addr: FluxPtrU8Mut, size: usize) {
+        // TODO: Check for buffer aliasing here
+        // Valid buffer, we need to adjust the app's watermark
+        // note: `in_app_owned_memory` ensures this offset does not wrap
+        let buf_end_addr = buf_start_addr.wrapping_add(size);
+        // VTOCK TODO: Get rid of this assume - it should hold
+        assume(self.breaks.app_break >= buf_end_addr);
+
+        let new_water_mark = max_ptr(self.breaks.allow_high_water_mark, buf_end_addr);
+        // assert(self.breaks.kernel_memory_break >= self.breaks.app_break);
+        // assert(self.breaks.app_break >= self.breaks.allow_high_water_mark);
+        // assert(self.breaks.app_break >= new_water_mark);
+
+        self.breaks.set_high_water_mark(new_water_mark);
+    }
+
+    #[flux_rs::sig(fn (self: &strg Self, usize, usize, &mut <C as Chip>::MPU) -> Option<NonNull<u8>> ensures self: Self)]
+    pub(crate) fn allocate_in_grant_region_internal(&mut self, size: usize, align: usize, mpu: &mut <C as Chip>::MPU) -> Option<NonNull<u8>>{
+        // First, compute the candidate new pointer. Note that at this point
+        // we have not yet checked whether there is space for this
+        // allocation or that it meets alignment requirements.
+        let new_break_unaligned = self.breaks.kernel_memory_break.wrapping_sub(size);
+
+        // Our minimum alignment requirement is two bytes, so that the
+        // lowest bit of the address will always be zero and we can use it
+        // as a flag. It doesn't hurt to increase the alignment (except for
+        // potentially a wasted byte) so we make sure `align` is at least
+        // two.
+        let align = max_usize(align, 2);
+
+        // The alignment must be a power of two, 2^a. The expression
+        // `!(align - 1)` then returns a mask with leading ones, followed by
+        // `a` trailing zeros.
+        let alignment_mask = !(align - 1);
+        let new_break = (new_break_unaligned.as_usize() & alignment_mask).as_fluxptr();
+
+        // Verify there is space for this allocation
+        if new_break < self.breaks.app_break {
+            None
+            // Verify it didn't wrap around
+        } else if new_break > self.breaks.kernel_memory_break {
+            None
+            // Verify this is compatible with the MPU.
+        } else if let Err(()) = mpu.update_app_memory_region(
+            self.breaks.app_break,
+            new_break,
+            mpu::Permissions::ReadWriteOnly,
+            &mut self.mpu_config,
+        ) {
+            None
+        } else {
+            // Allocation is valid.
+
+            // We always allocate down, so we must lower the
+            // kernel_memory_break.
+            self.breaks.set_kernel_break(new_break);
+
+            // We need `grant_ptr` as a mutable pointer.
+            let grant_ptr = new_break;
+
+            // ### Safety
+            //
+            // Here we are guaranteeing that `grant_ptr` is not null. We can
+            // ensure this because we just created `grant_ptr` based on the
+            // process's allocated memory, and we know it cannot be null.
+            unsafe { Some(NonNull::new_unchecked(grant_ptr.unsafe_as_ptr())) }
         }
     }
 
@@ -740,20 +835,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         {
             self.breaks_and_config
                 .map_or(Err(ErrorCode::FAIL), |breaks_and_config| {
-                    // TODO: Check for buffer aliasing here
-                    let breaks = &mut breaks_and_config.breaks;
-                    // Valid buffer, we need to adjust the app's watermark
-                    // note: `in_app_owned_memory` ensures this offset does not wrap
-                    let buf_end_addr = buf_start_addr.wrapping_add(size);
-                    assume(breaks.app_break >= buf_end_addr);
-
-                    let new_water_mark = max_ptr(breaks.allow_high_water_mark, buf_end_addr);
-                    assert(breaks.kernel_memory_break >= breaks.app_break);
-                    assert(breaks.app_break >= breaks.allow_high_water_mark);
-
-                    assert(breaks.app_break >= new_water_mark);
-                    breaks.allow_high_water_mark = new_water_mark;
-                    Ok(())
+                    Ok(breaks_and_config.build_readwrite_process_buffer(buf_start_addr, size))
                 })?;
             // Clippy complains that we're dereferencing a pointer in a public
             // and safe function here. While we are not dereferencing the
@@ -2131,60 +2213,9 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     /// allocation, then this will return `None`.
     // #[flux_rs::sig(fn(&Self, usize, usize{align: align > 0}) -> Option<NonNull<u8>>)]
     fn allocate_in_grant_region_internal(&self, size: usize, align: usize) -> Option<NonNull<u8>> {
-        self.breaks_and_config.and_then(|breaks_and_config| {
-            let breaks = &mut breaks_and_config.breaks;
-
-            // First, compute the candidate new pointer. Note that at this point
-            // we have not yet checked whether there is space for this
-            // allocation or that it meets alignment requirements.
-            let new_break_unaligned = breaks.kernel_memory_break.wrapping_sub(size);
-
-            // Our minimum alignment requirement is two bytes, so that the
-            // lowest bit of the address will always be zero and we can use it
-            // as a flag. It doesn't hurt to increase the alignment (except for
-            // potentially a wasted byte) so we make sure `align` is at least
-            // two.
-            let align = max_usize(align, 2);
-
-            // The alignment must be a power of two, 2^a. The expression
-            // `!(align - 1)` then returns a mask with leading ones, followed by
-            // `a` trailing zeros.
-            let alignment_mask = !(align - 1);
-            let new_break = (new_break_unaligned.as_usize() & alignment_mask).as_fluxptr();
-
-            // Verify there is space for this allocation
-            if new_break < breaks.app_break {
-                None
-                // Verify it didn't wrap around
-            } else if new_break > breaks.kernel_memory_break {
-                None
-                // Verify this is compatible with the MPU.
-            } else if let Err(()) = self.chip.mpu().update_app_memory_region(
-                breaks.app_break,
-                new_break,
-                mpu::Permissions::ReadWriteOnly,
-                &mut breaks_and_config.mpu_config,
-            ) {
-                None
-            } else {
-                // Allocation is valid.
-
-                // We always allocate down, so we must lower the
-                // kernel_memory_break.
-                // self.kernel_memory_break.set(new_break);
-                breaks.kernel_memory_break = new_break;
-
-                // We need `grant_ptr` as a mutable pointer.
-                let grant_ptr = new_break;
-
-                // ### Safety
-                //
-                // Here we are guaranteeing that `grant_ptr` is not null. We can
-                // ensure this because we just created `grant_ptr` based on the
-                // process's allocated memory, and we know it cannot be null.
-                unsafe { Some(NonNull::new_unchecked(grant_ptr.unsafe_as_ptr())) }
-            }
-        })
+        self.breaks_and_config.and_then(|breaks_and_config| 
+            breaks_and_config.allocate_in_grant_region_internal(size, align, &mut self.chip.mpu())
+        )
     }
 
     /// Create the identifier for a custom grant that grant.rs uses to access

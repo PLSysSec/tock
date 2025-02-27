@@ -6,7 +6,6 @@
 //! Implementation of the memory protection unit for the Cortex-M0+, Cortex-M3,
 //! Cortex-M4, and Cortex-M7
 
-
 use core::cell::Cell;
 use core::cmp;
 use core::fmt;
@@ -112,7 +111,7 @@ flux_rs::defs! {
         user_can_write(rasr) => perms.w
     }
 
-    /* 
+    /*
 
     // Need to verify non-overlapping? or implement last?
     // desugar into 28 line predicate?
@@ -120,52 +119,52 @@ flux_rs::defs! {
     // Idea: safely overapproximate -- every region that can service an address must satisfy the rules
     // -- is this actually sound?
 
-    forall region in self.regions. last(|r| 
+    forall region in self.regions. last(|r|
         r.can_service(addr, size))) ==>
         user_access_succeeds(region.rbar, region.rasr, perms) // Done
         addr.aligned_to(arch.alignment) &&
-        addr.aligned_to(size)) 
+        addr.aligned_to(size))
     */
 
     fn region_can_access(mpu: MPU, addr: int, sz: int, perms: mpu::Permissions, idx: int) -> bool {
-        can_service(map_get(mpu.regions, 0), map_get(mpu.attrs, 0), addr, sz) => 
-        user_access_succeeds(map_get(mpu.regions, 0), map_get(mpu.attrs, 0), perms) 
+        can_service(map_get(mpu.regions, 0), map_get(mpu.attrs, 0), addr, sz) =>
+        user_access_succeeds(map_get(mpu.regions, 0), map_get(mpu.attrs, 0), perms)
     }
 
     fn config_region_can_access(config: CortexMConfig, addr: int, sz: int, perms: mpu::Permissions, idx: int) -> bool {
-        can_service(map_get(config.regions, 0), map_get(config.attrs, 0), addr, sz) => 
-        user_access_succeeds(map_get(config.regions, 0), map_get(config.attrs, 0), perms) 
+        can_service(map_get(config.regions, 0), map_get(config.attrs, 0), addr, sz) =>
+        user_access_succeeds(map_get(config.regions, 0), map_get(config.attrs, 0), perms)
     }
 
     fn can_access(mpu: MPU, addr: int, sz: int, perms: mpu::Permissions) -> bool {
-        region_can_access(mpu, addr, sz, perms, 0) && 
-        region_can_access(mpu, addr, sz, perms, 1) && 
-        region_can_access(mpu, addr, sz, perms, 2) && 
-        region_can_access(mpu, addr, sz, perms, 3) && 
-        region_can_access(mpu, addr, sz, perms, 4) && 
-        region_can_access(mpu, addr, sz, perms, 5) && 
-        region_can_access(mpu, addr, sz, perms, 6) && 
-        region_can_access(mpu, addr, sz, perms, 7) 
+        region_can_access(mpu, addr, sz, perms, 0) &&
+        region_can_access(mpu, addr, sz, perms, 1) &&
+        region_can_access(mpu, addr, sz, perms, 2) &&
+        region_can_access(mpu, addr, sz, perms, 3) &&
+        region_can_access(mpu, addr, sz, perms, 4) &&
+        region_can_access(mpu, addr, sz, perms, 5) &&
+        region_can_access(mpu, addr, sz, perms, 6) &&
+        region_can_access(mpu, addr, sz, perms, 7)
 
 
-        // can_service(map_get(mpu.regions, 0), map_get(mpu.attrs, 0), addr, sz) => user_access_succeeds(map_get(mpu.regions, 0), map_get(mpu.attrs, 0), perms) 
-        // true 
+        // can_service(map_get(mpu.regions, 0), map_get(mpu.attrs, 0), addr, sz) => user_access_succeeds(map_get(mpu.regions, 0), map_get(mpu.attrs, 0), perms)
+        // true
     }
 
     fn config_can_access(config: CortexMConfig, addr: int, sz: int, perms: mpu::Permissions) -> bool {
-        config_region_can_access(config, addr, sz, perms, 0) //&& 
-        // config_region_can_access(config, addr, sz, perms, 1) && 
-        // config_region_can_access(config, addr, sz, perms, 2) && 
-        // config_region_can_access(config, addr, sz, perms, 3) && 
-        // config_region_can_access(config, addr, sz, perms, 4) && 
-        // config_region_can_access(config, addr, sz, perms, 5) && 
-        // config_region_can_access(config, addr, sz, perms, 6) && 
-        // config_region_can_access(config, addr, sz, perms, 7) 
+        config_region_can_access(config, addr, sz, perms, 0) //&&
+        // config_region_can_access(config, addr, sz, perms, 1) &&
+        // config_region_can_access(config, addr, sz, perms, 2) &&
+        // config_region_can_access(config, addr, sz, perms, 3) &&
+        // config_region_can_access(config, addr, sz, perms, 4) &&
+        // config_region_can_access(config, addr, sz, perms, 5) &&
+        // config_region_can_access(config, addr, sz, perms, 6) &&
+        // config_region_can_access(config, addr, sz, perms, 7)
         // true // TODO:
     }
 
     fn config_cant_access(config: CortexMConfig, addr: int, sz: int) -> bool {
-        true 
+        true
     }
 }
 
@@ -510,7 +509,6 @@ struct CortexMLocation {
     pub size: usize,
 }
 
-
 /// Struct storing configuration for a Cortex-M MPU region.
 #[derive(Copy, Clone)]
 #[flux_rs::refined_by(rbar: FieldValueU32, rasr: FieldValueU32)]
@@ -652,7 +650,6 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     // #[flux_rs::sig(fn(self: &strg Self) ensures self: Self)]
     #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: enable(mpu.ctrl)})]
     fn enable_app_mpu(&mut self) {
-
         // Enable the MPU, disable it during HardFault/NMI handlers, and allow
         // privileged code access to all unprotected memory.
         self.registers.ctrl.write(
@@ -669,7 +666,6 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     }
 
     fn number_total_regions(&self) -> usize {
-        
         self.registers.mpu_type.read(Type::DREGION()) as usize
     }
 
@@ -704,7 +700,6 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         config.set_dirty(true);
     }
 
-
     // #[flux_rs::sig(fn(
     //     _,
     //     FluxPtrU8[@memstart],
@@ -712,7 +707,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     //     usize[@minsz],
     //     mpu::Permissions[@perms],
     //     config: &strg CortexMConfig[@c],
-    // ) -> Option<mpu::Region>{r: r => config_can_access(c, memstart, minsz, perms)} 
+    // ) -> Option<mpu::Region>{r: r => config_can_access(c, memstart, minsz, perms)}
     // ensures config: CortexMConfig)]
     fn allocate_region(
         &self,
@@ -1098,24 +1093,23 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         // If the hardware is already configured for this app and the app's MPU
         // configuration has not changed, then skip the hardware update.
         // if !self.hardware_is_configured_for.contains(&config.id()) || config.is_dirty() {
-            // Set MPU regions
-            self.commit_region(config.get_region(0));
-            self.commit_region(config.get_region(1));
-            self.commit_region(config.get_region(2));
-            self.commit_region(config.get_region(3));
-            self.commit_region(config.get_region(4));
-            self.commit_region(config.get_region(5));
-            self.commit_region(config.get_region(6));
-            self.commit_region(config.get_region(7));
-            // for region in config.regions_iter() {
-            //     self.commit_region(region);
-            // }
-            // self.hardware_is_configured_for.set(config.id());
-            // config.set_dirty(false);
+        // Set MPU regions
+        self.commit_region(config.get_region(0));
+        self.commit_region(config.get_region(1));
+        self.commit_region(config.get_region(2));
+        self.commit_region(config.get_region(3));
+        self.commit_region(config.get_region(4));
+        self.commit_region(config.get_region(5));
+        self.commit_region(config.get_region(6));
+        self.commit_region(config.get_region(7));
+        // for region in config.regions_iter() {
+        //     self.commit_region(region);
+        // }
+        // self.hardware_is_configured_for.set(config.id());
+        // config.set_dirty(false);
         // }
     }
 }
-
 
 // TODO: simplify configured_for
 // -- requires proving that beyond 8, everything is the same
