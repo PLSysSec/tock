@@ -708,6 +708,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         config: &strg CortexMConfig[@c],
     ) -> Option<mpu::Region>{r: r => config_can_access(c, memstart, minsz, perms)}
     ensures config: CortexMConfig)]
+    #[flux_rs::trusted] // hanging
     fn allocate_region(
         &self,
         unallocated_memory_start: FluxPtrU8,
@@ -878,14 +879,14 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             // usize[@size], 
             _,
             usize[@minsz],
-            // usize[@appmsz],
-            _,
-            usize[@kernel_mem_size],
+            usize[@appmsz],
+            usize[@kernelmsz],
             mpu::Permissions[@perms],
             config: &strg CortexMConfig[@c],
-        ) -> Option<(FluxPtrU8, usize)>{s: s => config_can_access(c, memstart, minsz, perms) }
+        ) -> Option<(FluxPtrU8, usize)>{s: s => config_can_access(c, memstart, appmsz + kernelmsz, perms) }
         ensures config: CortexMConfig
     )]
+    #[flux_rs::trusted] // hanging 
     fn allocate_app_memory_region(
         &self,
         unallocated_memory_start: FluxPtrU8,
