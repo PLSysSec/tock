@@ -37,14 +37,16 @@ impl<T, I: SliceIndex<[T]>> Index<I> for [T] {
 }
 
 #[flux_rs::extern_spec(std::ops)]
+#[flux_rs::assoc(fn index(old: Self, idx: I, new: <I as SliceIndex<[T]>>::Output) -> bool { <I as SliceIndex<[T]>>::index(old, idx, new)  })]
 #[flux_rs::generics(I as base)]
 impl<T, I: SliceIndex<[T]>> IndexMut<I> for [T] {
-    #[flux::sig(fn (&mut [T][@len], {I[@idx] | <I as SliceIndex<[T]>>::in_bounds(idx, len)}) -> _)]
+    #[flux::sig(fn (&mut [T][@len], {I[@idx] | <I as SliceIndex<[T]>>::in_bounds(idx, len)}) -> &mut <I as SliceIndex<[T]>>::Output{ new: <I as SliceIndex<[T]>>::index(len, idx, new) })]
     fn index_mut(&mut self, idx: I) -> &mut <I as SliceIndex<[T]>>::Output;
 }
 
 #[flux_rs::extern_spec(std::slice)]
 #[flux::assoc(fn in_bounds(idx: Range<int>, len: int) -> bool { idx.start >= 0 && idx.start <= idx.end && idx.end <= len } )]
+#[flux::assoc(fn index(old: int, idx: Range<int>, new: int) -> bool { new == idx.end - idx.start })]
 impl<T> SliceIndex<[T]> for Range<usize> {
     #[flux_rs::sig(fn(Range<usize>[@start, @end], &[T][@len]) -> Option<&[T][end - start]>[start >= 0 && start <= end && end <= len])]
     fn get(self, slice: &[T]) -> Option<&[T]>;
@@ -61,6 +63,7 @@ impl<T> SliceIndex<[T]> for Range<usize> {
 
 #[flux_rs::extern_spec(std::slice)]
 #[flux::assoc(fn in_bounds(idx: RangeTo<int>, len: int) -> bool { idx.end >= 0 && idx.end <= len } )]
+#[flux::assoc(fn index(old: int, idx: RangeTo<int>, new: int) -> bool { new == idx.end })]
 impl<T> SliceIndex<[T]> for RangeTo<usize> {
     #[flux_rs::sig(fn(RangeTo<usize>[@end], &[T][@len]) -> Option<&[T][end]>[end >= 0 && end <= len])]
     fn get(self, slice: &[T]) -> Option<&[T]>;
@@ -77,6 +80,7 @@ impl<T> SliceIndex<[T]> for RangeTo<usize> {
 
 #[flux_rs::extern_spec(std::slice)]
 #[flux::assoc(fn in_bounds(idx: RangeFrom<int>, len: int) -> bool { idx.start >= 0 && idx.start < len } )]
+#[flux::assoc(fn index(old: int, idx: RangeFrom<int>, new: int) -> bool { new == old - idx.start })]
 impl<T> SliceIndex<[T]> for RangeFrom<usize> {
     #[flux_rs::sig(fn(RangeFrom<usize>[@start], &[T][@len]) -> Option<&[T][len - start]>[start >= 0 && start < len])]
     fn get(self, slice: &[T]) -> Option<&[T]>;
@@ -93,6 +97,7 @@ impl<T> SliceIndex<[T]> for RangeFrom<usize> {
 
 #[flux_rs::extern_spec(std::slice)]
 #[flux::assoc(fn in_bounds(idx: int, len: int) -> bool { idx >= 0 && idx < len } )]
+#[flux::assoc(fn index(old: int, idx: int, new: T) -> bool { true } )]
 impl<T> SliceIndex<[T]> for usize {
     #[flux_rs::sig(fn(usize[@idx], &[T][@len]) -> Option<&T>[idx >= 0 && idx < len])]
     fn get(self, slice: &[T]) -> Option<&T>;
