@@ -152,14 +152,14 @@ flux_rs::defs! {
     }
 
     fn config_can_access(config: CortexMConfig, addr: int, sz: int, perms: mpu::Permissions) -> bool {
-        config_region_can_access(config, addr, sz, perms, 0) //&&
-        // config_region_can_access(config, addr, sz, perms, 1) &&
-        // config_region_can_access(config, addr, sz, perms, 2) &&
-        // config_region_can_access(config, addr, sz, perms, 3) &&
-        // config_region_can_access(config, addr, sz, perms, 4) &&
-        // config_region_can_access(config, addr, sz, perms, 5) &&
-        // config_region_can_access(config, addr, sz, perms, 6) &&
-        // config_region_can_access(config, addr, sz, perms, 7)
+        config_region_can_access(config, addr, sz, perms, 0) &&
+        config_region_can_access(config, addr, sz, perms, 1) &&
+        config_region_can_access(config, addr, sz, perms, 2) &&
+        config_region_can_access(config, addr, sz, perms, 3) &&
+        config_region_can_access(config, addr, sz, perms, 4) &&
+        config_region_can_access(config, addr, sz, perms, 5) &&
+        config_region_can_access(config, addr, sz, perms, 6) &&
+        config_region_can_access(config, addr, sz, perms, 7)
         // true // TODO:
     }
 
@@ -473,9 +473,9 @@ impl CortexMConfig {
         &self.regions[idx]
     }
 
-    #[flux_rs::trusted]
     // map_set
-    // #[flux_rs::sig(fn(self: &strg Self[@dirty, @regions, @attrs], idx: usize, region: CortexMRegion) ensures self: Self[dirty, map_set(regions, idx, region.addr), map_set(attrs, idx, region.attrs)])]
+    #[flux_rs::sig(fn(self: &strg Self[@regions, @attrs], idx: usize, region: CortexMRegion) ensures self: Self[map_set(regions, idx, value(region.rbar)), map_set(attrs, idx, value(region.rasr))])]
+    #[flux_rs::trusted]
     fn region_set(&mut self, idx: usize, region: CortexMRegion) {
         self.regions[idx] = region
     }
@@ -485,8 +485,8 @@ impl CortexMConfig {
         self.regions.iter()
     }
 
-    #[flux_rs::trusted] // need spec for enumerate for this to work
     #[flux_rs::sig(fn(&CortexMConfig) -> Option<usize{r: r > 1 && r < 8}>)]
+    #[flux_rs::trusted] // need spec for enumerate for this to work
     fn unused_region_number(&self) -> Option<usize> {
         for (number, region) in self.regions_iter().enumerate() {
             if number <= APP_MEMORY_REGION_MAX_NUM {
@@ -700,15 +700,15 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         config.set_dirty(true);
     }
 
-    // #[flux_rs::sig(fn(
-    //     _,
-    //     FluxPtrU8[@memstart],
-    //     _,
-    //     usize[@minsz],
-    //     mpu::Permissions[@perms],
-    //     config: &strg CortexMConfig[@c],
-    // ) -> Option<mpu::Region>{r: r => config_can_access(c, memstart, minsz, perms)}
-    // ensures config: CortexMConfig)]
+    #[flux_rs::sig(fn(
+        _,
+        FluxPtrU8[@memstart],
+        _,
+        usize[@minsz],
+        mpu::Permissions[@perms],
+        config: &strg CortexMConfig[@c],
+    ) -> Option<mpu::Region>{r: r => config_can_access(c, memstart, minsz, perms)}
+    ensures config: CortexMConfig)]
     fn allocate_region(
         &self,
         unallocated_memory_start: FluxPtrU8,
@@ -872,6 +872,19 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     // When allocating memory for apps, we use two regions, each a power of two
     // in size. By using two regions we halve their size, and also halve their
     // alignment restrictions.
+    #[flux_rs::sig(
+        fn (
+            &Self, 
+            FluxPtrU8[@memstart],
+            usize[@size], 
+            usize[@minsz],
+            usize[@appmsz],
+            usize[@kernel_mem_size],
+            mpu::Permissions[@perms],
+            config: &strg CortexMConfig[@c],
+        ) -> Option<(FluxPtrU8, usize)>{s: s => config_can_access(c, memstart, minsz, perms) }
+        ensures config: CortexMConfig
+    )]
     fn allocate_app_memory_region(
         &self,
         unallocated_memory_start: FluxPtrU8,
@@ -880,7 +893,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         initial_app_memory_size: usize,
         initial_kernel_memory_size: usize,
         permissions: mpu::Permissions,
-        config: &mut Self::MpuConfig,
+        config: &mut CortexMConfig,
     ) -> Option<(FluxPtrU8, usize)> {
         // Check that no previously allocated regions overlap the unallocated
         // memory.

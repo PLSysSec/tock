@@ -45,6 +45,7 @@ pub struct Region {
 
 impl Region {
     /// Create a new MPU region with a given starting point and length in bytes.
+    #[flux_rs::sig(fn (FluxPtrU8Mut[@start], usize[@size]) -> Region[start, size])]
     pub fn new(start_address: FluxPtrU8Mut, size: usize) -> Region {
         Region {
             start_address,

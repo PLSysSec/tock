@@ -350,6 +350,8 @@ pub struct ProcessStandard<'a, C: 'static + Chip> {
     memory_len: usize,
 
     // breaks and corresponding configuration
+    // FLUX TODO: Add some invariant using an existential like the one below
+    // #[field(MapCell<BreaksAndMPUConfig<C>{bc: bc.app_break >= mem_start && bc.kernel_break <= mem_start + mem_len}>)]
     breaks_and_config: MapCell<BreaksAndMPUConfig<C>>,
 
     /// Reference to the slice of `GrantPointerEntry`s stored in the process's
@@ -1518,7 +1520,17 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     const PROCESS_STRUCT_OFFSET: usize = mem::size_of::<ProcessStandard<C>>();
 
     /// Create a `ProcessStandard` object based on the found `ProcessBinary`.
-    #[flux_rs::trusted] // ICE: UnsolvedEvar
+    #[flux_rs::sig(
+        fn (
+            _,
+            _,
+            ProcessBinary, 
+            &mut [u8],
+            _,
+            ShortId,
+            usize
+        )-> Result<(Option<&_>, &mut [u8]), (ProcessLoadError, &mut [u8])>
+    )]
     pub(crate) unsafe fn create<'a>(
         kernel: &'static Kernel,
         chip: &'static C,
@@ -1542,7 +1554,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         if chip
             .mpu()
             .allocate_region(
-                pb.flash.as_fluxptr(),
+                pb.flash.as_fluxptr(), // TODO: How to get the start here?
                 pb.flash.len(),
                 pb.flash.len(),
                 mpu::Permissions::ReadExecuteOnly,

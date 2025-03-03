@@ -104,7 +104,7 @@ impl<'a> AppFlash<'a> {
                     .map_or(0, |buffer| buffer.len());
                 let (app_flash_start, app_flash_end) = processid
                     .get_editable_flash_range()
-                    .map_or_else(|| Err(ErrorCode::FAIL), Ok)?;
+                    .map_err(|_| ErrorCode::FAIL)?;
                 if flash_address < app_flash_start
                     || flash_address >= app_flash_end
                     || flash_address + flash_length >= app_flash_end
