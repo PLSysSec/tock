@@ -20,28 +20,28 @@ use kernel::utilities::math;
 // VTOCK-TODO: NUM_REGIONS currently fixed to 8. Need to also handle 16
 flux_rs::defs! {
     fn bv32(x:int) -> bitvec<32> { bv_int_to_bv32(x) }
-    fn bit(reg: bitvec<32>, power_of_two:int) -> bool { bv_bv32_to_int(bv_and(reg, bv32(power_of_two))) != 0}
-    fn extract(reg: bitvec<32>, mask:int, offset: int) -> int { bv_bv32_to_int(bv_lshr(bv_and(reg, bv32(mask)), bv32(offset)) ) }
+    fn bit(reg: bitvec<32>, power_of_two: bitvec<32>) -> bool { bv_and(reg, power_of_two) != bv32(0)}
+    fn extract(reg: bitvec<32>, mask:int, offset: int) -> bitvec<32> { bv_lshr(bv_and(reg, bv32(mask)), bv32(offset)) }
 
     // TODO: auto-generate field definitions somehow
     // TODO: make more type safe with aliases
     // TODO: well-formedness predicates
     // CTRL
-    fn enable(reg:bitvec<32>) -> bool { bit(reg, 0x00000001)}
-    fn hfnmiena(reg:bitvec<32>) -> bool { bit(reg, 0x00000002)}
-    fn privdefena(reg:bitvec<32>) -> bool { bit(reg, 0x00000004)}
+    fn enable(reg:bitvec<32>) -> bool { bit(reg, bv32(0x00000001))}
+    fn hfnmiena(reg:bitvec<32>) -> bool { bit(reg, bv32(0x00000002))}
+    fn privdefena(reg:bitvec<32>) -> bool { bit(reg, bv32(0x00000004))}
     // RNR
-    fn num(reg:bitvec<32>) -> int { extract(reg, 0x000000ff, 0) }
+    fn num(reg:bitvec<32>) -> bitvec<32> { extract(reg, 0x000000ff, 0) }
     // Rbar
-    fn valid(reg:bitvec<32>) -> bool { bit(reg, 0x00000010)}
-    fn region(reg:bitvec<32>) -> int { extract(reg, 0x0000000f, 0)}
-    fn addr(reg:bitvec<32>) -> int {  extract(reg, 0xffffffe0, 5)}
+    fn valid(reg:bitvec<32>) -> bool { bit(reg, bv32(0x00000010))}
+    fn region(reg:bitvec<32>) -> bitvec<32> { extract(reg, 0x0000000f, 0)}
+    fn addr(reg:bitvec<32>) -> bitvec<32> {  extract(reg, 0xffffffe0, 5)}
     // Rasr
-    fn xn(reg:bitvec<32>) -> bool { bit(reg, 0x08000000)}
-    fn region_enable(reg:bitvec<32>) -> bool { bit(reg, 0x00000001)}
-    fn ap(reg:bitvec<32>) -> int { extract(reg, 0x07000000, 24) }
-    fn srd(reg:bitvec<32>) -> int { extract(reg, 0x0000ff00, 8) }
-    fn size(reg:bitvec<32>) -> int { extract(reg, 0x0000003e, 1) }
+    fn xn(reg:bitvec<32>) -> bool { bit(reg, bv32(0x08000000))}
+    fn region_enable(reg:bitvec<32>) -> bool { bit(reg, bv32(0x00000001))}
+    fn ap(reg:bitvec<32>) -> bitvec<32> { extract(reg, 0x07000000, 24) }
+    fn srd(reg:bitvec<32>) -> bitvec<32> { extract(reg, 0x0000ff00, 8) }
+    fn size(reg:bitvec<32>) -> bitvec<32> { extract(reg, 0x0000003e, 1) }
 
     fn value(fv: FieldValueU32) -> bitvec<32> { fv.value}
 
@@ -73,16 +73,16 @@ flux_rs::defs! {
     }
 
     fn contains(rbar: bitvec<32>, rasr: bitvec<32>, ptr: int, sz: int) -> bool {
-        (ptr >= addr(rbar)) && (ptr + sz < addr(rbar) + size(rasr))
+        (bv_uge(bv32(ptr), addr(rbar))) && (bv_ult(bv32(ptr + sz), bv_add(addr(rbar), size(rasr))))
     }
 
     fn subregion_enabled(rasr: bitvec<32>, rbar: bitvec<32>, ptr: int, sz: int) -> bool {
-        size(rasr) >= 8 && // must be at least 256 bits
+        size(rasr) >= bv32(8) && // must be at least 256 bits
         // {
             // let subregion_size = size(rasr) - 3;
             // let offset = ptr % size(rasr);
             // let subregion_id = (addr(rbar) & size(rasr)) / (size(rasr) - 3);
-            bit(bv_int_to_bv32(srd(rasr)), (ptr % size(rasr)) / (size(rasr) - 3))
+            bit(srd(rasr), bv_udiv(bv_urem(bv32(ptr), size(rasr)), bv_sub(size(rasr), bv32(3))))
         // }
     }
 
@@ -94,15 +94,15 @@ flux_rs::defs! {
 
     // https://developer.arm.com/documentation/dui0552/a/cortex-m3-peripherals/optional-memory-protection-unit/mpu-access-permission-attributes?lang=en
     fn user_can_read(rasr: bitvec<32>) -> bool {
-        ap(rasr) == 2 ||
-        ap(rasr) == 3 ||
-        ap(rasr) == 6 ||
-        ap(rasr) == 7
+        ap(rasr) == bv32(2) ||
+        ap(rasr) == bv32(3) ||
+        ap(rasr) == bv32(6) ||
+        ap(rasr) == bv32(7)
     }
 
     // https://developer.arm.com/documentation/dui0552/a/cortex-m3-peripherals/optional-memory-protection-unit/mpu-access-permission-attributes?lang=en
     fn user_can_write(rasr: bitvec<32>) -> bool {
-        ap(rasr) == 3
+        ap(rasr) == bv32(3)
     }
 
     fn user_access_succeeds(rbar: bitvec<32>, rasr: bitvec<32>, perms: mpu::Permissions) -> bool {
@@ -359,7 +359,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
 
     // Function useful for boards where the bootloader sets up some
     // MPU configuration that conflicts with Tock's configuration:
-    #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: bv_and(mpu.ctrl, bv_int_to_bv32(0x00000001)) == bv_int_to_bv32(0) })]
+    #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: bv_and(mpu.ctrl, bv32(0x00000001)) == bv32(0) })]
     pub unsafe fn clear_mpu(&mut self) {
         self.registers.ctrl.write(Control::ENABLE::CLEAR());
     }
@@ -368,8 +368,8 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
     #[flux_rs::trusted]
     #[flux_rs::sig(fn(self: &strg Self[@mpu], &CortexMRegion[@addr, @attrs]) ensures
     self: Self[mpu.ctrl, mpu.rnr, addr.value, attrs.value,
-        map_store(mpu.regions, region(addr.value), addr.value),
-        map_store(mpu.attrs, region(addr.value), attrs.value)])]
+        map_store(mpu.regions, bv_bv32_to_int(region(addr.value)), addr.value),
+        map_store(mpu.attrs, bv_bv32_to_int(region(addr.value)), attrs.value)])]
     fn commit_region(&mut self, region: &CortexMRegion) {
         self.registers.rbar.write(region.base_address());
         self.registers.rasr.write(region.attributes());
@@ -465,7 +465,7 @@ impl CortexMConfig {
     #[flux_rs::trusted]
     // #[flux_rs::sig(fn(self: &Self, idx: usize, region: CortexMRegion))]
     #[flux_rs::sig(fn(&CortexMConfig[@self], {usize[@idx] | idx < 8}) -> &CortexMRegion{r:
-        region(value(r.rbar)) == idx &&
+        region(value(r.rbar)) == bv32(idx) &&
         value(r.rbar) == map_get(self.regions, idx) &&
         value(r.rasr) == map_get(self.attrs, idx)
     })]
@@ -657,7 +657,6 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         );
     }
 
-    // #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: bv_and(mpu.ctrl, bv_int_to_bv32(0x00000001)) == bv_int_to_bv32(0) })]
     #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: !enable(mpu.ctrl)})]
     fn disable_app_mpu(&mut self) {
         // The MPU is not enabled for privileged mode, so we don't have to do
@@ -876,9 +875,11 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         fn (
             &Self, 
             FluxPtrU8[@memstart],
-            usize[@size], 
+            // usize[@size], 
+            _,
             usize[@minsz],
-            usize[@appmsz],
+            // usize[@appmsz],
+            _,
             usize[@kernel_mem_size],
             mpu::Permissions[@perms],
             config: &strg CortexMConfig[@c],
