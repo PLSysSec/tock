@@ -1,24 +1,27 @@
 #![allow(unused)]
 use std::ops::Range;
-use std::ops::RangeTo;
 use std::ops::RangeFrom;
+use std::ops::RangeTo;
 use std::slice::SliceIndex;
 
 #[flux_rs::extern_spec(std::ops)]
+#[flux_rs::assoc(fn index(old: Self, idx: Idx, new: Self::Output) -> bool)]
 trait Index<Idx> {
-    #[flux_rs::sig(fn(&Self, Idx) -> &Self::Output)]
+    #[flux_rs::sig(fn(&Self[@old], Idx[@idx]) -> &Self::Output{v: <Self as Index<Idx>>::index(old, idx, v) })]
     fn index(&self, index: Idx) -> &Self::Output;
 }
 
 #[flux_rs::extern_spec(std::ops)]
+#[flux_rs::assoc(fn index(old: Self, idx: Idx, new: Self::Output) -> bool)]
 trait IndexMut<Idx> {
-    #[flux_rs::sig(fn(&mut Self, Idx) -> &mut Self::Output)]
+    #[flux_rs::sig(fn(&mut Self[@old], Idx[@idx]) -> &mut Self::Output{v: <Self as Index<Idx>>::index(old, idx, v) })]
     fn index_mut(&mut self, index: Idx) -> &mut Self::Output;
 }
 
 #[flux_rs::extern_spec(std::slice)]
 #[flux::generics(Self as base, T as base)]
 #[flux::assoc(fn in_bounds(idx: Self, v: T) -> bool)]
+#[flux::assoc(fn index(old: T, idx: Self, new: Self::Output) -> bool)]
 trait SliceIndex<T>
 where
     T: ?Sized,
@@ -26,9 +29,10 @@ where
 }
 
 #[flux_rs::extern_spec(std::ops)]
+#[flux_rs::assoc(fn index(old: Self, idx: I, new: <I as SliceIndex<[T]>>::Output) -> bool { <I as SliceIndex<[T]>>::index(old, idx, new)  })]
 #[generics(I as base)]
 impl<T, I: SliceIndex<[T]>> Index<I> for [T] {
-    #[flux::sig(fn (&[T][@len], {I[@idx] | <I as SliceIndex<[T]>>::in_bounds(idx, len)}) -> _)]
+    #[flux::sig(fn (&[T][@len], {I[@idx] | <I as SliceIndex<[T]>>::in_bounds(idx, len)}) -> &<I as SliceIndex<[T]>>::Output{ new: <I as SliceIndex<[T]>>::index(len, idx, new) })]
     fn index(&self, index: I) -> &<I as SliceIndex<[T]>>::Output;
 }
 
