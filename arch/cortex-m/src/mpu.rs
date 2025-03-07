@@ -163,6 +163,11 @@ flux_rs::defs! {
         // true // TODO:
     }
 
+    fn config_can_access_app_memory(config: CortexMConfig, addr: int, sz: int, perms: mpu::Permissions) -> bool {
+        // should only be regions 0 and 1 as these are reserved for heap
+        config_region_can_access(config, addr, sz, perms, 0) && config_region_can_access(config, addr, sz, perms, 1)
+    }
+
     fn config_access_correct(old_c: CortexMConfig, start_addr: int, memsz: int, minsz: int, perms: mpu::Permissions, new_c: CortexMConfig) -> bool {
         true
     }
@@ -886,11 +891,10 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             usize[@appmsz],
             usize[@kernelmsz],
             mpu::Permissions[@perms],
-            config: &strg CortexMConfig[@c],
+            config: &strg CortexMConfig[@old_c],
         ) -> Option<(FluxPtrU8, usize)>[#opt]
-        ensures config: CortexMConfig {new_c: opt => config_can_access(new_c, memstart, appmsz + kernelmsz, perms) }
+        ensures config: CortexMConfig {new_c: (opt => config_can_access_app_memory(new_c, memstart, appmsz + kernelmsz, perms)) && (!opt => old_c == new_c) }
     )]
-    #[flux_rs::trusted] // hanging 
     fn allocate_app_memory_region(
         &self,
         unallocated_memory_start: FluxPtrU8,
