@@ -20,8 +20,8 @@ use kernel::utilities::math;
 // VTOCK-TODO: NUM_REGIONS currently fixed to 8. Need to also handle 16
 flux_rs::defs! {
     fn bv32(x:int) -> bitvec<32> { bv_int_to_bv32(x) }
-    fn bit(reg: bitvec<32>, power_of_two: bitvec<32>) -> bool { bv_and(reg, power_of_two) != 0}
-    fn extract(reg: bitvec<32>, mask:int, offset: int) -> bitvec<32> { bv_lshr(bv_and(reg, bv32(mask)), bv32(offset)) }
+    fn bit(reg: bitvec<32>, power_of_two: bitvec<32>) -> bool { reg & power_of_two != 0}
+    fn extract(reg: bitvec<32>, mask:int, offset: int) -> bitvec<32> { reg & bv32(mask) << bv32(offset) }
 
     // TODO: auto-generate field definitions somehow
     // TODO: make more type safe with aliases
@@ -363,7 +363,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
 
     // Function useful for boards where the bootloader sets up some
     // MPU configuration that conflicts with Tock's configuration:
-    #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: bv_and(mpu.ctrl, 0x00000001) == 0 })]
+    #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: mpu.ctrl & 0x00000001 == 0 })]
     pub unsafe fn clear_mpu(&mut self) {
         self.registers.ctrl.write(Control::ENABLE::CLEAR());
     }
