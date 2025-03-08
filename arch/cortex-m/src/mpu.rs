@@ -127,13 +127,13 @@ flux_rs::defs! {
     */
 
     fn region_can_access(mpu: MPU, addr: int, sz: int, perms: mpu::Permissions, idx: int) -> bool {
-        can_service(map_get(mpu.regions, 0), map_get(mpu.attrs, 0), addr, sz) =>
-        user_access_succeeds(map_get(mpu.regions, 0), map_get(mpu.attrs, 0), perms)
+        can_service(map_get(mpu.regions, idx), map_get(mpu.attrs, idx), addr, sz) =>
+        user_access_succeeds(map_get(mpu.regions, idx), map_get(mpu.attrs, idx), perms)
     }
 
     fn config_region_can_access(config: CortexMConfig, addr: int, sz: int, perms: mpu::Permissions, idx: int) -> bool {
-        can_service(map_get(config.regions, 0), map_get(config.attrs, 0), addr, sz) =>
-        user_access_succeeds(map_get(config.regions, 0), map_get(config.attrs, 0), perms)
+        can_service(map_get(config.regions, idx), map_get(config.attrs, idx), addr, sz) =>
+        user_access_succeeds(map_get(config.regions, idx), map_get(config.attrs, idx), perms)
     }
 
     fn can_access(mpu: MPU, addr: int, sz: int, perms: mpu::Permissions) -> bool {
@@ -149,6 +149,11 @@ flux_rs::defs! {
 
         // can_service(map_get(mpu.regions, 0), map_get(mpu.attrs, 0), addr, sz) => user_access_succeeds(map_get(mpu.regions, 0), map_get(mpu.attrs, 0), perms)
         // true
+    }
+
+    fn config_post_allocate_app_memory_region(old_c: CortexMConfig, ptr: int, size: int, perms: mpu::Permissions, new_c: CortexMConfig) -> bool {
+        config_region_can_access(new_c, ptr, size, perms, 0) ||
+        (config_region_can_access(new_c, ptr, size / 2, perms, 0) && config_region_can_access(new_c, ptr + size / 2, size / 2, perms, 1))
     }
 
     fn config_can_access(config: CortexMConfig, addr: int, sz: int, perms: mpu::Permissions) -> bool {
@@ -173,6 +178,16 @@ flux_rs::defs! {
     }
 
     fn config_cant_access(config: CortexMConfig, addr: int, sz: int) -> bool {
+        true
+    }
+
+    fn encodes_base(rbar: FieldValueU32, start: int) -> bool {
+        // TODO: relate the rbar bits to the start address
+        true
+    }
+
+    fn encodes_attrs(rasr: FieldValueU32, size: int, perms: mpu::Permissions) -> bool {
+        // TODO: relate the rasr bits to size and perms
         true
     }
 }
@@ -375,10 +390,12 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
 
     // VTOCK CODE
     #[flux_rs::trusted]
-    #[flux_rs::sig(fn(self: &strg Self[@mpu], &CortexMRegion[@addr, @attrs]) ensures
-    self: Self[mpu.ctrl, mpu.rnr, addr.value, attrs.value,
-        map_store(mpu.regions, bv_bv32_to_int(region(addr.value)), addr.value),
-        map_store(mpu.attrs, bv_bv32_to_int(region(addr.value)), attrs.value)])]
+    #[flux_rs::sig(
+        fn(self: &strg Self[@mpu], &CortexMRegion[@addr, @attrs, @no, @set, @start, @size, @perms]) ensures
+            self: Self[mpu.ctrl, mpu.rnr, addr.value, attrs.value,
+                map_store(mpu.regions, bv_bv32_to_int(region(addr.value)), addr.value),
+                map_store(mpu.attrs, bv_bv32_to_int(region(addr.value)), attrs.value)]
+    )]
     fn commit_region(&mut self, region: &CortexMRegion) {
         self.registers.rbar.write(region.base_address());
         self.registers.rasr.write(region.attributes());
@@ -518,15 +535,37 @@ struct CortexMLocation {
     pub size: usize,
 }
 
+// flux tracking the actual region size rather than
+// the "logical region"
+#[derive(Copy, Clone)]
+#[flux_rs::refined_by(region_no: int, is_set: bool, start: int, size: int, perms: mpu::Permissions)]
+struct GhostRegionState {
+    #[field(usize[region_no])]
+    number: usize,
+    #[field(bool[is_set])]
+    set: bool,
+    #[field(FluxPtrU8[start])]
+    start: FluxPtrU8,
+    #[field(usize[size])]
+    size: usize,
+    #[field(mpu::Permissions[perms])]
+    perms: mpu::Permissions,
+}
+
 /// Struct storing configuration for a Cortex-M MPU region.
 #[derive(Copy, Clone)]
-#[flux_rs::refined_by(rbar: FieldValueU32, rasr: FieldValueU32)]
+// invariant says that the rbar bits encode the start properly and the rasr bits encode the size and permissions properly
+#[flux_rs::invariant(encodes_base(rbar, start) && encodes_attrs(rasr, size, perms))]
+#[flux_rs::refined_by(rbar: FieldValueU32, rasr: FieldValueU32, region_no: int, is_set: bool, start: int, size: int, perms: mpu::Permissions)]
 pub struct CortexMRegion {
     location: Option<CortexMLocation>,
-    #[field(FieldValueU32<RegionBaseAddress::Register>[rbar])]
+    #[field({FieldValueU32<RegionBaseAddress::Register>[rbar] | encodes_base(rbar, start) })]
     base_address: FieldValueU32<RegionBaseAddress::Register>,
-    #[field(FieldValueU32<RegionAttributes::Register>[rasr])]
+    #[field({FieldValueU32<RegionAttributes::Register>[rasr] | encodes_attrs(rasr, size, perms) })]
     attributes: FieldValueU32<RegionAttributes::Register>,
+    // Flux tracking of actual region rather than logical region
+    #[field(GhostRegionState[region_no, is_set, start, size, perms])]
+    ghost_region_state: GhostRegionState,
 }
 
 impl PartialEq<mpu::Region> for CortexMRegion {
@@ -604,8 +643,15 @@ impl CortexMRegion {
                 addr: logical_start,
                 size: logical_size,
             }),
-            base_address: base_address,
-            attributes: attributes,
+            base_address,
+            attributes,
+            ghost_region_state: GhostRegionState {
+                number: region_num,
+                set: true,
+                start: region_start,
+                size: region_size,
+                perms: permissions,
+            },
         }
     }
 
@@ -615,6 +661,14 @@ impl CortexMRegion {
             base_address: RegionBaseAddress::VALID::UseRBAR()
                 + RegionBaseAddress::REGION().val(region_num as u32),
             attributes: RegionAttributes::ENABLE::CLEAR(),
+            // VTock TODO : use a better nonsense value for perms
+            ghost_region_state: GhostRegionState {
+                number: region_num,
+                set: false,
+                start: FluxPtrU8::from(0),
+                size: 0,
+                perms: mpu::Permissions::ReadOnly,
+            },
         }
     }
 
@@ -623,12 +677,12 @@ impl CortexMRegion {
         Some((loc.addr, loc.size))
     }
 
-    #[flux_rs::sig(fn(&CortexMRegion[@addr, @attrs]) -> FieldValueU32<RegionBaseAddress::Register>[addr])]
+    #[flux_rs::sig(fn(&CortexMRegion[@addr, @attrs, @no, @set, @start, @size, @perms]) -> FieldValueU32<RegionBaseAddress::Register>[addr])]
     fn base_address(&self) -> FieldValueU32<RegionBaseAddress::Register> {
         self.base_address
     }
 
-    #[flux_rs::sig(fn(&CortexMRegion[@addr, @attrs]) -> FieldValueU32<RegionAttributes::Register>[attrs])]
+    #[flux_rs::sig(fn(&CortexMRegion[@addr, @attrs, @no, @set, @start, @size, @perms]) -> FieldValueU32<RegionAttributes::Register>[attrs])]
     fn attributes(&self) -> FieldValueU32<RegionAttributes::Register> {
         self.attributes
     }
@@ -709,15 +763,15 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         config.set_dirty(true);
     }
 
-    #[flux_rs::sig(fn(
-        _,
-        FluxPtrU8[@memstart],
-        usize[@memsz],
-        usize[@minsz],
-        mpu::Permissions[@perms],
-        config: &strg CortexMConfig[@old_c],
-    ) -> Option<mpu::Region>[#opt]
-    ensures config: CortexMConfig { new_c: (opt => config_can_access(new_c, memstart, minsz, perms)) && (!opt => new_c == old_c) })]
+    // #[flux_rs::sig(fn(
+    //     _,
+    //     FluxPtrU8[@memstart],
+    //     usize[@memsz],
+    //     usize[@minsz],
+    //     mpu::Permissions[@perms],
+    //     config: &strg CortexMConfig[@old_c],
+    // ) -> Option<mpu::Region>[#opt]
+    // ensures config: CortexMConfig { new_c: (opt => config_can_access(new_c, memstart, minsz, perms)) && (!opt => new_c == old_c) })]
     fn allocate_region(
         &self,
         unallocated_memory_start: FluxPtrU8,
@@ -881,20 +935,21 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     // When allocating memory for apps, we use two regions, each a power of two
     // in size. By using two regions we halve their size, and also halve their
     // alignment restrictions.
-    #[flux_rs::sig(
-        fn (
-            &Self, 
-            FluxPtrU8[@memstart],
-            // usize[@size], 
-            _,
-            usize[@minsz],
-            usize[@appmsz],
-            usize[@kernelmsz],
-            mpu::Permissions[@perms],
-            config: &strg CortexMConfig[@old_c],
-        ) -> Option<(FluxPtrU8, usize)>[#opt]
-        ensures config: CortexMConfig {new_c: (opt => config_can_access_app_memory(new_c, memstart, appmsz + kernelmsz, perms)) && (!opt => old_c == new_c) }
-    )]
+    // #[flux_rs::sig(
+    //     fn (
+    //         &Self,
+    //         FluxPtrU8[@memstart],
+    //         // usize[@size],
+    //         _,
+    //         usize[@minsz],
+    //         usize[@appmsz],
+    //         usize[@kernelmsz],
+    //         mpu::Permissions[@perms],
+    //         config: &strg CortexMConfig[@old_c],
+    //     ) -> Option<{ptr,size. (FluxPtrU8[ptr], usize[size]) | config_can_access(c, ptr, size, perms) }>
+    //     ensures config: CortexMConfig[#c]
+    //     // {new_c: (opt => config_can_access_app_memory(new_c, memstart, appmsz + kernelmsz, perms)) && (!opt => old_c == new_c) }
+    // )]
     fn allocate_app_memory_region(
         &self,
         unallocated_memory_start: FluxPtrU8,
