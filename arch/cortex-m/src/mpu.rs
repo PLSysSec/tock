@@ -44,32 +44,34 @@ flux_rs::defs! {
     fn size(reg:bitvec<32>) -> bitvec<32> { extract(reg, 0x0000003e, 1) }
 
     fn value(fv: FieldValueU32) -> bitvec<32> { fv.value}
+    fn rbar(region: CortexMRegion) -> bitvec<32> { value(region.rbar) }
+    fn rasr(region: CortexMRegion) -> bitvec<32> { value(region.rasr) }
 
 
-    fn map_set(m: Map<int, bitvec<32>>, k: int, v: bitvec<32>) -> Map<int, bitvec<32>> { map_store(m, k, v) }
-    fn map_get(m: Map<int, bitvec<32>>, k:int) -> bitvec<32> { map_select(m, k) }
+    fn map_set<T>(m: Map<int, T>, k: int, v: T) -> Map<int, T> { map_store(m, k, v) }
+    fn map_get<T>(m: Map<int, T>, k:int) -> T { map_select(m, k) }
     fn map_def(v: bitvec<32>) -> Map<int, bitvec<32>> { map_default(v) }
 
 
     // fn enabled(mpu: MPU) -> bool { enable(mpu.ctrl)}
     // VTOCK_TODO: simplify
     fn mpu_configured_for(mpu: MPU, config: CortexMConfig) -> bool {
-        map_get(mpu.regions, 0) == map_get(config.regions, 0) &&
-        map_get(mpu.attrs, 0) == map_get(config.attrs, 0) &&
-        map_get(mpu.regions, 1) == map_get(config.regions, 1) &&
-        map_get(mpu.attrs, 1) == map_get(config.attrs, 1) &&
-        map_get(mpu.regions, 2) == map_get(config.regions, 2) &&
-        map_get(mpu.attrs, 2) == map_get(config.attrs, 2) &&
-        map_get(mpu.regions, 3) == map_get(config.regions, 3) &&
-        map_get(mpu.attrs, 3) == map_get(config.attrs, 3) &&
-        map_get(mpu.regions, 4) == map_get(config.regions, 4) &&
-        map_get(mpu.attrs, 4) == map_get(config.attrs, 4) &&
-        map_get(mpu.regions, 5) == map_get(config.regions, 5) &&
-        map_get(mpu.attrs, 5) == map_get(config.attrs, 5) &&
-        map_get(mpu.regions, 6) == map_get(config.regions, 6) &&
-        map_get(mpu.attrs, 6) == map_get(config.attrs, 6) &&
-        map_get(mpu.regions, 7) == map_get(config.regions, 7) &&
-        map_get(mpu.attrs, 7) == map_get(config.attrs, 7)
+        map_get(mpu.regions, 0) == rbar(map_get(config.regions, 0)) &&
+        map_get(mpu.attrs, 0) == rasr(map_get(config.regions, 0)) &&
+        map_get(mpu.regions, 1) == rbar(map_get(config.regions, 1)) &&
+        map_get(mpu.attrs, 1) == rasr(map_get(config.regions, 1)) &&
+        map_get(mpu.regions, 2) == rbar(map_get(config.regions, 2)) &&
+        map_get(mpu.attrs, 2) == rasr(map_get(config.regions, 2)) &&
+        map_get(mpu.regions, 3) == rbar(map_get(config.regions, 3)) &&
+        map_get(mpu.attrs, 3) == rasr(map_get(config.regions, 3)) &&
+        map_get(mpu.regions, 4) == rbar(map_get(config.regions, 4)) &&
+        map_get(mpu.attrs, 4) == rasr(map_get(config.regions, 4)) &&
+        map_get(mpu.regions, 5) == rbar(map_get(config.regions, 5)) &&
+        map_get(mpu.attrs, 5) == rasr(map_get(config.regions, 5)) &&
+        map_get(mpu.regions, 6) == rbar(map_get(config.regions, 6)) &&
+        map_get(mpu.attrs, 6) == rasr(map_get(config.regions, 6)) &&
+        map_get(mpu.regions, 7) == rbar(map_get(config.regions, 7)) &&
+        map_get(mpu.attrs, 7) == rasr(map_get(config.regions, 7))
     }
 
     fn contains(rbar: bitvec<32>, rasr: bitvec<32>, ptr: int, sz: int) -> bool {
@@ -132,8 +134,8 @@ flux_rs::defs! {
     }
 
     fn config_region_can_access(config: CortexMConfig, addr: int, sz: int, perms: mpu::Permissions, idx: int) -> bool {
-        can_service(map_get(config.regions, idx), map_get(config.attrs, idx), addr, sz) =>
-        user_access_succeeds(map_get(config.regions, idx), map_get(config.attrs, idx), perms)
+        can_service(rbar(map_get(config.regions, idx)), rasr(map_get(config.regions, idx)), addr, sz) =>
+        user_access_succeeds(rbar(map_get(config.regions, idx)), rasr(map_get(config.regions, idx)), perms)
     }
 
     fn can_access(mpu: MPU, addr: int, sz: int, perms: mpu::Permissions) -> bool {
@@ -190,6 +192,7 @@ flux_rs::defs! {
         // TODO: relate the rasr bits to size and perms
         true
     }
+
 }
 
 // VTOCK_TODO: better solution for hardware register spooky-action-at-a-distance
@@ -202,6 +205,16 @@ flux_rs::defs! {
 #[flux_rs::trusted]
 fn power_of_two(n: u32) -> usize {
     1_usize << n
+}
+
+#[flux_rs::opaque]
+#[flux_rs::refined_by(regions: Map<int, CortexMRegion>)]
+pub struct RegionGhostState {}
+impl RegionGhostState {
+    #[flux_rs::trusted]
+    const fn new() -> Self {
+        Self {}
+    }
 }
 
 #[flux_rs::opaque]
@@ -391,10 +404,10 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
     // VTOCK CODE
     #[flux_rs::trusted]
     #[flux_rs::sig(
-        fn(self: &strg Self[@mpu], &CortexMRegion[@addr, @attrs, @no, @set, @start, @size, @perms]) ensures
+        fn(self: &strg Self[@mpu], &CortexMRegion[@addr, @attrs, @no, @start, @size, @perms]) ensures
             self: Self[mpu.ctrl, mpu.rnr, addr.value, attrs.value,
-                map_store(mpu.regions, bv_bv32_to_int(region(addr.value)), addr.value),
-                map_store(mpu.attrs, bv_bv32_to_int(region(addr.value)), attrs.value)]
+                map_store(mpu.regions, no, addr.value),
+                map_store(mpu.attrs, no, attrs.value)]
     )]
     fn commit_region(&mut self, region: &CortexMRegion) {
         self.registers.rbar.write(region.base_address());
@@ -410,8 +423,8 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
 
 const NUM_REGIONS: usize = 8;
 
-// #[flux_rs::opaque]
-#[flux_rs::refined_by(regions: Map<int, bitvec<32>>, attrs: Map<int, bitvec<32>>)]
+// #[flux_rs::refined_by(regions: Map<int, bitvec<32>>, attrs: Map<int, bitvec<32>>)]
+#[flux_rs::refined_by(regions: Map<int, CortexMRegion>)]
 pub struct CortexMConfig {
     /// Unique ID for this configuration, assigned from a
     /// monotonically increasing counter in the MPU struct.
@@ -422,8 +435,8 @@ pub struct CortexMConfig {
     /// configuration was written to hardware?
     is_dirty: Cell<bool>,
 
-    #[field(HwGhostState[regions, attrs])]
-    hw_state: HwGhostState,
+    #[field(RegionGhostState[regions])]
+    region_state: RegionGhostState,
 }
 
 /// Records the index of the last region used for application RAM memory.
@@ -491,17 +504,17 @@ impl CortexMConfig {
     #[flux_rs::trusted]
     // #[flux_rs::sig(fn(self: &Self, idx: usize, region: CortexMRegion))]
     #[flux_rs::sig(fn(&CortexMConfig[@self], {usize[@idx] | idx < 8}) -> &CortexMRegion{r:
-        region(value(r.rbar)) == bv32(idx) &&
-        value(r.rbar) == map_get(self.regions, idx) &&
-        value(r.rasr) == map_get(self.attrs, idx)
+        r.region_no == idx &&
+        value(r.rbar) == rbar(map_get(self.regions, idx)) &&
+        value(r.rasr) == rasr(map_get(self.regions, idx))
     })]
     fn get_region(&self, idx: usize) -> &CortexMRegion {
         &self.regions[idx]
     }
 
     // map_set
-    #[flux_rs::sig(fn(self: &strg Self[@regions, @attrs], idx: usize, region: CortexMRegion) ensures self: Self[map_set(regions, idx, value(region.rbar)), map_set(attrs, idx, value(region.rasr))])]
-    #[flux_rs::trusted]
+    #[flux_rs::sig(fn(self: &strg Self[@regions], idx: usize, region: CortexMRegion[@r]) ensures self: Self[map_set(regions, idx, r)])]
+    #[flux_rs::trusted] // needs a spec for index
     fn region_set(&mut self, idx: usize, region: CortexMRegion) {
         self.regions[idx] = region
     }
@@ -538,25 +551,22 @@ struct CortexMLocation {
 // flux tracking the actual region size rather than
 // the "logical region"
 #[derive(Copy, Clone)]
-#[flux_rs::refined_by(region_no: int, is_set: bool, start: int, size: int, perms: mpu::Permissions)]
-struct GhostRegionState {
-    #[field(usize[region_no])]
-    number: usize,
-    #[field(bool[is_set])]
-    set: bool,
-    #[field(FluxPtrU8[start])]
-    start: FluxPtrU8,
-    #[field(usize[size])]
-    size: usize,
-    #[field(mpu::Permissions[perms])]
-    perms: mpu::Permissions,
+#[flux_rs::opaque]
+#[flux_rs::refined_by(region_no: int, start: int, size: int, perms: mpu::Permissions)]
+struct GhostRegionState {}
+
+impl GhostRegionState {
+    #[flux_rs::trusted]
+    const fn new() -> Self {
+        Self {}
+    }
 }
 
 /// Struct storing configuration for a Cortex-M MPU region.
 #[derive(Copy, Clone)]
 // invariant says that the rbar bits encode the start properly and the rasr bits encode the size and permissions properly
 #[flux_rs::invariant(encodes_base(rbar, start) && encodes_attrs(rasr, size, perms))]
-#[flux_rs::refined_by(rbar: FieldValueU32, rasr: FieldValueU32, region_no: int, is_set: bool, start: int, size: int, perms: mpu::Permissions)]
+#[flux_rs::refined_by(rbar: FieldValueU32, rasr: FieldValueU32, region_no: int, start: int, size: int, perms: mpu::Permissions)]
 pub struct CortexMRegion {
     location: Option<CortexMLocation>,
     #[field({FieldValueU32<RegionBaseAddress::Register>[rbar] | encodes_base(rbar, start) })]
@@ -564,7 +574,7 @@ pub struct CortexMRegion {
     #[field({FieldValueU32<RegionAttributes::Register>[rasr] | encodes_attrs(rasr, size, perms) })]
     attributes: FieldValueU32<RegionAttributes::Register>,
     // Flux tracking of actual region rather than logical region
-    #[field(GhostRegionState[region_no, is_set, start, size, perms])]
+    #[field(GhostRegionState[region_no, start, size, perms])]
     ghost_region_state: GhostRegionState,
 }
 
@@ -577,6 +587,15 @@ impl PartialEq<mpu::Region> for CortexMRegion {
 }
 
 impl CortexMRegion {
+    #[flux_rs::sig(fn(
+        FluxPtrU8,
+        usize,
+        FluxPtrU8,
+        usize,
+        usize,
+        Option<(usize, usize)>,
+        mpu::Permissions
+    ) -> Self)]
     fn new(
         logical_start: FluxPtrU8,
         logical_size: usize,
@@ -645,13 +664,13 @@ impl CortexMRegion {
             }),
             base_address,
             attributes,
-            ghost_region_state: GhostRegionState {
-                number: region_num,
-                set: true,
-                start: region_start,
-                size: region_size,
-                perms: permissions,
-            },
+            ghost_region_state: GhostRegionState::new(),
+            //     number: region_num,
+            //     set: true,
+            //     start: region_start,
+            //     size: region_size,
+            //     perms: permissions,
+            // },
         }
     }
 
@@ -662,13 +681,13 @@ impl CortexMRegion {
                 + RegionBaseAddress::REGION().val(region_num as u32),
             attributes: RegionAttributes::ENABLE::CLEAR(),
             // VTock TODO : use a better nonsense value for perms
-            ghost_region_state: GhostRegionState {
-                number: region_num,
-                set: false,
-                start: FluxPtrU8::from(0),
-                size: 0,
-                perms: mpu::Permissions::ReadOnly,
-            },
+            ghost_region_state: GhostRegionState::new(),
+            //     number: region_num,
+            //     set: false,
+            //     start: FluxPtrU8::from(0),
+            //     size: 0,
+            //     perms: mpu::Permissions::ReadOnly,
+            // },
         }
     }
 
@@ -677,12 +696,12 @@ impl CortexMRegion {
         Some((loc.addr, loc.size))
     }
 
-    #[flux_rs::sig(fn(&CortexMRegion[@addr, @attrs, @no, @set, @start, @size, @perms]) -> FieldValueU32<RegionBaseAddress::Register>[addr])]
+    #[flux_rs::sig(fn(&CortexMRegion[@addr, @attrs, @no, @start, @size, @perms]) -> FieldValueU32<RegionBaseAddress::Register>[addr])]
     fn base_address(&self) -> FieldValueU32<RegionBaseAddress::Register> {
         self.base_address
     }
 
-    #[flux_rs::sig(fn(&CortexMRegion[@addr, @attrs, @no, @set, @start, @size, @perms]) -> FieldValueU32<RegionAttributes::Register>[attrs])]
+    #[flux_rs::sig(fn(&CortexMRegion[@addr, @attrs, @no, @start, @size, @perms]) -> FieldValueU32<RegionAttributes::Register>[attrs])]
     fn attributes(&self) -> FieldValueU32<RegionAttributes::Register> {
         self.attributes
     }
@@ -742,7 +761,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             id,
             regions: [CortexMRegion::empty(0); 8],
             is_dirty: Cell::new(true),
-            hw_state: HwGhostState::new(), // empty hw state
+            region_state: RegionGhostState::new(),
         };
 
         self.reset_config(&mut ret);
