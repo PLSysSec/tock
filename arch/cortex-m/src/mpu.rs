@@ -153,11 +153,6 @@ flux_rs::defs! {
         // true
     }
 
-    fn config_post_allocate_app_memory_region(old_c: CortexMConfig, ptr: int, size: int, perms: mpu::Permissions, new_c: CortexMConfig) -> bool {
-        config_region_can_access(new_c, ptr, size, perms, 0) ||
-        (config_region_can_access(new_c, ptr, size / 2, perms, 0) && config_region_can_access(new_c, ptr + size / 2, size / 2, perms, 1))
-    }
-
     fn config_can_access(config: CortexMConfig, addr: int, sz: int, perms: mpu::Permissions) -> bool {
         config_region_can_access(config, addr, sz, perms, 0) &&
         config_region_can_access(config, addr, sz, perms, 1) &&
@@ -170,9 +165,60 @@ flux_rs::defs! {
         // true // TODO:
     }
 
-    fn config_can_access_app_memory(config: CortexMConfig, addr: int, sz: int, perms: mpu::Permissions) -> bool {
-        // should only be regions 0 and 1 as these are reserved for heap
-        config_region_can_access(config, addr, sz, perms, 0) && config_region_can_access(config, addr, sz, perms, 1)
+    fn regions_post_allocate_app_memory_region(region0: CortexMRegion, region1: CortexMRegion, base: int, memsz: int, appmsz: int, perms: mpu::Permissions) -> bool {
+        // region0 is set
+        region0.set == true &&
+        // region0 start is the base
+        region0.start == base &&
+        // region0 size is either the full memory block or half of it
+        (region0.size == memsz || region0.size == memsz / 2) &&
+        // region 0 first enabled subregion is 0
+        region0.first_subregion_no == 0 &&
+        // region 0 perms matched the permissions passed
+        region0.perms == perms &&
+        // if we have to use region 1
+        if region1.last_subregion_no > 0 {
+            // region 1 will be set 
+            region1.set == true &&
+            // region1 start is base + region size
+            region1.start == base + region0.size &&
+            // region1 size is the same as region0
+            region1.size == region0.size &&
+            // region1 first enabled sub region is 0
+            region1.first_subregion_no == 0 &&
+            // region1 last enabled sub region is some arithmetic
+            region1.last_subregion_no == (appmsz * 8) / (region1.size + 1) - 8 - 1 &&
+            // and therefore region0 last enabled sub region is 7
+            region0.last_subregion_no == 7 &&
+            // region1 perms matched the permissions passed
+            region1.perms == perms &&
+            // region1 invariant holds 
+            encodes_base(region1.rbar, base + region0.size) &&
+            encodes_attrs(region1.rasr, region1.size, region1.first_subregion_no, region1.last_subregion_no, perms) &&
+            // finally - the mem address corresponding to the last subregion of region1 enabled HAS to be greater or equal to the appmsz
+            base + (region1.last_subregion_no + 1) * (region1.size / 8) >= appmsz
+        } else {
+            // region 1 will not be set - all we can say is set is false
+            region1.set == false &&
+            // so we know region 0s last enabled subregion
+            // is some arithmetic based on the app break
+            region0.last_subregion_no == (appmsz * 8) / (region0.size + 1) - 1 &&
+            // finally - the mem address corresponding to the last subregion of region0 enabled HAS to be greater or equal to the appmsz
+            base + (region0.last_subregion_no + 1) * (region0.size / 8) >= appmsz
+        }
+        &&
+        // region0 invariant holds
+        encodes_base(region0.rbar, base) && encodes_attrs(region0.rasr, region0.size, region0.first_subregion_no, region0.last_subregion_no, perms)
+    }
+
+    fn config_post_allocate_app_memory_region(old_config: CortexMConfig, base: int, memsz: int, appmsz: int, perms: mpu::Permissions, new_config: CortexMConfig) -> bool {
+        regions_post_allocate_app_memory_region(map_get(new_config, 0), map_get(new_config, 1), base, memsz, appmsz, perms) &&
+        map_get(old_config, 2) == map_get(new_config, 2) &&
+        map_get(old_config, 3) == map_get(new_config, 3) &&
+        map_get(old_config, 4) == map_get(new_config, 4) &&
+        map_get(old_config, 5) == map_get(new_config, 5) &&
+        map_get(old_config, 6) == map_get(new_config, 6) &&
+        map_get(old_config, 7) == map_get(new_config, 7)
     }
 
     fn config_access_correct(old_c: CortexMConfig, start_addr: int, memsz: int, minsz: int, perms: mpu::Permissions, new_c: CortexMConfig) -> bool {
@@ -723,6 +769,7 @@ impl CortexMRegion {
         }
     }
 
+    // trusted intializer for ghost state stuff
     #[flux_rs::trusted]
     #[flux_rs::sig(fn (usize[@region_num]) -> Self {r: r.region_no == region_num && r.set == false })]
     fn empty(region_num: usize) -> CortexMRegion {
@@ -998,21 +1045,19 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     // When allocating memory for apps, we use two regions, each a power of two
     // in size. By using two regions we halve their size, and also halve their
     // alignment restrictions.
-    // #[flux_rs::sig(
-    //     fn (
-    //         &Self,
-    //         FluxPtrU8[@memstart],
-    //         // usize[@size],
-    //         _,
-    //         usize[@minsz],
-    //         usize[@appmsz],
-    //         usize[@kernelmsz],
-    //         mpu::Permissions[@perms],
-    //         config: &strg CortexMConfig[@old_c],
-    //     ) -> Option<{ptr,size. (FluxPtrU8[ptr], usize[size]) | config_can_access(c, ptr, size, perms) }>
-    //     ensures config: CortexMConfig[#c]
-    //     // {new_c: (opt => config_can_access_app_memory(new_c, memstart, appmsz + kernelmsz, perms)) && (!opt => old_c == new_c) }
-    // )]
+    #[flux_rs::sig(
+        fn (
+            &Self,
+            FluxPtrU8[@memstart],
+            usize[@memsz],
+            usize[@minsz],
+            usize[@appmsz],
+            usize[@kernelmsz],
+            mpu::Permissions[@perms],
+            config: &strg CortexMConfig[@old_c],
+        ) -> Option<{base,memsz. (FluxPtrU8[base], usize[memsz]) | config_post_allocate_app_memory_region(old_c, base, memsz, appmsz, perms, new_c) }>
+        ensures config: CortexMConfig[#new_c]
+    )]
     fn allocate_app_memory_region(
         &self,
         unallocated_memory_start: FluxPtrU8,
