@@ -177,9 +177,7 @@ flux_rs::defs! {
         // region 0 perms matched the permissions passed
         region0.perms == perms &&
         // if we have to use region 1
-        if region1.last_subregion_no > 0 {
-            // region 1 will be set 
-            region1.set == true &&
+        if region1.set == true {
             // region1 start is base + region size
             region1.start == base + region0.size &&
             // region1 size is the same as region0
@@ -200,8 +198,6 @@ flux_rs::defs! {
             // AND - the mem address corresponding to the last subregion of region1 HAS to be less than the kernel break
             base + (region1.last_subregion_no + 1) * (region1.size / 8) < base + memsz - kernelmsz
         } else {
-            // region 1 will not be set - all we can say is set is false
-            region1.set == false &&
             // so we know region 0s last enabled subregion
             // is some arithmetic based on the app break
             region0.last_subregion_no == (appmsz * 8) / (region0.size + 1) - 1 &&
@@ -212,7 +208,8 @@ flux_rs::defs! {
         }
         &&
         // region0 invariant holds
-        encodes_base(region0.rbar, base) && encodes_attrs(region0.rasr, region0.size, region0.first_subregion_no, region0.last_subregion_no, perms)
+        encodes_base(region0.rbar, base) &&
+        encodes_attrs(region0.rasr, region0.size, region0.first_subregion_no, region0.last_subregion_no, perms)
     }
 
     fn config_post_allocate_app_memory_region(old_config: CortexMConfig, base: int, memsz: int, appmsz: int, kernelmsz: int, perms: mpu::Permissions, new_config: CortexMConfig) -> bool {
