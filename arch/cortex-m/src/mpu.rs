@@ -165,7 +165,7 @@ flux_rs::defs! {
         // true // TODO:
     }
 
-    fn regions_post_allocate_app_memory_region(region0: CortexMRegion, region1: CortexMRegion, base: int, memsz: int, appmsz: int, perms: mpu::Permissions) -> bool {
+    fn regions_post_allocate_app_memory_region(region0: CortexMRegion, region1: CortexMRegion, base: int, memsz: int, appmsz: int, kernelmsz: int, perms: mpu::Permissions) -> bool {
         // region0 is set
         region0.set == true &&
         // region0 start is the base
@@ -196,7 +196,9 @@ flux_rs::defs! {
             encodes_base(region1.rbar, base + region0.size) &&
             encodes_attrs(region1.rasr, region1.size, region1.first_subregion_no, region1.last_subregion_no, perms) &&
             // finally - the mem address corresponding to the last subregion of region1 enabled HAS to be greater or equal to the appmsz
-            base + (region1.last_subregion_no + 1) * (region1.size / 8) >= appmsz
+            base + (region1.last_subregion_no + 1) * (region1.size / 8) >= appmsz && 
+            // AND - the mem address corresponding to the last subregion of region1 HAS to be less than the kernel break
+            base + (region1.last_subregion_no + 1) * (region1.size / 8) < base + memsz - kernelmsz
         } else {
             // region 1 will not be set - all we can say is set is false
             region1.set == false &&
@@ -204,15 +206,17 @@ flux_rs::defs! {
             // is some arithmetic based on the app break
             region0.last_subregion_no == (appmsz * 8) / (region0.size + 1) - 1 &&
             // finally - the mem address corresponding to the last subregion of region0 enabled HAS to be greater or equal to the appmsz
-            base + (region0.last_subregion_no + 1) * (region0.size / 8) >= appmsz
+            base + (region0.last_subregion_no + 1) * (region0.size / 8) >= appmsz &&
+            // AND - the mem address corresponding to the last subregion of region0 HAS to be less than the kernel break
+            base + (region0.last_subregion_no + 1) * (region0.size / 8) < base + memsz - kernelmsz
         }
         &&
         // region0 invariant holds
         encodes_base(region0.rbar, base) && encodes_attrs(region0.rasr, region0.size, region0.first_subregion_no, region0.last_subregion_no, perms)
     }
 
-    fn config_post_allocate_app_memory_region(old_config: CortexMConfig, base: int, memsz: int, appmsz: int, perms: mpu::Permissions, new_config: CortexMConfig) -> bool {
-        regions_post_allocate_app_memory_region(map_get(new_config, 0), map_get(new_config, 1), base, memsz, appmsz, perms) &&
+    fn config_post_allocate_app_memory_region(old_config: CortexMConfig, base: int, memsz: int, appmsz: int, kernelmsz: int, perms: mpu::Permissions, new_config: CortexMConfig) -> bool {
+        regions_post_allocate_app_memory_region(map_get(new_config, 0), map_get(new_config, 1), base, memsz, appmsz, kernelmsz, perms) &&
         map_get(old_config, 2) == map_get(new_config, 2) &&
         map_get(old_config, 3) == map_get(new_config, 3) &&
         map_get(old_config, 4) == map_get(new_config, 4) &&
@@ -626,15 +630,27 @@ impl PartialEq<mpu::Region> for CortexMRegion {
 }
 
 impl CortexMRegion {
+    // VTOCK TODO: FIX THIS
     #[flux_rs::sig(fn(
         FluxPtrU8,
         usize,
         FluxPtrU8[@rstart],
         usize[@rsize],
-        usize,
+        usize[@region_num],
         Option<(usize, usize)>,
-        mpu::Permissions
-    ) -> Self { r: r.start == rstart  })]
+        mpu::Permissions[@perms]
+    ) -> Self { r: 
+            encodes_base(r.rbar, rstart) &&
+            // encodes_attrs(r.rasr, rsize, substart, subend, perms) &&
+            r.region_no == region_num &&
+            r.set == true &&
+            r.start == rstart &&
+            r.size == rsize &&
+            // r.first_subregion_no == substart &&
+            // r.last_subregion_no == subend &&
+            r.perms == perms 
+        } 
+    )]
     fn new(
         logical_start: FluxPtrU8,
         logical_size: usize,
@@ -1055,7 +1071,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             usize[@kernelmsz],
             mpu::Permissions[@perms],
             config: &strg CortexMConfig[@old_c],
-        ) -> Option<{base,memsz. (FluxPtrU8[base], usize[memsz]) | config_post_allocate_app_memory_region(old_c, base, memsz, appmsz, perms, new_c) }>
+        ) -> Option<{base,memsz. (FluxPtrU8[base], usize[memsz]) | config_post_allocate_app_memory_region(old_c, base, memsz, appmsz, kernelmsz, perms, new_c) }>
         ensures config: CortexMConfig[#new_c]
     )]
     fn allocate_app_memory_region(
