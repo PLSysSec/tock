@@ -173,7 +173,7 @@ pub trait MPU {
         min_region_size: usize,
         permissions: Permissions,
         config: &mut Self::MpuConfig,
-    ) -> Option<Region>;
+    ) -> Option<(Region, usize)>;
 
     /// Removes an MPU region within app-owned memory.
     ///

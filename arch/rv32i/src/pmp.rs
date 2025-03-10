@@ -622,7 +622,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         min_region_size: usize,
         permissions: mpu::Permissions,
         config: &mut Self::MpuConfig,
-    ) -> Option<mpu::Region> {
+    ) -> Option<(mpu::Region, usize)> {
         // Find a free region slot. If we don't have one, abort early:
         let region_num = config
             .regions
@@ -708,7 +708,10 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         );
         config.is_dirty.set(true);
 
-        Some(mpu::Region::new(flux_support::FluxPtr::from(start), size))
+        Some((
+            mpu::Region::new(flux_support::FluxPtr::from(start), size),
+            region_num,
+        ))
     }
 
     fn remove_memory_region(
@@ -1065,7 +1068,7 @@ pub mod test {
                 mpu.allocate_region(*memory_start, *memory_size, *length, *perms, &mut config);
 
             match allocation_res {
-                Some(region) => {
+                Some((region, _)) => {
                     mpu.remove_memory_region(region, &mut config)
                         .expect("Failed to remove valid MPU region allocation");
                 }

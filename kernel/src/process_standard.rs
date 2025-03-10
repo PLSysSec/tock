@@ -733,7 +733,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         min_region_size: usize,
     ) -> Option<mpu::Region> {
         self.breaks_and_config.and_then(|breaks_and_config| {
-            let new_region = self.chip.mpu().allocate_region(
+            let (new_region, _) = self.chip.mpu().allocate_region(
                 unallocated_memory_start,
                 unallocated_memory_size,
                 min_region_size,
