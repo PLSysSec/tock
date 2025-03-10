@@ -173,7 +173,7 @@ pub trait MPU {
         min_region_size: usize,
         permissions: Permissions,
         config: &mut Self::MpuConfig,
-    ) -> Option<(Region, usize)>;
+    ) -> Option<Pair<Region, usize>>;
 
     /// Removes an MPU region within app-owned memory.
     ///
@@ -239,7 +239,7 @@ pub trait MPU {
         initial_kernel_memory_size: usize,
         permissions: Permissions,
         config: &mut Self::MpuConfig,
-    ) -> Option<(FluxPtrU8Mut, usize)>;
+    ) -> Option<Pair<FluxPtrU8Mut, usize>>;
 
     /// Updates the MPU region for app-owned memory.
     ///

@@ -622,7 +622,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         min_region_size: usize,
         permissions: mpu::Permissions,
         config: &mut Self::MpuConfig,
-    ) -> Option<(mpu::Region, usize)> {
+    ) -> Option<Pair<mpu::Region, usize>> {
         // Find a free region slot. If we don't have one, abort early:
         let region_num = config
             .regions
@@ -708,10 +708,10 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         );
         config.is_dirty.set(true);
 
-        Some((
-            mpu::Region::new(flux_support::FluxPtr::from(start), size),
-            region_num,
-        ))
+        Some(Pair {
+            fst: mpu::Region::new(flux_support::FluxPtr::from(start), size),
+            snd: region_num,
+        })
     }
 
     fn remove_memory_region(
@@ -747,7 +747,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         initial_kernel_memory_size: usize,
         permissions: mpu::Permissions,
         config: &mut Self::MpuConfig,
-    ) -> Option<(FluxPtr, usize)> {
+    ) -> Option<Pair<FluxPtr, usize>> {
         // An app memory region can only be allocated once per `MpuConfig`.
         // If we already have one, abort:
         if config.app_memory_region.is_some() {
@@ -832,7 +832,10 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         config.is_dirty.set(true);
         config.app_memory_region.replace(region_num);
 
-        Some((flux_support::FluxPtr::from(start), memory_block_size))
+        Some(Pair {
+            fst: flux_support::FluxPtr::from(start),
+            snd: memory_block_size,
+        })
     }
 
     fn update_app_memory_region(

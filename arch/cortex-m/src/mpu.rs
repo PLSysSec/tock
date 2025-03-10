@@ -311,6 +311,14 @@ flux_rs::defs! {
         region_enable(value(rasr))
     }
 
+    fn mpu_region_base(r: mpu::Region) -> int {
+        r.ptr
+    }
+
+    fn mpu_region_sz(r: mpu::Region) -> int {
+        r.sz
+    }
+
 }
 
 // VTOCK_TODO: better solution for hardware register spooky-action-at-a-distance
@@ -1005,7 +1013,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         usize[@minsz],
         mpu::Permissions[@perms],
         config: &strg CortexMConfig[@old_c],
-    ) -> Option<{r, rnum. (mpu::Region[r], usize[rnum]) | config_post_allocate_region(old_c, new_c, rnum, r.ptr, r.sz)}>
+    ) -> Option<{p. Pair<mpu::Region, usize>[p] | config_post_allocate_region(old_c, new_c, p.snd, mpu_region_base(p.fst), mpu_region_sz(p.fst), perms)}>
         ensures config: CortexMConfig[#new_c] 
     )]
     fn allocate_region(
@@ -1015,7 +1023,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         min_region_size: usize,
         permissions: mpu::Permissions,
         config: &mut CortexMConfig,
-    ) -> Option<(mpu::Region, usize)> {
+    ) -> Option<Pair<mpu::Region, usize>> {
         assume(min_region_size < 2147483648);
 
         // Check that no previously allocated regions overlap the unallocated memory.
@@ -1148,7 +1156,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         config.region_set(region_num, region);
         config.set_dirty(true);
 
-        Some((mpu::Region::new(start.as_fluxptr(), size), region_num))
+        Some( Pair { fst: mpu::Region::new(start.as_fluxptr(), size), snd: region_num })
     }
 
     #[flux_rs::sig(fn(
@@ -1192,7 +1200,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             usize[@kernelmsz],
             mpu::Permissions[@perms],
             config: &strg CortexMConfig[@old_c],
-        ) -> Option<{base, memsz. (FluxPtrU8[base], usize[memsz]) | config_post_allocate_app_memory_region(old_c, base, memsz, appmsz, kernelmsz, perms, new_c) }>
+        ) -> Option<{p. Pair<FluxPtrU8, usize>[p] | config_post_allocate_app_memory_region(old_c, p.fst, p.snd, appmsz, kernelmsz, perms, new_c) }>
         ensures config: CortexMConfig[#new_c]
     )]
     fn allocate_app_memory_region(
@@ -1204,7 +1212,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         initial_kernel_memory_size: usize,
         permissions: mpu::Permissions,
         config: &mut CortexMConfig,
-    ) -> Option<(FluxPtrU8, usize)> {
+    ) -> Option<Pair<FluxPtrU8, usize>> {
         // Check that no previously allocated regions overlap the unallocated
         // memory.
         for region in config.regions_iter() {
@@ -1331,7 +1339,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         config.region_set(1, region1);
         config.set_dirty(true);
 
-        Some((region_start.as_fluxptr(), memory_size_po2))
+        Some(Pair { fst: region_start.as_fluxptr(), snd: memory_size_po2 })
     }
 
     fn update_app_memory_region(

@@ -733,7 +733,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         min_region_size: usize,
     ) -> Option<mpu::Region> {
         self.breaks_and_config.and_then(|breaks_and_config| {
-            let (new_region, _) = self.chip.mpu().allocate_region(
+            let Pair { fst: new_region, .. } = self.chip.mpu().allocate_region(
                 unallocated_memory_start,
                 unallocated_memory_size,
                 min_region_size,
@@ -1693,7 +1693,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             mpu::Permissions::ReadWriteOnly,
             &mut mpu_config,
         ) {
-            Some((memory_start, memory_size)) => (memory_start, memory_size),
+            Some(Pair { fst: memory_start, snd: memory_size }) => (memory_start, memory_size),
             None => {
                 // Failed to load process. Insufficient memory.
                 if config::CONFIG.debug_load_processes {
@@ -2086,7 +2086,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             &mut breaks_and_mpu_config.mpu_config,
         );
         let (app_mpu_mem_start, app_mpu_mem_len) = match app_mpu_mem {
-            Some((start, len)) => (start, len),
+            Some(Pair { fst: start, snd: len }) => (start, len),
             None => {
                 // We couldn't configure the MPU for the process. This shouldn't
                 // happen since we were able to start the process before, but at
