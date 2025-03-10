@@ -167,7 +167,7 @@ flux_rs::defs! {
 
     fn regions_post_allocate_app_memory_region(region0: CortexMRegion, region1: CortexMRegion, base: int, memsz: int, appmsz: int, kernelmsz: int, perms: mpu::Permissions) -> bool {
         // region0 is set
-        region0.set == true &&
+        region0.set &&
         // region0 start is the base
         region0.start == base &&
         // region0 size is either the full memory block or half of it
@@ -177,7 +177,7 @@ flux_rs::defs! {
         // region 0 perms matched the permissions passed
         region0.perms == perms &&
         // if we have to use region 1
-        if region1.set == true {
+        if region1.set {
             // region1 start is base + region size
             region1.start == base + region0.size &&
             // region1 size is the same as region0
@@ -246,11 +246,17 @@ flux_rs::defs! {
 
     fn region_post_allocate_region(new_region: CortexMRegion, region_num: int, base: int, sz: int, perms: mpu::Permissions) -> bool {
         // VTOCK TODO: Talk about the subregions here
+        // region set
         new_region.set &&
+        // region number matches
         new_region.region_no == region_num &&
+        // region start matches
         new_region.start == base &&
+        // region size matches
         new_region.size == sz &&
+        // region permissions match
         new_region.perms == perms &&
+        // invariant on the region holds
         encodes_base(new_region.rbar, base + new_region.size, new_region.region_no) &&
         encodes_attrs(new_region.rasr, new_region.size, new_region.first_subregion_no, new_region.last_subregion_no, new_region.perms)
     }
