@@ -21,7 +21,7 @@ use kernel::utilities::math;
 flux_rs::defs! {
     fn bv32(x:int) -> bitvec<32> { bv_int_to_bv32(x) }
     fn bit(reg: bitvec<32>, power_of_two: bitvec<32>) -> bool { reg & power_of_two != 0}
-    fn extract(reg: bitvec<32>, mask:int, offset: int) -> bitvec<32> { reg & bv32(mask) << bv32(offset) }
+    fn extract(reg: bitvec<32>, mask:int, offset: int) -> bitvec<32> { reg & (bv32(mask) << bv32(offset)) }
 
     // TODO: auto-generate field definitions somehow
     // TODO: make more type safe with aliases
@@ -191,7 +191,7 @@ flux_rs::defs! {
             // region1 perms matched the permissions passed
             region1.perms == perms &&
             // region1 invariant holds 
-            encodes_base(region1.rbar, base + region0.size) &&
+            encodes_base(region1.rbar, base + region0.size, region1.region_no) &&
             encodes_attrs(region1.rasr, region1.size, region1.first_subregion_no, region1.last_subregion_no, perms) &&
             // finally - the mem address corresponding to the last subregion of region1 enabled HAS to be greater or equal to the appmsz
             base + (region1.last_subregion_no + 1) * (region1.size / 8) >= appmsz && 
@@ -208,7 +208,7 @@ flux_rs::defs! {
         }
         &&
         // region0 invariant holds
-        encodes_base(region0.rbar, base) &&
+        encodes_base(region0.rbar, base, region0.region_no) &&
         encodes_attrs(region0.rasr, region0.size, region0.first_subregion_no, region0.last_subregion_no, perms)
     }
 
@@ -222,22 +222,49 @@ flux_rs::defs! {
         map_get(old_config, 7) == map_get(new_config, 7)
     }
 
-    fn config_access_correct(old_c: CortexMConfig, start_addr: int, memsz: int, minsz: int, perms: mpu::Permissions, new_c: CortexMConfig) -> bool {
-        true
+    fn encodes_base(rbar: FieldValueU32, start: int, region_num: int) -> bool {
+        // rbar's address should match
+        addr(value(rbar)) == bv32(start) &&
+        // the region number should match
+        region(value(rbar)) == bv32(region_num)
     }
 
-    fn config_cant_access(config: CortexMConfig, addr: int, sz: int) -> bool {
-        true
+    fn enabled_srd_mask(first_subregion_no: int, last_subregion_no: int) -> bitvec<32> {
+        (bv32(1) << bv32(last_subregion_no - first_subregion_no + 1)) - 1
     }
 
-    fn encodes_base(rbar: FieldValueU32, start: int) -> bool {
-        // TODO: relate the rbar bits to the start address
-        true
+    fn disabled_srd_mask(last_subregion_no: int) -> bitvec<32> {
+        ((bv32(1) << (8 - bv32(last_subregion_no))) - 1) << bv32(last_subregion_no)
     }
 
-    fn encodes_attrs(rasr: FieldValueU32, size: int, first_subregion_no: int, last_subregion_no: int, perms: mpu::Permissions) -> bool {
-        // TODO: relate the rasr bits to size and perms
-        true
+    fn subregions_enabled(rasr: bitvec<32>, first_subregion_no: int, last_subregion_no: int) -> bool {
+        // Min size = 256
+        size(rasr) >= 8 &&
+        // Check bits first_subregion..=end_subregion are 0
+        srd(rasr) & enabled_srd_mask(first_subregion_no, last_subregion_no) == 0 &&
+        // Check bits last_subregion_end..=7 are 1 if there are any bits left
+        last_subregion_no < 7 => srd(rasr) & disabled_srd_mask(last_subregion_no) == disabled_srd_mask(last_subregion_no)
+    }
+
+    fn perms_match(rasr: bitvec<32>, perms: mpu::Permissions) -> bool {
+        perms.r == user_can_read(rasr) &&
+        perms.w == user_can_write(rasr) &&
+        perms.x == !xn(rasr) 
+    }
+
+    fn size_match(rasr_size: bitvec<32>, size: int) -> bool {
+        bv32(1) << (rasr_size + 1) == bv32(size)
+    }
+
+    fn encodes_attrs(rasr: FieldValueU32, sz: int, first_subregion_no: int, last_subregion_no: int, perms: mpu::Permissions) -> bool {
+        // subregions properly set
+        subregions_enabled(value(rasr), first_subregion_no, last_subregion_no) &&
+        // size should be correct - size encoded as power of two: 2 ^ (size(rasr) + 1) == size
+        size_match(size(value(rasr)), sz) &&
+        // permissions match
+        perms_match(value(rasr), perms) &&
+        // global enable bit is set
+        region_enable(value(rasr))
     }
 
 }
@@ -604,12 +631,12 @@ struct GhostRegionState {}
 
 /// Struct storing configuration for a Cortex-M MPU region.
 #[derive(Copy, Clone)]
-// invariant says that the rbar bits encode the start properly and the rasr bits encode the size and permissions properly
-#[flux_rs::invariant(encodes_base(rbar, start) && encodes_attrs(rasr, size, first_subregion_no, last_subregion_no, perms))]
+// invariant says that if the region is set, the rbar bits encode the start & region_num properly and the rasr bits encode the size and permissions properly
+#[flux_rs::invariant(set => (encodes_base(rbar, start, region_no) && encodes_attrs(rasr, size, first_subregion_no, last_subregion_no, perms)))]
 #[flux_rs::refined_by(rbar: FieldValueU32, rasr: FieldValueU32, region_no: int, set: bool, start: int, size: int, first_subregion_no: int, last_subregion_no: int, perms: mpu::Permissions)]
 pub struct CortexMRegion {
     location: Option<CortexMLocation>,
-    #[field({FieldValueU32<RegionBaseAddress::Register>[rbar] | encodes_base(rbar, start) })]
+    #[field({FieldValueU32<RegionBaseAddress::Register>[rbar] | encodes_base(rbar, start, region_no) })]
     base_address: FieldValueU32<RegionBaseAddress::Register>,
     #[field({FieldValueU32<RegionAttributes::Register>[rasr] | encodes_attrs(rasr, size, first_subregion_no, last_subregion_no, perms) })]
     attributes: FieldValueU32<RegionAttributes::Register>,
@@ -676,7 +703,7 @@ impl CortexMRegion {
         usize[@region_num],
         mpu::Permissions[@perms]
     ) -> Self { r: 
-            encodes_base(r.rbar, rstart) &&
+            encodes_base(r.rbar, rstart, region_num) &&
             encodes_attrs(r.rasr, rsize, 0, 7, perms) &&
             r.region_no == region_num &&
             r.set == true &&
@@ -728,7 +755,7 @@ impl CortexMRegion {
         usize[@subregion_end],
         mpu::Permissions[@perms]
     ) -> Self { r: 
-            encodes_base(r.rbar, rstart) &&
+            encodes_base(r.rbar, rstart, region_num) &&
             encodes_attrs(r.rasr, rsize, subregion_start, subregion_end, perms) &&
             r.region_no == region_num &&
             r.set == true &&
@@ -1080,7 +1107,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         _,
         region: mpu::Region[@memstart, @memsz],
         config: &strg CortexMConfig[@c],
-    ) -> Result<(), ()>{ r: r => config_cant_access(c, memstart, memsz)}
+    ) -> Result<(), ()>
     ensures config: CortexMConfig)]
     fn remove_memory_region(
         &self,
