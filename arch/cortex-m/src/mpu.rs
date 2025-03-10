@@ -244,9 +244,8 @@ flux_rs::defs! {
         region_num != 7 => same_config(new_config, old_config, 7) 
     }
 
-    fn region_post_allocate_region(new_config: CortexMConfig, new_region: CortexMRegion, region_num: int, base: int, sz: int, perms: mpu::Permissions) -> bool {
+    fn region_post_allocate_region(new_region: CortexMRegion, region_num: int, base: int, sz: int, perms: mpu::Permissions) -> bool {
         // VTOCK TODO: Talk about the subregions here
-        map_get(new_config, region_num) == new_region &&
         new_region.set &&
         new_region.region_no == region_num &&
         new_region.start == base &&
@@ -257,7 +256,7 @@ flux_rs::defs! {
     }
 
     fn config_post_allocate_region(old_config: CortexMConfig, new_config: CortexMConfig, region_num: int, base: int, sz: int, perms: mpu::Permissions) -> bool {
-        region_post_allocate_region(new_config, map_get(new_config, region_num), region_num, base, sz, perms) &&
+        region_post_allocate_region(map_get(new_config, region_num), region_num, base, sz, perms) &&
         all_other_regions_post_allocate_region_preserved(old_config, new_config, region_num)
     }
 
