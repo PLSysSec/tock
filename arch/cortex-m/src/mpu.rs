@@ -193,6 +193,7 @@ flux_rs::defs! {
             // region1 invariant holds 
             encodes_base(region1.rbar, base + region0.size, region1.region_no) &&
             encodes_attrs(region1.rasr, region1.size, region1.first_subregion_no, region1.last_subregion_no, region1.perms) &&
+            subregions_match_loc(region1.first_subregion_no, region1.last_subregion_no, region1.logical_start, region1.logical_size, region1.start, region1.size) &&
             // finally - the mem address corresponding to the last subregion of region1 enabled HAS to be greater or equal to the appmsz
             base + (region1.last_subregion_no + 1) * (region1.size / 8) >= appmsz && 
             // AND - the mem address corresponding to the last subregion of region1 HAS to be less than the kernel break
@@ -209,7 +210,8 @@ flux_rs::defs! {
         &&
         // region0 invariant holds
         encodes_base(region0.rbar, base, region0.region_no) &&
-        encodes_attrs(region0.rasr, region0.size, region0.first_subregion_no, region0.last_subregion_no, region0.perms)
+        encodes_attrs(region0.rasr, region0.size, region0.first_subregion_no, region0.last_subregion_no, region0.perms) &&
+        subregions_match_loc(region0.first_subregion_no, region0.last_subregion_no, region0.logical_start, region0.logical_size, region0.start, region0.size)
     }
 
     fn config_post_allocate_app_memory_region(old_config: CortexMConfig, base: int, memsz: int, appmsz: int, kernelmsz: int, perms: mpu::Permissions, new_config: CortexMConfig) -> bool {
@@ -244,8 +246,7 @@ flux_rs::defs! {
         region_num != 7 => same_config(new_config, old_config, 7) 
     }
 
-    fn region_post_allocate_region(new_region: CortexMRegion, region_num: int, base: int, sz: int, perms: mpu::Permissions) -> bool {
-        // VTOCK TODO: Talk about the subregions here
+    fn region_post_allocate(new_region: CortexMRegion, region_num: int, base: int, sz: int, perms: mpu::Permissions) -> bool {
         // region set
         new_region.set &&
         // region number matches
@@ -256,13 +257,13 @@ flux_rs::defs! {
         new_region.size == sz &&
         // region permissions match
         new_region.perms == perms &&
-        // invariant on the region holds
         encodes_base(new_region.rbar, base + new_region.size, new_region.region_no) &&
-        encodes_attrs(new_region.rasr, new_region.size, new_region.first_subregion_no, new_region.last_subregion_no, new_region.perms)
+        encodes_attrs(new_region.rasr, new_region.size, new_region.first_subregion_no, new_region.last_subregion_no, new_region.perms) &&
+        subregions_match_loc(new_region.first_subregion_no, new_region.last_subregion_no, new_region.logical_start, new_region.logical_size, new_region.start, new_region.size)
     }
 
     fn config_post_allocate_region(old_config: CortexMConfig, new_config: CortexMConfig, region_num: int, base: int, sz: int, perms: mpu::Permissions) -> bool {
-        region_post_allocate_region(map_get(new_config, region_num), region_num, base, sz, perms) &&
+        region_post_allocate(map_get(new_config, region_num), region_num, base, sz, perms) &&
         all_other_regions_post_allocate_region_preserved(old_config, new_config, region_num)
     }
 
@@ -271,6 +272,11 @@ flux_rs::defs! {
         addr(value(rbar)) == bv32(start) &&
         // the region number should match
         region(value(rbar)) == bv32(region_num)
+    }
+    fn subregions_match_loc(first_subregion_no: int, last_subregion_no: int, logical_start: int, logical_size: int, rstart: int, rsize: int) -> bool {
+        // logical start and size match the subregions that will be set
+        rstart + (rsize / 8) * first_subregion_no == logical_start &&
+        (rstart + (rsize / 8) * last_subregion_no) - logical_start == logical_size
     }
 
     fn enabled_srd_mask(first_subregion_no: int, last_subregion_no: int) -> bitvec<32> {
@@ -530,7 +536,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
     // VTOCK CODE
     #[flux_rs::trusted]
     #[flux_rs::sig(
-        fn(self: &strg Self[@mpu], &CortexMRegion[@addr, @attrs, @loc, @no, @start, @set, @size, @fsr, @lsr, @perms]) ensures
+        fn(self: &strg Self[@mpu], &CortexMRegion[@addr, @attrs, @loc, @no, @set, @start, @size, @fsr, @lsr, @lstart, @lsize, @perms]) ensures
             self: Self[mpu.ctrl, mpu.rnr, addr.value, attrs.value,
                 map_store(mpu.regions, no, addr.value),
                 map_store(mpu.attrs, no, attrs.value)]
@@ -678,23 +684,39 @@ struct CortexMLocation {
 // the "logical region"
 #[derive(Copy, Clone)]
 #[flux_rs::opaque]
-#[flux_rs::refined_by(region_no: int, set: bool, start: int, size: int, first_subregion_no: int, last_subregion_no: int, perms: mpu::Permissions)]
+#[flux_rs::refined_by(region_no: int, set: bool, start: int, size: int, first_subregion_no: int, last_subregion_no: int, logical_start: int, logical_size: int, perms: mpu::Permissions)]
 struct GhostRegionState {}
 
 /// Struct storing configuration for a Cortex-M MPU region.
 #[derive(Copy, Clone)]
-// invariant says that if the region is set, the rbar bits encode the start & region_num properly and the rasr bits encode the size and permissions properly
-#[flux_rs::invariant((set => (encodes_base(rbar, start, region_no) && encodes_attrs(rasr, size, first_subregion_no, last_subregion_no, perms))) && loc == set )]
-#[flux_rs::refined_by(rbar: FieldValueU32, rasr: FieldValueU32, loc: bool, region_no: int, set: bool, start: int, size: int, first_subregion_no: int, last_subregion_no: int, perms: mpu::Permissions)]
+// if the region is set, the rbar bits encode the start & region_num properly and the rasr bits encode the size and permissions properly
+#[flux_rs::invariant(set => (encodes_base(rbar, start, region_no) && encodes_attrs(rasr, size, first_subregion_no, last_subregion_no, perms)))]
+// if the logical location is set then the region is set
+#[flux_rs::invariant(loc == set )]
+#[flux_rs::invariant(subregions_match_loc(first_subregion_no, last_subregion_no, logical_start, logical_size, start, size))]
+#[flux_rs::refined_by(
+    rbar: FieldValueU32,
+    rasr: FieldValueU32,
+    loc: bool,
+    region_no: int,
+    set: bool,
+    start: int,
+    size: int,
+    first_subregion_no: int,
+    last_subregion_no: int,
+    logical_start: int,
+    logical_size: int,
+    perms: mpu::Permissions
+)]
 pub struct CortexMRegion {
-    #[field(Option<CortexMLocation>[loc])]
+    #[field(Option<{l. CortexMLocation[l] | l.addr == logical_start && l.size == logical_size }>[loc])]
     location: Option<CortexMLocation>,
     #[field({FieldValueU32<RegionBaseAddress::Register>[rbar] | encodes_base(rbar, start, region_no) })]
     base_address: FieldValueU32<RegionBaseAddress::Register>,
     #[field({FieldValueU32<RegionAttributes::Register>[rasr] | encodes_attrs(rasr, size, first_subregion_no, last_subregion_no, perms) })]
     attributes: FieldValueU32<RegionAttributes::Register>,
     // Flux tracking of actual region rather than logical region
-    #[field(GhostRegionState[region_no, set, start, size, first_subregion_no, last_subregion_no, perms])]
+    #[field({ GhostRegionState[region_no, set, start, size, first_subregion_no, last_subregion_no, logical_start, logical_size, perms] | subregions_match_loc(first_subregion_no, last_subregion_no, logical_start, logical_size, start, size)})]
     ghost_region_state: GhostRegionState,
 }
 
@@ -749,8 +771,8 @@ impl CortexMRegion {
     }
 
     #[flux_rs::sig(fn(
-        FluxPtrU8,
-        usize,
+        FluxPtrU8[@lstart],
+        usize[@lsize],
         FluxPtrU8[@rstart],
         usize[@rsize],
         usize[@region_num],
@@ -758,14 +780,19 @@ impl CortexMRegion {
     ) -> Self { r: 
             encodes_base(r.rbar, rstart, region_num) &&
             encodes_attrs(r.rasr, rsize, 0, 7, perms) &&
+            subregions_match_loc(0, 7, lstart, lsize, rstart, rsize) &&
             r.region_no == region_num &&
             r.set == true &&
             r.start == rstart &&
             r.size == rsize &&
             r.first_subregion_no == 0 &&
             r.last_subregion_no == 7 &&
+            r.logical_start == lstart &&
+            r.logical_size == lsize &&
             r.perms == perms 
         } 
+        // no subregions means actual region and logical region are the same
+        requires lstart == rstart && lsize == rsize
     )]
     fn new_without_subregions(
         logical_start: FluxPtrU8,
@@ -783,10 +810,8 @@ impl CortexMRegion {
         let attributes = Self::compute_attributes(region_size, permissions);
 
         Self::into_region(
-            Some(CortexMLocation {
-                addr: logical_start,
-                size: logical_size,
-            }),
+            logical_start,
+            logical_size,
             base_address,
             attributes,
             region_num,
@@ -799,8 +824,8 @@ impl CortexMRegion {
     }
 
     #[flux_rs::sig(fn(
-        FluxPtrU8,
-        usize,
+        FluxPtrU8[@lstart],
+        usize[@lsize],
         FluxPtrU8[@rstart],
         usize[@rsize],
         usize[@region_num],
@@ -810,12 +835,15 @@ impl CortexMRegion {
     ) -> Self { r: 
             encodes_base(r.rbar, rstart, region_num) &&
             encodes_attrs(r.rasr, rsize, subregion_start, subregion_end, perms) &&
+            subregions_match_loc(subregion_start, subregion_end, lstart, lsize, rstart, rsize) &&
             r.region_no == region_num &&
             r.set == true &&
             r.start == rstart &&
             r.size == rsize &&
             r.first_subregion_no == subregion_start &&
             r.last_subregion_no == subregion_end &&
+            r.logical_start == lstart &&
+            r.logical_size == lsize &&
             r.perms == perms 
         } 
     )]
@@ -842,10 +870,8 @@ impl CortexMRegion {
 
         attributes += RegionAttributes::SRD().val(mask as u32);
         Self::into_region(
-            Some(CortexMLocation {
-                addr: logical_start,
-                size: logical_size,
-            }),
+            logical_start, 
+            logical_size,
             base_address,
             attributes,
             region_num,
@@ -860,7 +886,8 @@ impl CortexMRegion {
     // trusted intializer for ghost state stuff
     #[flux_rs::trusted]
     #[flux_rs::sig(fn (
-        Option<CortexMLocation>[@loc],
+        FluxPtrU8[@lstart],
+        usize[@lsize],
         FieldValueU32<RegionBaseAddress::Register>[@base_address],
         FieldValueU32<RegionAttributes::Register>[@attributes],
         usize[@region_num],
@@ -872,19 +899,21 @@ impl CortexMRegion {
     ) -> Self[
         base_address,
         attributes,
-        loc,
+        true,
         region_num, 
         true,
         region_start, 
         region_size, 
         min_subregion_num,
         max_subregion_num, 
+        lstart,
+        lsize,
         perms
         ]
-        requires loc 
     )] 
     fn into_region(
-        location: Option<CortexMLocation>,
+        logical_start: FluxPtrU8,
+        logical_size: usize,
         base_address: FieldValueU32<RegionBaseAddress::Register>,
         attributes: FieldValueU32<RegionAttributes::Register>,
         region_num: usize,
@@ -895,7 +924,10 @@ impl CortexMRegion {
         permissions: mpu::Permissions,
     ) -> Self {
         Self {
-            location,
+            location: Some(CortexMLocation {
+                addr: logical_start,
+                size: logical_size
+            }),
             base_address,
             attributes,
             ghost_region_state: GhostRegionState {},
@@ -920,12 +952,12 @@ impl CortexMRegion {
         Some((loc.addr, loc.size))
     }
 
-    #[flux_rs::sig(fn(&CortexMRegion[@addr, @attrs, @loc, @no, @set, @start, @size, @fsr, @lsr, @perms]) -> FieldValueU32<RegionBaseAddress::Register>[addr])]
+    #[flux_rs::sig(fn(&CortexMRegion[@addr, @attrs, @loc, @no, @set, @start, @size, @fsr, @lsr, @lstart, @lsize, @perms]) -> FieldValueU32<RegionBaseAddress::Register>[addr])]
     fn base_address(&self) -> FieldValueU32<RegionBaseAddress::Register> {
         self.base_address
     }
 
-    #[flux_rs::sig(fn(&CortexMRegion[@addr, @attrs, @loc, @no, @set, @start, @size, @fsr, @lsr, @perms]) -> FieldValueU32<RegionAttributes::Register>[attrs])]
+    #[flux_rs::sig(fn(&CortexMRegion[@addr, @attrs, @loc, @no, @set, @start, @size, @fsr, @lsr, @lstart, @lsize, @perms]) -> FieldValueU32<RegionAttributes::Register>[attrs])]
     fn attributes(&self) -> FieldValueU32<RegionAttributes::Register> {
         self.attributes
     }
