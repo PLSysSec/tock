@@ -271,8 +271,8 @@ flux_rs::defs! {
     }
     fn subregions_match(first_subregion_no: int, last_subregion_no: int, astart: int, asize: int, rstart: int, rsize: int) -> bool {
         // logical start and size match the subregions that will be set
-        rstart + (rsize / 8) * first_subregion_no == astart &&
-        (rstart + (rsize / 8) * last_subregion_no) - astart == asize
+        astart == rstart + first_subregion_no * (rsize / 8) &&
+        asize == (last_subregion_no - first_subregion_no + 1) * (rsize / 8)
     }
 
     fn enabled_srd_mask(first_subregion_no: int, last_subregion_no: int) -> bitvec<32> {
