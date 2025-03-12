@@ -166,27 +166,26 @@ flux_rs::defs! {
     }
 
     fn regions_post_allocate_app_memory_region(region0: CortexMRegion, region1: CortexMRegion, astart: int, memsz: int, appmsz: int, kernelmsz: int, perms: mpu::Permissions) -> bool {
+        // region0 num is 0
+        region0.region_no == 0 &&
         // region0 is set
         region0.set &&
         // region0 accesible start is the base
         region0.astart == astart &&
         // region0 size is either the full memory block or half of it
         (region0.rsize == memsz || region0.rsize == memsz / 2) &&
-        // region 0 first enabled subregion is 0
-        region0.first_subregion_no == 0 &&
         // region 0 perms matched the permissions passed
         region0.perms == perms &&
         // if we have to use region 1
         if region1.set {
-            // region1 start is base + region size
+            // region1 num is 1
+            region1.region_no == 1 &&
+            // region1 start is region0 astart + region asize
             region1.astart == region0.astart + region0.asize &&
-            // region1 size is the same as region0
-            region1.asize == region0.asize &&
             // region1 region start and accesible start are the same
             region1.rstart == region1.astart &&
-            // region1 region size and accessible size are the same
-            // VTock Bug - This is definitely not right
-            region1.rsize == region0.asize && 
+            // region1 rsize is the same as region0
+            region1.rsize == region0.rsize && 
             // region1 perms matched the permissions passed
             region1.perms == perms &&
             // region1 invariant holds 
@@ -218,6 +217,60 @@ flux_rs::defs! {
         same_config(new_config, old_config, 5) &&
         same_config(new_config, old_config, 6) &&
         same_config(new_config, old_config, 7)
+    }
+
+    fn regions_post_update_app_memory_region(region0: CortexMRegion, region1: CortexMRegion, old_astart: int, old_asize: int, app_break: int, kernel_break: int, perms: mpu::Permissions) -> bool {
+        // region0 num is 0
+        region0.region_no == 0 &&
+        // region0 is set
+        region0.set &&
+        // region0 astart is the same as before
+        region0.astart == old_astart && 
+        // region0 asize is the same as before 
+        region0.asize == old_asize &&
+        // region1 perms match the permissions
+        region0.perms == perms &&
+        // if we have to use region 1
+        if region1.set {
+            // region1 num is 1
+            region1.region_no == 1 &&
+            // region1 start is region0 astart + region asize
+            region1.astart == region0.astart + region0.asize &&
+            // region1 region start and accesible start are the same
+            region1.rstart == region1.astart &&
+            // region1 rsize is the same as region0
+            region1.rsize == region0.rsize && 
+            // region1 perms matched the permissions passed
+            region1.perms == perms &&
+            // region1 invariant holds 
+            encodes_base(region1.rbar, region1.astart, region1.region_no) &&
+            encodes_attrs(region1.rasr, region1.asize, region1.first_subregion_no, region1.last_subregion_no, region1.perms) &&
+            subregions_match(region1.first_subregion_no, region1.last_subregion_no, region1.astart, region1.asize, region1.rstart, region1.rsize) &&
+            // finally - the accesible region covers the app_break
+            region1.astart + region1.asize >= app_break &&
+            // AND - does not cover the kernel break
+            region1.astart + region1.asize <= kernel_break
+        } else {
+            // finally - the accesible region covers the app_break
+            region0.astart + region0.asize >= app_break &&
+            // AND - does not cover the kernel break
+            region0.astart + region0.asize <= kernel_break
+        }
+        &&
+        encodes_base(region0.rbar, region0.astart, region0.region_no) &&
+        encodes_attrs(region0.rasr, region0.asize, region0.first_subregion_no, region0.last_subregion_no, region0.perms) &&
+        subregions_match(region0.first_subregion_no, region0.last_subregion_no, region0.astart, region0.asize, region0.rstart, region0.rsize)
+    }
+
+    fn config_post_update_app_memory_region(old_config: CortexMConfig, app_break: int, kernel_break: int, perms: mpu::Permissions, new_config: CortexMConfig) -> bool {
+        regions_post_update_app_memory_region(map_get(new_config, 0), map_get(new_config, 1), astart(map_get(old_config, 0)), asize(map_get(old_config, 0)), app_break, kernel_break, perms) &&
+        same_config(new_config, old_config, 2) &&
+        same_config(new_config, old_config, 3) &&
+        same_config(new_config, old_config, 4) &&
+        same_config(new_config, old_config, 5) &&
+        same_config(new_config, old_config, 6) &&
+        same_config(new_config, old_config, 7)
+
     }
 
     fn same_config(new_config: CortexMConfig, old_config: CortexMConfig, idx: int) -> bool {
@@ -321,6 +374,13 @@ flux_rs::defs! {
         r.sz
     }
 
+    fn astart(r: CortexMRegion) -> int {
+        r.astart
+    }
+
+    fn asize(r: CortexMRegion) -> int {
+        r.asize
+    }
 }
 
 // VTOCK_TODO: better solution for hardware register spooky-action-at-a-distance
@@ -1371,12 +1431,22 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         Some(Pair { fst: region_start.as_fluxptr(), snd: memory_size_po2 })
     }
 
+    #[flux_rs::sig(
+        fn (
+            _,
+            FluxPtrU8[@app_break],
+            FluxPtrU8[@kernel_break],
+            mpu::Permissions[@perms],
+            config: &strg CortexMConfig[@old_c]
+        ) -> Result<(), ()>[#res]
+        ensures config: CortexMConfig { new_c: res => config_post_update_app_memory_region(old_c, app_break, kernel_break, perms, new_c) }
+    )]
     fn update_app_memory_region(
         &self,
         app_memory_break: FluxPtrU8,
         kernel_memory_break: FluxPtrU8,
         permissions: mpu::Permissions,
-        config: &mut Self::MpuConfig,
+        config: &mut CortexMConfig,
     ) -> Result<(), ()> {
         // Get first region, or error if the process tried to update app memory
         // MPU region before it was created.
@@ -1398,7 +1468,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         let app_memory_size = app_memory_break - region_start;
 
         // There are eight subregions for every region in the Cortex-M3/4 MPU.
-        let subregion_size = region_size / 8; // VTock BUG - isn't this the logical size?
+        let subregion_size = region_size / 8; 
 
         // Determine the number of subregions to enable.
         // Want `round_up(app_memory_size / subregion_size)`.
