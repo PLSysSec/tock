@@ -186,7 +186,7 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
             Err(Error::OutOfMemory)
         } else if let Err(()) = 
         // VTOCK TODO: FIX THIS to pass actual mem start and flash
-        mpu.update_app_memory_region(
+        mpu.update_app_memory_regions(
             FluxPtr::from(0),
             new_break,
             self.breaks.kernel_memory_break,
@@ -250,7 +250,7 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
             // Verify this is compatible with the MPU.
         } else if let Err(()) = 
         // VTOCK TODO: FIX THIS to pass the actual flash and mem start
-        mpu.update_app_memory_region(
+        mpu.update_app_memory_regions(
             FluxPtr::from(0), 
             self.breaks.app_break,
             new_break,
@@ -743,7 +743,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         min_region_size: usize,
     ) -> Option<mpu::Region> {
         self.breaks_and_config.and_then(|breaks_and_config| {
-            let Pair { fst: new_region, .. } = self.chip.mpu().allocate_region(
+            let new_region = self.chip.mpu().allocate_region(
                 unallocated_memory_start,
                 unallocated_memory_size,
                 min_region_size,
@@ -1694,7 +1694,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // - the kernel-owned allocation growing downward starting at the end
         //   of this allocation, `initial_kernel_memory_size` bytes long.
         //
-        let (allocation_start, allocation_size) = match chip.mpu().allocate_app_memory_region(
+        let (allocation_start, allocation_size) = match chip.mpu().allocate_app_memory_regions(
             remaining_memory.as_fluxptr(),
             remaining_memory.len(),
             min_total_memory_size,
@@ -2088,7 +2088,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let initial_kernel_memory_size =
             grant_ptrs_offset + Self::CALLBACKS_OFFSET + Self::PROCESS_STRUCT_OFFSET;
 
-        let app_mpu_mem = self.chip.mpu().allocate_app_memory_region(
+        let app_mpu_mem = self.chip.mpu().allocate_app_memory_regions(
             self.mem_start(),
             self.memory_len,
             self.memory_len, //we want exactly as much as we had before restart

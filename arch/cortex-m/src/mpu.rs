@@ -446,11 +446,16 @@ pub struct CortexMConfig {
     region_state: RegionGhostState,
 }
 
-/// Records the index of the last region used for application RAM memory.
-/// Regions 0-APP_MEMORY_REGION_MAX_NUM are used for application RAM. Regions
+/// Records the index of the last region used for application RAM and flash memory.
+/// Regions 0-APP_MEMORY_REGION_MAX_NUM are used for application RAM and flash. Regions
 /// with indices above APP_MEMORY_REGION_MAX_NUM can be used for other MPU
 /// needs.
-const APP_MEMORY_REGION_MAX_NUM: usize = 1;
+/// 
+/// Note the process heap will be region 0 and possibly region 1. Process flash will be region 2
+const APP_MEMORY_REGION_MAX_NUM: usize = 2;
+const HEAP_REGION1: usize = 0;
+const HEAP_REGION2: usize = 1;
+const FLASH_REGION: usize = 2;
 
 impl fmt::Display for CortexMConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -531,7 +536,7 @@ impl CortexMConfig {
         self.regions.iter()
     }
 
-    #[flux_rs::sig(fn(&CortexMConfig[@c]) -> Option<usize{idx: idx > 1 && idx < 8 }>)]
+    #[flux_rs::sig(fn(&CortexMConfig[@c]) -> Option<usize{idx: idx > 2 && idx < 8 }>)]
     #[flux_rs::trusted] // need spec for enumerate for this to work
     fn unused_region_number(&self) -> Option<usize> {
         for (number, region) in self.regions_iter().enumerate() {
@@ -769,85 +774,17 @@ impl CortexMRegion {
     }
 }
 
-#[flux_rs::assoc(fn enabled(self: Self) -> bool {enable(self.ctrl)} )]
-#[flux_rs::assoc(fn configured_for(self: Self, config: CortexMConfig) -> bool {mpu_configured_for(self, config)} )]
-#[flux_rs::assoc(fn config_can_access(c: CortexMConfig, start: int, size: int, perms: mpu::Permissions) -> bool { config_can_access(c, start, size, perms) })]
-#[flux_rs::assoc(fn config_cant_access(c: CortexMConfig, start: int, size: int) -> bool { config_cant_access(c, start, size) } )]
-impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
-    type MpuConfig = CortexMConfig;
+impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
 
-    // #[flux_rs::sig(fn(self: &strg Self) ensures self: Self)]
-    #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: enable(mpu.ctrl)})]
-    fn enable_app_mpu(&mut self) {
-        // Enable the MPU, disable it during HardFault/NMI handlers, and allow
-        // privileged code access to all unprotected memory.
-        self.registers.ctrl.write(
-            Control::ENABLE::SET() + Control::HFNMIENA::CLEAR() + Control::PRIVDEFENA::SET(),
-        );
-    }
-
-    #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: !enable(mpu.ctrl)})]
-    fn disable_app_mpu(&mut self) {
-        // The MPU is not enabled for privileged mode, so we don't have to do
-        // anything
-        self.registers.ctrl.write(Control::ENABLE::CLEAR());
-    }
-
-    fn number_total_regions(&self) -> usize {
-        self.registers.mpu_type.read(Type::DREGION()) as usize
-    }
-
-    #[flux_rs::sig(fn (_) -> Option<{c. CortexMConfig[c] | config_cant_access(c, 0, 0xffff_ffff)}>)]
-    fn new_config(&self) -> Option<CortexMConfig> {
-        let id = self.config_count.get();
-        self.config_count.set(id.checked_add(1)?);
-
-        // Allocate the regions with index `0` first, then use `reset_config` to
-        // write the properly-indexed `CortexMRegion`s:
-        let mut ret = CortexMConfig {
-            id,
-            regions: [CortexMRegion::empty(0); 8],
-            is_dirty: Cell::new(true),
-            region_state: RegionGhostState::new(),
-        };
-
-        self.reset_config(&mut ret);
-
-        Some(ret)
-    }
-
-    #[flux_rs::sig(fn (_, config: &strg CortexMConfig) ensures config: CortexMConfig{c: config_cant_access(c, 0, 0xffff_ffff)})]
-    fn reset_config(&self, config: &mut CortexMConfig) {
-        config.region_set(0, CortexMRegion::empty(0));
-        config.region_set(1, CortexMRegion::empty(1));
-        config.region_set(2, CortexMRegion::empty(2));
-        config.region_set(3, CortexMRegion::empty(3));
-        config.region_set(4, CortexMRegion::empty(4));
-        config.region_set(5, CortexMRegion::empty(5));
-        config.region_set(6, CortexMRegion::empty(6));
-        config.region_set(7, CortexMRegion::empty(7));
-
-        config.set_dirty(true);
-    }
-
-    // #[flux_rs::sig(fn(
-    //     _,
-    //     FluxPtrU8[@memstart],
-    //     usize[@memsz],
-    //     usize[@minsz],
-    //     mpu::Permissions[@perms],
-    //     config: &strg CortexMConfig[@old_c],
-    // ) -> Option<{p. Pair<mpu::Region, usize>[p] | config_post_allocate_region(old_c, new_c, p.snd, mpu_region_base(p.fst), mpu_region_sz(p.fst), perms)}>
-    //     ensures config: CortexMConfig[#new_c] 
-    // )]
-    fn allocate_region(
+    fn create_region(
         &self,
+        region_num: usize,
         unallocated_memory_start: FluxPtrU8,
         unallocated_memory_size: usize,
         min_region_size: usize,
         permissions: mpu::Permissions,
-        config: &mut CortexMConfig,
-    ) -> Option<Pair<mpu::Region, usize>> {
+        config: &CortexMConfig
+    ) -> Option<CortexMRegion> {
         assume(min_region_size < 2147483648);
 
         // Check that no previously allocated regions overlap the unallocated memory.
@@ -856,8 +793,6 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
                 return None;
             }
         }
-
-        let region_num = config.unused_region_number()?;
 
         // Logical region
         let mut start = unallocated_memory_start.as_usize();
@@ -965,11 +900,96 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             subregions,
             permissions,
         );
+        return Some(region);
+    }
+}
 
+#[flux_rs::assoc(fn enabled(self: Self) -> bool {enable(self.ctrl)} )]
+#[flux_rs::assoc(fn configured_for(self: Self, config: CortexMConfig) -> bool {mpu_configured_for(self, config)} )]
+#[flux_rs::assoc(fn config_can_access(c: CortexMConfig, start: int, size: int, perms: mpu::Permissions) -> bool { config_can_access(c, start, size, perms) })]
+#[flux_rs::assoc(fn config_cant_access(c: CortexMConfig, start: int, size: int) -> bool { config_cant_access(c, start, size) } )]
+impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
+    type MpuConfig = CortexMConfig;
+
+    // #[flux_rs::sig(fn(self: &strg Self) ensures self: Self)]
+    #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: enable(mpu.ctrl)})]
+    fn enable_app_mpu(&mut self) {
+        // Enable the MPU, disable it during HardFault/NMI handlers, and allow
+        // privileged code access to all unprotected memory.
+        self.registers.ctrl.write(
+            Control::ENABLE::SET() + Control::HFNMIENA::CLEAR() + Control::PRIVDEFENA::SET(),
+        );
+    }
+
+    #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: !enable(mpu.ctrl)})]
+    fn disable_app_mpu(&mut self) {
+        // The MPU is not enabled for privileged mode, so we don't have to do
+        // anything
+        self.registers.ctrl.write(Control::ENABLE::CLEAR());
+    }
+
+    fn number_total_regions(&self) -> usize {
+        self.registers.mpu_type.read(Type::DREGION()) as usize
+    }
+
+    #[flux_rs::sig(fn (_) -> Option<{c. CortexMConfig[c] | config_cant_access(c, 0, 0xffff_ffff)}>)]
+    fn new_config(&self) -> Option<CortexMConfig> {
+        let id = self.config_count.get();
+        self.config_count.set(id.checked_add(1)?);
+
+        // Allocate the regions with index `0` first, then use `reset_config` to
+        // write the properly-indexed `CortexMRegion`s:
+        let mut ret = CortexMConfig {
+            id,
+            regions: [CortexMRegion::empty(0); 8],
+            is_dirty: Cell::new(true),
+            region_state: RegionGhostState::new(),
+        };
+
+        self.reset_config(&mut ret);
+
+        Some(ret)
+    }
+
+    #[flux_rs::sig(fn (_, config: &strg CortexMConfig) ensures config: CortexMConfig{c: config_cant_access(c, 0, 0xffff_ffff)})]
+    fn reset_config(&self, config: &mut CortexMConfig) {
+        config.region_set(0, CortexMRegion::empty(0));
+        config.region_set(1, CortexMRegion::empty(1));
+        config.region_set(2, CortexMRegion::empty(2));
+        config.region_set(3, CortexMRegion::empty(3));
+        config.region_set(4, CortexMRegion::empty(4));
+        config.region_set(5, CortexMRegion::empty(5));
+        config.region_set(6, CortexMRegion::empty(6));
+        config.region_set(7, CortexMRegion::empty(7));
+
+        config.set_dirty(true);
+    }
+
+
+    // #[flux_rs::sig(fn(
+    //     _,
+    //     FluxPtrU8[@memstart],
+    //     usize[@memsz],
+    //     usize[@minsz],
+    //     mpu::Permissions[@perms],
+    //     config: &strg CortexMConfig[@old_c],
+    // ) -> Option<{p. Pair<mpu::Region, usize>[p] | config_post_allocate_region(old_c, new_c, p.snd, mpu_region_base(p.fst), mpu_region_sz(p.fst), perms)}>
+    //     ensures config: CortexMConfig[#new_c] 
+    // )]
+    fn allocate_region(
+        &self,
+        unallocated_memory_start: FluxPtrU8,
+        unallocated_memory_size: usize,
+        min_region_size: usize,
+        permissions: mpu::Permissions,
+        config: &mut CortexMConfig,
+    ) -> Option<mpu::Region> {
+        let region_num = config.unused_region_number()?;
+        let region= self.create_region(region_num, unallocated_memory_start, unallocated_memory_size, min_region_size, permissions, config)?;
         config.region_set(region_num, region);
         config.set_dirty(true);
 
-        Some( Pair { fst: mpu::Region::new(start.as_fluxptr(), size), snd: region_num })
+        Some(mpu::Region::new(region.location()?.fst, region.location()?.snd))
     }
 
     #[flux_rs::sig(fn(
@@ -1018,7 +1038,8 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         ) -> Option<{p. Pair<FluxPtrU8, usize>[p] | access_post_allocate_app(new_c, fstart, fsz, p.fst, appmsz, p.fst + p.snd - kernelmsz, perms)}>
         ensures config: CortexMConfig[#new_c]
     )]
-    fn allocate_app_memory_region(
+    // VTOCK TODO: Should this return a result that indicates what went wrong? i.e. did the flash allocation fail or did the heap allocation fail?
+    fn allocate_app_memory_regions(
         &self,
         unallocated_memory_start: FluxPtrU8,
         unallocated_memory_size: usize,
@@ -1030,6 +1051,13 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         permissions: mpu::Permissions,
         config: &mut CortexMConfig,
     ) -> Option<Pair<FluxPtrU8, usize>> {
+        // VTOCK TODO: Is this ok? I think not? 
+        // first allocate flash
+        let region = self.create_region(FLASH_REGION, flash_start, flash_size, flash_size, mpu::Permissions::ReadExecuteOnly, config)?;
+        config.region_set(FLASH_REGION, region);
+        // VTOCK TODO: Is this necessary?
+        config.set_dirty(true);
+
         // Check that no previously allocated regions overlap the unallocated
         // memory.
         for region in config.regions_iter() {
@@ -1130,7 +1158,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             num_enabled_subregions0 * subregion_size, 
             region_start.as_fluxptr(), 
             region_size, 
-            0,
+            HEAP_REGION1,
             Some((0, num_enabled_subregions0 - 1)),
             permissions,
         );
@@ -1144,14 +1172,14 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
                 num_enabled_subregions1 * subregion_size,
                 (region_start + region_size).as_fluxptr(), 
                 region_size,
-                1,
+                HEAP_REGION2,
                 Some((0, num_enabled_subregions1 - 1)),
                 permissions,
             )
         };
 
-        config.region_set(0, region0);
-        config.region_set(1, region1);
+        config.region_set(HEAP_REGION1, region0);
+        config.region_set(HEAP_REGION2, region1);
         config.set_dirty(true);
 
         Some(Pair { fst: region_start.as_fluxptr(), snd: memory_size_po2 })
@@ -1171,7 +1199,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         requires config_can_access(old_c, fstart, fsz, mpu::Permissions { r: true, w: false, x: true })
         ensures config: CortexMConfig {new_c: res => access_post_allocate_app(new_c, fstart, fsz, memstart, app_break, kernel_break, perms) }
     )]
-    fn update_app_memory_region(
+    fn update_app_memory_regions(
         &self,
         mem_start: FluxPtrU8Mut,
         app_memory_break: FluxPtrU8,
@@ -1181,6 +1209,13 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         permissions: mpu::Permissions,
         config: &mut CortexMConfig,
     ) -> Result<(), ()> {
+        // Get second region for flash and make sure it's allocated
+        let Pair { fst: flash_region_start, snd: flash_region_size } = config.get_region(2).location().ok_or(())?;
+        // if the flash region doesn't match exactly, something has gone terribly wrong
+        if flash_region_start != flash_start || flash_region_size != flash_region_size {
+            return Err(());
+        }
+
         // Get first region, or error if the process tried to update app memory
         // MPU region before it was created.
         let Pair { fst: region_start_ptr, snd: region_size } = config.get_region(0).location().ok_or(())?;

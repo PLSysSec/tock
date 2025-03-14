@@ -622,7 +622,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         min_region_size: usize,
         permissions: mpu::Permissions,
         config: &mut Self::MpuConfig,
-    ) -> Option<Pair<mpu::Region, usize>> {
+    ) -> Option<mpu::Region> {
         // Find a free region slot. If we don't have one, abort early:
         let region_num = config
             .regions
@@ -708,10 +708,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         );
         config.is_dirty.set(true);
 
-        Some(Pair {
-            fst: mpu::Region::new(flux_support::FluxPtr::from(start), size),
-            snd: region_num,
-        })
+        Some(mpu::Region::new(flux_support::FluxPtr::from(start), size))
     }
 
     fn remove_memory_region(
@@ -738,7 +735,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         Ok(())
     }
 
-    fn allocate_app_memory_region(
+    fn allocate_app_memory_regions(
         &self,
         unallocated_memory_start: FluxPtr,
         unallocated_memory_size: usize,
@@ -840,7 +837,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         })
     }
 
-    fn update_app_memory_region(
+    fn update_app_memory_regions(
         &self,
         memory_start: FluxPtr,
         app_memory_break: FluxPtr,
@@ -976,7 +973,7 @@ pub mod test {
         // bytes, but only the first `0x10000000` should be accessible to the
         // app.
         let (region_2_start, region_2_size) = mpu
-            .allocate_app_memory_region(
+            .allocate_app_memory_regions(
                 0xc0000000 as *const u8,
                 0x20000000,
                 0x20000000,
@@ -1107,7 +1104,7 @@ pub mod test {
         assert!(region_2.size() == 0x10000000);
 
         // Now, we can grow the app memory break into this region:
-        mpu.update_app_memory_region(
+        mpu.update_app_memory_regions(
             0xd0000004 as *const u8,
             0xd8000000 as *const u8,
             Permissions::ReadWriteOnly,

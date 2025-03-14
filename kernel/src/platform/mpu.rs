@@ -176,7 +176,7 @@ pub trait MPU {
         min_region_size: usize,
         permissions: Permissions,
         config: &mut Self::MpuConfig,
-    ) -> Option<Pair<Region, usize>>;
+    ) -> Option<Region>;
 
     /// Removes an MPU region within app-owned memory.
     ///
@@ -254,7 +254,7 @@ pub trait MPU {
             }>
         ensures config: Self::MpuConfig[#new_c]
     )]
-    fn allocate_app_memory_region(
+    fn allocate_app_memory_regions(
         &self,
         unallocated_memory_start: FluxPtrU8Mut,
         unallocated_memory_size: usize,
@@ -305,7 +305,7 @@ pub trait MPU {
                 <Self as MPU>::config_cant_access(new_c, kernel_break, 0xffff_ffff)
             }
     )]
-    fn update_app_memory_region(
+    fn update_app_memory_regions(
         &self,
         mem_start: FluxPtrU8Mut,
         app_memory_break: FluxPtrU8Mut,
