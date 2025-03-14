@@ -154,9 +154,8 @@ flux_rs::defs! {
         // region set
         region.set &&
         // region's accesible block contains the start and end checked
-        region.astart <= start &&
-        region.asize + region.astart >= start + size
-        &&
+        start >= region.astart &&
+        start + size <= region.astart + region.asize &&
         // and perms are correct
         region.perms == perms
     }
@@ -183,13 +182,13 @@ flux_rs::defs! {
     } 
 
     fn config_cant_access(config: CortexMConfig, start: int, size: int) -> bool {
-        region_cant_access(map_get(config, 0), start, size) ||
-        region_cant_access(map_get(config, 1), start, size) ||
-        region_cant_access(map_get(config, 2), start, size) ||
-        region_cant_access(map_get(config, 3), start, size) ||
-        region_cant_access(map_get(config, 4), start, size) ||
-        region_cant_access(map_get(config, 5), start, size) ||
-        region_cant_access(map_get(config, 6), start, size) ||
+        region_cant_access(map_get(config, 0), start, size) &&
+        region_cant_access(map_get(config, 1), start, size) &&
+        region_cant_access(map_get(config, 2), start, size) &&
+        region_cant_access(map_get(config, 3), start, size) &&
+        region_cant_access(map_get(config, 4), start, size) &&
+        region_cant_access(map_get(config, 5), start, size) &&
+        region_cant_access(map_get(config, 6), start, size) &&
         region_cant_access(map_get(config, 7), start, size)
     }
 
@@ -564,6 +563,38 @@ struct CortexMLocation {
 #[flux_rs::refined_by(region_no: int, astart: int, asize: int, perms: mpu::Permissions)]
 struct GhostRegionState {}
 
+impl GhostRegionState {
+
+    // trusted intializer for ghost state stuff
+    #[flux_rs::trusted]
+    #[flux_rs::sig(fn (
+        FluxPtrU8[@astart],
+        usize[@asize],
+        usize[@region_num],
+        mpu::Permissions[@perms]
+    ) -> GhostRegionState[region_num, astart, asize, perms]
+    )] 
+    fn set(
+        logical_start: FluxPtrU8,
+        logical_size: usize,
+        region_num: usize,
+        permissions: mpu::Permissions,
+    ) ->  Self {
+        Self {}
+    }
+
+    #[flux_rs::trusted]
+    #[flux_rs::sig(fn (
+        usize[@region_num]
+    ) -> GhostRegionState { r: r.region_no == region_num }
+    )] 
+    fn unset(
+        region_num: usize,
+    ) -> Self {
+        Self {}
+    }
+}
+
 /// Struct storing configuration for a Cortex-M MPU region.
 // if the region is set, the rbar bits encode the accessible start & region_num properly and the rasr bits encode the size and permissions properly
 #[derive(Copy, Clone)]
@@ -683,36 +714,6 @@ impl CortexMRegion {
             attributes += RegionAttributes::SRD().val(mask as u32);
         }
 
-        Self::into_region(logical_start, logical_size, base_address, attributes, region_num, permissions)
-    }
-
-    // trusted intializer for ghost state stuff
-    #[flux_rs::trusted]
-    #[flux_rs::sig(fn (
-        FluxPtrU8[@astart],
-        usize[@asize],
-        FieldValueU32<RegionBaseAddress::Register>[@base_address],
-        FieldValueU32<RegionAttributes::Register>[@attributes],
-        usize[@region_num],
-        mpu::Permissions[@perms]
-    ) -> Self[
-        base_address,
-        attributes,
-        region_num, 
-        true,
-        astart, 
-        asize, 
-        perms
-        ]
-    )] 
-    fn into_region(
-        logical_start: FluxPtrU8,
-        logical_size: usize,
-        base_address: FieldValueU32<RegionBaseAddress::Register>,
-        attributes: FieldValueU32<RegionAttributes::Register>,
-        region_num: usize,
-        permissions: mpu::Permissions,
-    ) -> Self {
         Self {
             location: Some(CortexMLocation {
                 addr: logical_start,
@@ -720,20 +721,18 @@ impl CortexMRegion {
             }),
             base_address,
             attributes,
-            ghost_region_state: GhostRegionState {},
+            ghost_region_state: GhostRegionState::set(logical_start, logical_size, region_num, permissions),
         }
     }
 
-    // trusted intializer for ghost state stuff
-    #[flux_rs::trusted]
-    #[flux_rs::sig(fn (usize[@region_num]) -> Self {r: r.region_no == region_num && r.set == false })]
+    #[flux_rs::sig(fn (usize[@region_num]) -> Self {r: r.region_no == region_num && region(value(r.rbar)) == bv32(region_num) && !r.set && !region_enable(value(r.rasr))})]
     fn empty(region_num: usize) -> CortexMRegion {
         CortexMRegion {
             location: None,
             base_address: RegionBaseAddress::VALID::UseRBAR()
                 + RegionBaseAddress::REGION().val(region_num as u32),
             attributes: RegionAttributes::ENABLE::CLEAR(),
-            ghost_region_state: GhostRegionState {} 
+            ghost_region_state: GhostRegionState::unset(region_num)
         }
     }
 
@@ -772,7 +771,8 @@ impl CortexMRegion {
 
 #[flux_rs::assoc(fn enabled(self: Self) -> bool {enable(self.ctrl)} )]
 #[flux_rs::assoc(fn configured_for(self: Self, config: CortexMConfig) -> bool {mpu_configured_for(self, config)} )]
-#[flux_rs::assoc(fn access_post_allocate_app(c: CortexMConfig, fstart: int, fsz: int, hstart: int, hsz: int, kbreak: int, perms: mpu::Permissions) -> bool { access_post_allocate_app(c, fstart, fsz, hstart, hsz, kbreak, perms) })]
+#[flux_rs::assoc(fn config_can_access(c: CortexMConfig, start: int, size: int, perms: mpu::Permissions) -> bool { config_can_access(c, start, size, perms) })]
+#[flux_rs::assoc(fn config_cant_access(c: CortexMConfig, start: int, size: int) -> bool { config_cant_access(c, start, size) } )]
 impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     type MpuConfig = CortexMConfig;
 
@@ -797,7 +797,8 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         self.registers.mpu_type.read(Type::DREGION()) as usize
     }
 
-    fn new_config(&self) -> Option<Self::MpuConfig> {
+    #[flux_rs::sig(fn (_) -> Option<{c. CortexMConfig[c] | config_cant_access(c, 0, 0xffff_ffff)}>)]
+    fn new_config(&self) -> Option<CortexMConfig> {
         let id = self.config_count.get();
         self.config_count.set(id.checked_add(1)?);
 
@@ -815,7 +816,8 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         Some(ret)
     }
 
-    fn reset_config(&self, config: &mut Self::MpuConfig) {
+    #[flux_rs::sig(fn (_, config: &strg CortexMConfig) ensures config: CortexMConfig{c: config_cant_access(c, 0, 0xffff_ffff)})]
+    fn reset_config(&self, config: &mut CortexMConfig) {
         config.region_set(0, CortexMRegion::empty(0));
         config.region_set(1, CortexMRegion::empty(1));
         config.region_set(2, CortexMRegion::empty(2));
@@ -1012,7 +1014,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             FluxPtrU8[@fstart],
             usize[@fsz],
             mpu::Permissions[@perms],
-            config: &strg CortexMConfig,
+            config: &strg CortexMConfig[@old_c],
         ) -> Option<{p. Pair<FluxPtrU8, usize>[p] | access_post_allocate_app(new_c, fstart, fsz, p.fst, appmsz, p.fst + p.snd - kernelmsz, perms)}>
         ensures config: CortexMConfig[#new_c]
     )]
@@ -1166,6 +1168,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             mpu::Permissions[@perms],
             config: &strg CortexMConfig[@old_c],
         ) -> Result<(), ()>[#res]
+        requires config_can_access(old_c, fstart, fsz, mpu::Permissions { r: true, w: false, x: true })
         ensures config: CortexMConfig {new_c: res => access_post_allocate_app(new_c, fstart, fsz, memstart, app_break, kernel_break, perms) }
     )]
     fn update_app_memory_region(

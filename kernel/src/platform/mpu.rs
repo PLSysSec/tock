@@ -91,9 +91,9 @@ impl Display for MpuConfigDefault {
 
 // VTOCK-TODO: remove default associated refinements
 #[flux_rs::assoc(fn enabled(self: Self) -> bool {false} )]
-#[flux_rs::assoc(fn configured_for(self: Self, config: Self::MpuConfig) -> bool {false} )]
-#[flux_rs::assoc(fn access_post_allocate_app(c: Self::MpuConfig, fstart: int, fsz: int, hstart: int, hsz: int, kbreak: int, perms: Permissions) -> bool)]
-// #[flux_rs::assoc(fn can_access(self: Self, addr: int, sz: int, perms: Permissions) -> bool {false} )]
+#[flux_rs::assoc(fn configured_for(self: Self, config: Self::MpuConfig) -> bool)]
+#[flux_rs::assoc(fn config_can_access(c: Self::MpuConfig, start: int, size: int, perms: Permissions) -> bool)]
+#[flux_rs::assoc(fn config_cant_access(c: Self::MpuConfig, start: int, size: int) -> bool)]
 pub trait MPU {
     /// MPU-specific state that defines a particular configuration for the MPU.
     /// That is, this should contain all of the required state such that the
@@ -138,6 +138,7 @@ pub trait MPU {
     /// The underlying implementation may only be able to allocate a finite
     /// number of MPU configurations. It may return `None` if this resource is
     /// exhausted.
+    #[flux_rs::sig(fn (_) -> Option<{c. Self::MpuConfig[c] | <Self as MPU>::config_cant_access(c, 0, 0xffff_ffff)}>)]
     fn new_config(&self) -> Option<Self::MpuConfig>;
 
     /// Resets an MPU configuration.
@@ -145,6 +146,7 @@ pub trait MPU {
     /// This method resets an MPU configuration to its initial state, as
     /// returned by [`MPU::new_config`]. After invoking this operation, it must
     /// not have any userspace-acessible regions pre-allocated.
+    #[flux_rs::sig(fn (_, config: &strg Self::MpuConfig) ensures config: Self::MpuConfig {c: <Self as MPU>::config_cant_access(c, 0, 0xffff_ffff)})]
     fn reset_config(&self, config: &mut Self::MpuConfig);
 
     /// Allocates a new MPU region.
@@ -242,8 +244,14 @@ pub trait MPU {
             FluxPtrU8[@fstart],
             usize[@fsz],
             Permissions[@perms],
-            config: &strg Self::MpuConfig,
-        ) -> Option<{p. Pair<FluxPtrU8, usize>[p] | <Self as MPU>::access_post_allocate_app(new_c, fstart, fsz, p.fst, appmsz, p.fst + p.snd - kernelmsz, perms)}>
+            config: &strg Self::MpuConfig[@old_c],
+        ) -> Option<{p. Pair<FluxPtrU8, usize>[p] | 
+                <Self as MPU>::config_can_access(new_c, fstart, fsz, Permissions { r: true, w: false, x: true }) &&
+                <Self as MPU>::config_can_access(new_c, p.fst, appmsz, perms) &&
+                <Self as MPU>::config_cant_access(new_c, 0, fstart) &&
+                <Self as MPU>::config_cant_access(new_c, fstart + fsz, p.fst - fstart + fsz) &&
+                <Self as MPU>::config_cant_access(new_c, p.fst + p.snd - kernelmsz, 0xffff_ffff)
+            }>
         ensures config: Self::MpuConfig[#new_c]
     )]
     fn allocate_app_memory_region(
@@ -288,7 +296,14 @@ pub trait MPU {
             Permissions[@perms],
             config: &strg Self::MpuConfig[@old_c],
         ) -> Result<(), ()>[#res]
-        ensures config: Self::MpuConfig {new_c: res => <Self as MPU>::access_post_allocate_app(new_c, fstart, fsz, memstart, app_break, kernel_break, perms) }
+        requires <Self as MPU>::config_can_access(old_c, fstart, fsz, Permissions { r: true, w: false, x: true })
+        ensures config: Self::MpuConfig {new_c: res => 
+                <Self as MPU>::config_can_access(new_c, fstart, fsz, Permissions { r: true, w: false, x: true }) &&
+                <Self as MPU>::config_can_access(new_c, memstart, app_break - memstart, perms) &&
+                <Self as MPU>::config_cant_access(new_c, 0, fstart) &&
+                <Self as MPU>::config_cant_access(new_c, fstart + fsz, memstart - fstart + fsz) &&
+                <Self as MPU>::config_cant_access(new_c, kernel_break, 0xffff_ffff)
+            }
     )]
     fn update_app_memory_region(
         &self,
