@@ -1,3 +1,4 @@
+#[derive(Copy, Clone)]
 #[flux_rs::refined_by(fst: T, snd: E)]
 pub struct Pair<T, E> {
     #[field(T[fst])]

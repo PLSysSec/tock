@@ -41,7 +41,7 @@ flux_rs::defs! {
     fn region_enable(reg:bitvec<32>) -> bool { bit(reg, 0x00000001)}
     fn ap(reg:bitvec<32>) -> bitvec<32> { extract(reg, 0x07000000, 24) }
     fn srd(reg:bitvec<32>) -> bitvec<32> { extract(reg, 0x0000ff00, 8) }
-    fn size(reg:bitvec<32>) -> bitvec<32> { extract(reg, 0x0000003e, 1) }
+    fn size(reg:bitvec<32>) -> bitvec<32> { bv32(1) << (extract(reg, 0x0000003e, 1) + 1) }
 
     fn value(fv: FieldValueU32) -> bitvec<32> { fv.value}
     fn rbar(region: CortexMRegion) -> bitvec<32> { value(region.rbar) }
@@ -133,10 +133,10 @@ flux_rs::defs! {
         user_access_succeeds(map_get(mpu.regions, idx), map_get(mpu.attrs, idx), perms)
     }
 
-    fn config_region_can_access(config: CortexMConfig, addr: int, sz: int, perms: mpu::Permissions, idx: int) -> bool {
-        can_service(rbar(map_get(config.regions, idx)), rasr(map_get(config.regions, idx)), addr, sz) =>
-        user_access_succeeds(rbar(map_get(config.regions, idx)), rasr(map_get(config.regions, idx)), perms)
-    }
+    // fn config_region_can_access(config: CortexMConfig, addr: int, sz: int, perms: mpu::Permissions, idx: int) -> bool {
+    //     can_service(rbar(map_get(config.regions, idx)), rasr(map_get(config.regions, idx)), addr, sz) =>
+    //     user_access_succeeds(rbar(map_get(config.regions, idx)), rasr(map_get(config.regions, idx)), perms)
+    // }
 
     fn can_access(mpu: MPU, addr: int, sz: int, perms: mpu::Permissions) -> bool {
         region_can_access(mpu, addr, sz, perms, 0) &&
@@ -153,181 +153,225 @@ flux_rs::defs! {
         // true
     }
 
-    fn config_can_access(config: CortexMConfig, addr: int, sz: int, perms: mpu::Permissions) -> bool {
-        config_region_can_access(config, addr, sz, perms, 0) &&
-        config_region_can_access(config, addr, sz, perms, 1) &&
-        config_region_can_access(config, addr, sz, perms, 2) &&
-        config_region_can_access(config, addr, sz, perms, 3) &&
-        config_region_can_access(config, addr, sz, perms, 4) &&
-        config_region_can_access(config, addr, sz, perms, 5) &&
-        config_region_can_access(config, addr, sz, perms, 6) &&
-        config_region_can_access(config, addr, sz, perms, 7)
-        // true // TODO:
-    }
+    // fn config_can_access(config: CortexMConfig, addr: int, sz: int, perms: mpu::Permissions) -> bool {
+    //     config_region_can_access(config, addr, sz, perms, 0) &&
+    //     config_region_can_access(config, addr, sz, perms, 1) &&
+    //     config_region_can_access(config, addr, sz, perms, 2) &&
+    //     config_region_can_access(config, addr, sz, perms, 3) &&
+    //     config_region_can_access(config, addr, sz, perms, 4) &&
+    //     config_region_can_access(config, addr, sz, perms, 5) &&
+    //     config_region_can_access(config, addr, sz, perms, 6) &&
+    //     config_region_can_access(config, addr, sz, perms, 7)
+    //     // true // TODO:
+    // }
 
-    fn regions_post_allocate_app_memory_region(region0: CortexMRegion, region1: CortexMRegion, astart: int, memsz: int, appmsz: int, kernelmsz: int, perms: mpu::Permissions) -> bool {
-        // region0 num is 0
-        region0.region_no == 0 &&
-        // region0 is set
-        region0.set &&
-        // region0 accesible start is the base
-        region0.astart == astart &&
-        // region0 size is either the full memory block or half of it
-        (region0.rsize == memsz || region0.rsize == memsz / 2) &&
-        // region 0 perms matched the permissions passed
-        region0.perms == perms &&
-        // if we have to use region 1
-        if region1.set {
-            // region1 num is 1
-            region1.region_no == 1 &&
-            // region1 start is region0 astart + region asize
-            region1.astart == region0.astart + region0.asize &&
-            // region1 region start and accesible start are the same
-            region1.rstart == region1.astart &&
-            // region1 rsize is the same as region0
-            region1.rsize == region0.rsize && 
-            // region1 perms matched the permissions passed
-            region1.perms == perms &&
-            // region1 invariant holds 
-            encodes_base(region1.rbar, region1.astart, region1.region_no) &&
-            encodes_attrs(region1.rasr, region1.asize, region1.first_subregion_no, region1.last_subregion_no, region1.perms) &&
-            subregions_match(region1.first_subregion_no, region1.last_subregion_no, region1.astart, region1.asize, region1.rstart, region1.rsize) &&
-            // finally - the accesible region cover appmsz
-            region1.astart + region1.asize >= region1.astart + appmsz &&
-            // AND - does not cover the kernelmsz
-            region1.astart + region1.asize <= region1.astart + memsz - kernelmsz
-        } else {
-            // finally - the accesible region covers the appmsz
-            region0.astart + region0.asize >= region0.astart + appmsz &&
-            // AND - does not cover the kernelmsz
-            region0.astart + region1.asize <= region0.astart + memsz - kernelmsz
-        }
-        &&
-        // region0 invariant holds
-        encodes_base(region0.rbar, region0.astart, region0.region_no) &&
-        encodes_attrs(region0.rasr, region0.asize, region0.first_subregion_no, region0.last_subregion_no, region0.perms) &&
-        subregions_match(region0.first_subregion_no, region0.last_subregion_no, region0.astart, region0.asize, region0.rstart, region0.rsize)
-    }
+    // fn regions_post_allocate_app_memory_region(region0: CortexMRegion, region1: CortexMRegion, astart: int, memsz: int, appmsz: int, kernelmsz: int, perms: mpu::Permissions) -> bool {
+    //     // region0 num is 0
+    //     region0.region_no == 0 &&
+    //     // region0 is set
+    //     region0.set &&
+    //     // region0 accesible start is the base
+    //     region0.astart == astart &&
+    //     // region0 size is either the full memory block or half of it
+    //     (region0.rsize == memsz || region0.rsize == memsz / 2) &&
+    //     // region 0 perms matched the permissions passed
+    //     region0.perms == perms &&
+    //     // if we have to use region 1
+    //     if region1.set {
+    //         // region1 num is 1
+    //         region1.region_no == 1 &&
+    //         // region1 start is region0 astart + region asize
+    //         region1.astart == region0.astart + region0.asize &&
+    //         // region1 region start and accesible start are the same
+    //         region1.rstart == region1.astart &&
+    //         // region1 rsize is the same as region0
+    //         region1.rsize == region0.rsize && 
+    //         // region1 perms matched the permissions passed
+    //         region1.perms == perms &&
+    //         // region1 invariant holds 
+    //         encodes_base(region1.rbar, region1.astart, region1.region_no) &&
+    //         encodes_attrs(region1.rasr, region1.asize, region1.first_subregion_no, region1.last_subregion_no, region1.perms) &&
+    //         subregions_match(region1.first_subregion_no, region1.last_subregion_no, region1.astart, region1.asize, region1.rstart, region1.rsize) &&
+    //         // finally - the accesible region cover appmsz
+    //         region1.astart + region1.asize >= region1.astart + appmsz &&
+    //         // AND - does not cover the kernelmsz
+    //         region1.astart + region1.asize <= region1.astart + memsz - kernelmsz
+    //     } else {
+    //         // finally - the accesible region covers the appmsz
+    //         region0.astart + region0.asize >= region0.astart + appmsz &&
+    //         // AND - does not cover the kernelmsz
+    //         region0.astart + region1.asize <= region0.astart + memsz - kernelmsz
+    //     }
+    //     &&
+    //     // region0 invariant holds
+    //     encodes_base(region0.rbar, region0.astart, region0.region_no) &&
+    //     encodes_attrs(region0.rasr, region0.asize, region0.first_subregion_no, region0.last_subregion_no, region0.perms) &&
+    //     subregions_match(region0.first_subregion_no, region0.last_subregion_no, region0.astart, region0.asize, region0.rstart, region0.rsize)
+    // }
 
-    fn config_post_allocate_app_memory_region(old_config: CortexMConfig, base: int, memsz: int, appmsz: int, kernelmsz: int, perms: mpu::Permissions, new_config: CortexMConfig) -> bool {
-        regions_post_allocate_app_memory_region(map_get(new_config, 0), map_get(new_config, 1), base, memsz, appmsz, kernelmsz, perms) &&
-        same_config(new_config, old_config, 2) &&
-        same_config(new_config, old_config, 3) &&
-        same_config(new_config, old_config, 4) &&
-        same_config(new_config, old_config, 5) &&
-        same_config(new_config, old_config, 6) &&
-        same_config(new_config, old_config, 7)
-    }
+    // fn config_post_allocate_app_memory_region(old_config: CortexMConfig, base: int, memsz: int, appmsz: int, kernelmsz: int, perms: mpu::Permissions, new_config: CortexMConfig) -> bool {
+    //     regions_post_allocate_app_memory_region(map_get(new_config, 0), map_get(new_config, 1), base, memsz, appmsz, kernelmsz, perms) &&
+    //     same_config(new_config, old_config, 2) &&
+    //     same_config(new_config, old_config, 3) &&
+    //     same_config(new_config, old_config, 4) &&
+    //     same_config(new_config, old_config, 5) &&
+    //     same_config(new_config, old_config, 6) &&
+    //     same_config(new_config, old_config, 7)
+    // }
 
-    fn regions_post_update_app_memory_region(region0: CortexMRegion, region1: CortexMRegion, old_astart: int, old_asize: int, app_break: int, kernel_break: int, perms: mpu::Permissions) -> bool {
-        // region0 num is 0
-        region0.region_no == 0 &&
-        // region0 is set
-        region0.set &&
-        // region0 astart is the same as before
-        region0.astart == old_astart && 
-        // region0 asize is the same as before 
-        region0.asize == old_asize &&
-        // region1 perms match the permissions
-        region0.perms == perms &&
-        // if we have to use region 1
-        if region1.set {
-            // region1 num is 1
-            region1.region_no == 1 &&
-            // region1 start is region0 astart + region asize
-            region1.astart == region0.astart + region0.asize &&
-            // region1 region start and accesible start are the same
-            region1.rstart == region1.astart &&
-            // region1 rsize is the same as region0
-            region1.rsize == region0.rsize && 
-            // region1 perms matched the permissions passed
-            region1.perms == perms &&
-            // region1 invariant holds 
-            encodes_base(region1.rbar, region1.astart, region1.region_no) &&
-            encodes_attrs(region1.rasr, region1.asize, region1.first_subregion_no, region1.last_subregion_no, region1.perms) &&
-            subregions_match(region1.first_subregion_no, region1.last_subregion_no, region1.astart, region1.asize, region1.rstart, region1.rsize) &&
-            // finally - the accesible region covers the app_break
-            region1.astart + region1.asize >= app_break &&
-            // AND - does not cover the kernel break
-            region1.astart + region1.asize <= kernel_break
-        } else {
-            // finally - the accesible region covers the app_break
-            region0.astart + region0.asize >= app_break &&
-            // AND - does not cover the kernel break
-            region0.astart + region0.asize <= kernel_break
-        }
-        &&
-        encodes_base(region0.rbar, region0.astart, region0.region_no) &&
-        encodes_attrs(region0.rasr, region0.asize, region0.first_subregion_no, region0.last_subregion_no, region0.perms) &&
-        subregions_match(region0.first_subregion_no, region0.last_subregion_no, region0.astart, region0.asize, region0.rstart, region0.rsize)
-    }
+    // fn regions_post_update_app_memory_region(region0: CortexMRegion, region1: CortexMRegion, old_astart: int, old_asize: int, app_break: int, kernel_break: int, perms: mpu::Permissions) -> bool {
+    //     // region0 num is 0
+    //     region0.region_no == 0 &&
+    //     // region0 is set
+    //     region0.set &&
+    //     // region0 astart is the same as before
+    //     region0.astart == old_astart && 
+    //     // region0 asize is the same as before 
+    //     region0.asize == old_asize &&
+    //     // region1 perms match the permissions
+    //     region0.perms == perms &&
+    //     // if we have to use region 1
+    //     if region1.set {
+    //         // region1 num is 1
+    //         region1.region_no == 1 &&
+    //         // region1 start is region0 astart + region asize
+    //         region1.astart == region0.astart + region0.asize &&
+    //         // region1 region start and accesible start are the same
+    //         region1.rstart == region1.astart &&
+    //         // region1 rsize is the same as region0
+    //         region1.rsize == region0.rsize && 
+    //         // region1 perms matched the permissions passed
+    //         region1.perms == perms &&
+    //         // region1 invariant holds 
+    //         encodes_base(region1.rbar, region1.astart, region1.region_no) &&
+    //         encodes_attrs(region1.rasr, region1.asize, region1.first_subregion_no, region1.last_subregion_no, region1.perms) &&
+    //         subregions_match(region1.first_subregion_no, region1.last_subregion_no, region1.astart, region1.asize, region1.rstart, region1.rsize) &&
+    //         // finally - the accesible region covers the app_break
+    //         region1.astart + region1.asize >= app_break &&
+    //         // AND - does not cover the kernel break
+    //         region1.astart + region1.asize <= kernel_break
+    //     } else {
+    //         // finally - the accesible region covers the app_break
+    //         region0.astart + region0.asize >= app_break &&
+    //         // AND - does not cover the kernel break
+    //         region0.astart + region0.asize <= kernel_break
+    //     }
+    //     &&
+    //     encodes_base(region0.rbar, region0.astart, region0.region_no) &&
+    //     encodes_attrs(region0.rasr, region0.asize, region0.first_subregion_no, region0.last_subregion_no, region0.perms) &&
+    //     subregions_match(region0.first_subregion_no, region0.last_subregion_no, region0.astart, region0.asize, region0.rstart, region0.rsize)
+    // }
 
-    fn config_post_update_app_memory_region(old_config: CortexMConfig, app_break: int, kernel_break: int, perms: mpu::Permissions, new_config: CortexMConfig) -> bool {
-        regions_post_update_app_memory_region(map_get(new_config, 0), map_get(new_config, 1), astart(map_get(old_config, 0)), asize(map_get(old_config, 0)), app_break, kernel_break, perms) &&
-        same_config(new_config, old_config, 2) &&
-        same_config(new_config, old_config, 3) &&
-        same_config(new_config, old_config, 4) &&
-        same_config(new_config, old_config, 5) &&
-        same_config(new_config, old_config, 6) &&
-        same_config(new_config, old_config, 7)
+    // fn config_post_update_app_memory_region(old_config: CortexMConfig, app_break: int, kernel_break: int, perms: mpu::Permissions, new_config: CortexMConfig) -> bool {
+    //     regions_post_update_app_memory_region(map_get(new_config, 0), map_get(new_config, 1), astart(map_get(old_config, 0)), asize(map_get(old_config, 0)), app_break, kernel_break, perms) &&
+    //     same_config(new_config, old_config, 2) &&
+    //     same_config(new_config, old_config, 3) &&
+    //     same_config(new_config, old_config, 4) &&
+    //     same_config(new_config, old_config, 5) &&
+    //     same_config(new_config, old_config, 6) &&
+    //     same_config(new_config, old_config, 7)
 
-    }
+    // }
 
-    fn same_config(new_config: CortexMConfig, old_config: CortexMConfig, idx: int) -> bool {
-        map_get(new_config, idx) == map_get(old_config, idx)
-    }
+    // fn same_config(new_config: CortexMConfig, old_config: CortexMConfig, idx: int) -> bool {
+    //     map_get(new_config, idx) == map_get(old_config, idx)
+    // }
 
-    fn all_other_regions_post_allocate_region_preserved(old_config: CortexMConfig, new_config: CortexMConfig, region_num: int) -> bool {
-        region_num != 0 => same_config(new_config, old_config, 0) 
-        &&
-        region_num != 1 => same_config(new_config, old_config, 1) 
-        &&
-        region_num != 2 => same_config(new_config, old_config, 2) 
-        &&
-        region_num != 3 => same_config(new_config, old_config, 3) 
-        &&
-        region_num != 4 => same_config(new_config, old_config, 4) 
-        &&
-        region_num != 5 => same_config(new_config, old_config, 5) 
-        &&
-        region_num != 6 => same_config(new_config, old_config, 6) 
-        &&
-        region_num != 7 => same_config(new_config, old_config, 7) 
-    }
+    // fn all_other_regions_post_allocate_region_preserved(old_config: CortexMConfig, new_config: CortexMConfig, region_num: int) -> bool {
+    //     region_num != 0 => same_config(new_config, old_config, 0) 
+    //     &&
+    //     region_num != 1 => same_config(new_config, old_config, 1) 
+    //     &&
+    //     region_num != 2 => same_config(new_config, old_config, 2) 
+    //     &&
+    //     region_num != 3 => same_config(new_config, old_config, 3) 
+    //     &&
+    //     region_num != 4 => same_config(new_config, old_config, 4) 
+    //     &&
+    //     region_num != 5 => same_config(new_config, old_config, 5) 
+    //     &&
+    //     region_num != 6 => same_config(new_config, old_config, 6) 
+    //     &&
+    //     region_num != 7 => same_config(new_config, old_config, 7) 
+    // }
 
-    fn region_post_allocate(new_region: CortexMRegion, region_num: int, astart: int, asize: int, perms: mpu::Permissions) -> bool {
-        // region set
-        new_region.set &&
-        // region number matches
-        new_region.region_no == region_num &&
-        // region accesible start 
-        new_region.astart == astart &&
-        // region size matches
-        new_region.asize == asize &&
-        // region permissions match
-        new_region.perms == perms &&
-        encodes_base(new_region.rbar, asize, region_num) &&
-        encodes_attrs(new_region.rasr, asize, new_region.first_subregion_no, new_region.last_subregion_no, new_region.perms) &&
-        subregions_match(new_region.first_subregion_no, new_region.last_subregion_no, new_region.astart, new_region.asize, new_region.rstart, new_region.rsize)
-    }
+    // fn region_post_allocate(new_region: CortexMRegion, region_num: int, astart: int, asize: int, perms: mpu::Permissions) -> bool {
+    //     // region set
+    //     new_region.set &&
+    //     // region number matches
+    //     new_region.region_no == region_num &&
+    //     // region accesible start 
+    //     new_region.astart == astart &&
+    //     // region size matches
+    //     new_region.asize == asize &&
+    //     // region permissions match
+    //     new_region.perms == perms &&
+    //     encodes_base(new_region.rbar, asize, region_num) &&
+    //     encodes_attrs(new_region.rasr, asize, new_region.first_subregion_no, new_region.last_subregion_no, new_region.perms) &&
+    //     subregions_match(new_region.first_subregion_no, new_region.last_subregion_no, new_region.astart, new_region.asize, new_region.rstart, new_region.rsize)
+    // }
 
-    fn config_post_allocate_region(old_config: CortexMConfig, new_config: CortexMConfig, region_num: int, astart: int, asize: int, perms: mpu::Permissions) -> bool {
-        region_post_allocate(map_get(new_config, region_num), region_num, astart, asize, perms) &&
-        all_other_regions_post_allocate_region_preserved(old_config, new_config, region_num)
-    }
+    // fn config_post_allocate_region(old_config: CortexMConfig, new_config: CortexMConfig, region_num: int, astart: int, asize: int, perms: mpu::Permissions) -> bool {
+    //     region_post_allocate(map_get(new_config, region_num), region_num, astart, asize, perms) &&
+    //     all_other_regions_post_allocate_region_preserved(old_config, new_config, region_num)
+    // }
 
-    fn encodes_base(rbar: FieldValueU32, start: int, region_num: int) -> bool {
-        // rbar's address should match
-        addr(value(rbar)) == bv32(start) &&
-        // the region number should match
-        region(value(rbar)) == bv32(region_num)
-    }
-    fn subregions_match(first_subregion_no: int, last_subregion_no: int, astart: int, asize: int, rstart: int, rsize: int) -> bool {
-        // logical start and size match the subregions that will be set
-        astart == rstart + first_subregion_no * (rsize / 8) &&
-        asize == (last_subregion_no - first_subregion_no + 1) * (rsize / 8)
-    }
+    // fn encodes_base(rbar: FieldValueU32, start: int, region_num: int) -> bool {
+    //     // rbar's address should match
+    //     addr(value(rbar)) == bv32(start) &&
+    //     // the region number should match
+    //     region(value(rbar)) == bv32(region_num)
+    // }
 
+    // fn encodes_attrs(rasr: FieldValueU32, sz: int, first_subregion_no: int, last_subregion_no: int, perms: mpu::Permissions) -> bool {
+    //     // subregions properly set
+    //     subregions_enabled(value(rasr), first_subregion_no, last_subregion_no) &&
+    //     // size should be correct - size encoded as power of two: 2 ^ (size(rasr) + 1) == size
+    //     size_match(size(value(rasr)), sz) &&
+    //     // permissions match
+    //     perms_match(value(rasr), perms) &&
+    //     // global enable bit is set
+    //     region_enable(value(rasr))
+    // }
+
+    // fn subregions_match(first_subregion_no: int, last_subregion_no: int, astart: int, asize: int, rstart: int, rsize: int) -> bool {
+    //     // logical start and size match the subregions that will be set
+    //     astart == rstart + first_subregion_no * (rsize / 8) &&
+    //     asize == (last_subregion_no - first_subregion_no + 1) * (rsize / 8)
+    // }
+
+    // fn perms_match(rasr: bitvec<32>, perms: mpu::Permissions) -> bool {
+    //     perms.r == user_can_read(rasr) &&
+    //     perms.w == user_can_write(rasr) &&
+    //     perms.x == !xn(rasr) 
+    // }
+
+    // fn size_match(rasr_size: bitvec<32>, size: int) -> bool {
+    //     bv32(1) << (rasr_size + 1) == bv32(size)
+    // }
+
+    // fn regs_encoded(rbar: FieldValueU32, rasr: FieldValueU32, region_no: int, astart: int, asize: int, rstart: int, rsize: int, first_subregion_no: int, last_subregion_no: int, perms: mpu::Permissions) -> bool {
+    //     encodes_base(rbar, rstart, region_no) &&
+    //     encodes_attrs(rasr, rsize, first_subregion_no, last_subregion_no, perms)
+    // }
+
+    // fn mpu_region_base(r: mpu::Region) -> int {
+    //     r.ptr
+    // }
+
+    // fn mpu_region_sz(r: mpu::Region) -> int {
+    //     r.sz
+    // }
+
+    // fn astart(r: CortexMRegion) -> int {
+    //     r.astart
+    // }
+
+    // fn asize(r: CortexMRegion) -> int {
+    //     r.asize
+    // }
+
+    // VR: STARTING FROM SCRATCH
     fn enabled_srd_mask(first_subregion_no: int, last_subregion_no: int) -> bitvec<32> {
         (bv32(1) << bv32(last_subregion_no - first_subregion_no + 1)) - 1
     }
@@ -336,51 +380,56 @@ flux_rs::defs! {
         ((bv32(1) << (8 - bv32(last_subregion_no))) - 1) << bv32(last_subregion_no)
     }
 
-    fn subregions_enabled(rasr: bitvec<32>, first_subregion_no: int, last_subregion_no: int) -> bool {
+    fn subregions_enabled_exact(rasr: bitvec<32>, first_subregion_no: int, last_subregion_no: int) -> bool {
         // Min size = 256
-        size(rasr) >= 8 &&
+        size(rasr) >= 256 &&
         // Check bits first_subregion..=end_subregion are 0
         srd(rasr) & enabled_srd_mask(first_subregion_no, last_subregion_no) == 0 &&
         // Check bits last_subregion_end..=7 are 1 if there are any bits left
         last_subregion_no < 7 => srd(rasr) & disabled_srd_mask(last_subregion_no) == disabled_srd_mask(last_subregion_no)
     }
 
-    fn perms_match(rasr: bitvec<32>, perms: mpu::Permissions) -> bool {
-        perms.r == user_can_read(rasr) &&
-        perms.w == user_can_write(rasr) &&
-        perms.x == !xn(rasr) 
+    fn first_subregion(rbar: FieldValueU32, rasr: FieldValueU32, astart: int) -> int {
+        (astart - addr(value(rbar))) / (size(value(rasr)) / 8)
     }
 
-    fn size_match(rasr_size: bitvec<32>, size: int) -> bool {
-        bv32(1) << (rasr_size + 1) == bv32(size)
+    fn last_subregion(rbar: FieldValueU32, rasr: FieldValueU32, astart: int, asize: int) -> int {
+        first_subregion(rbar, rasr, astart) + (asize / (size(value(rasr)) / 8))
     }
 
-    fn encodes_attrs(rasr: FieldValueU32, sz: int, first_subregion_no: int, last_subregion_no: int, perms: mpu::Permissions) -> bool {
-        // subregions properly set
-        subregions_enabled(value(rasr), first_subregion_no, last_subregion_no) &&
-        // size should be correct - size encoded as power of two: 2 ^ (size(rasr) + 1) == size
-        size_match(size(value(rasr)), sz) &&
-        // permissions match
+    fn can_access_exactly(rbar: FieldValueU32, rasr: FieldValueU32, astart: int, asize: int, perms: int) -> bool {
+        // accessible start and size are bounded by the logical ones
+        addr(value(rbar)) <= astart &&
+        size(value(rasr)) >= asize &&
+        // the global region is enabled
+        region_enable(value(rasr)) &&
+        // the permissions match
         perms_match(value(rasr), perms) &&
-        // global enable bit is set
-        region_enable(value(rasr))
+        // and the subregions are set correctly
+        subregions_enabled_exact(value(rasr), first_subregion(rbar, rasr, astart), last_subregion(rbar, rasr, astart, asize))
     }
 
-    fn mpu_region_base(r: mpu::Region) -> int {
-        r.ptr
+    fn region_can_access(region: CortexMRegion, start: int, size: int) -> bool {
+        // region set
+        region.set &&
+        // region's accesible start is less than the start you want to access
+        region.astart <= start &&
+        // and the regions size is greater than the size you want to access
+        region.asize >= size
     }
 
-    fn mpu_region_sz(r: mpu::Region) -> int {
-        r.sz
+    fn can_access(config: CortexMConfig, start: int, size: int) -> bool {
+        // TODO: What if access is split between two regions??
+        region_can_access(map_get(config, 0), start, int) ||
+        region_can_access(map_get(config, 1), start, int) ||
+        region_can_access(map_get(config, 2), start, int) ||
+        region_can_access(map_get(config, 3), start, int) ||
+        region_can_access(map_get(config, 4), start, int) ||
+        region_can_access(map_get(config, 5), start, int) ||
+        region_can_access(map_get(config, 6), start, int) ||
+        region_can_access(map_get(config, 7), start, int)
     }
 
-    fn astart(r: CortexMRegion) -> int {
-        r.astart
-    }
-
-    fn asize(r: CortexMRegion) -> int {
-        r.asize
-    }
 }
 
 // VTOCK_TODO: better solution for hardware register spooky-action-at-a-distance
@@ -740,39 +789,38 @@ struct CortexMLocation {
 // the "logical region"
 #[derive(Copy, Clone)]
 #[flux_rs::opaque]
-#[flux_rs::refined_by(region_no: int, set: bool, astart: int, asize: int, first_subregion_no: int, last_subregion_no: int, rstart: int, rsize: int, perms: mpu::Permissions)]
+// #[flux_rs::refined_by(region_no: int, set: bool, astart: int, asize: int, first_subregion_no: int, last_subregion_no: int, rstart: int, rsize: int, perms: mpu::Permissions)]
+#[flux_rs::refined_by(region_no: int, astart: int, asize: int, perms: mpu::Permissions)]
 struct GhostRegionState {}
 
 /// Struct storing configuration for a Cortex-M MPU region.
-#[derive(Copy, Clone)]
 // if the region is set, the rbar bits encode the accessible start & region_num properly and the rasr bits encode the size and permissions properly
-#[flux_rs::invariant(set => (encodes_base(rbar, astart, region_no) && encodes_attrs(rasr, asize, first_subregion_no, last_subregion_no, perms)))]
-// if the logical location is set then the region is set
-#[flux_rs::invariant(loc == set )]
-#[flux_rs::invariant(subregions_match(first_subregion_no, last_subregion_no, astart, asize, rstart, rsize))]
+#[derive(Copy, Clone)]
+#[flux_rs::invariant(set => (region(value(rbar)) == region_no && can_access_exactly(rasr, rbar, astart, asize, perms)))]
 #[flux_rs::refined_by(
     rbar: FieldValueU32,
     rasr: FieldValueU32,
-    loc: bool,
+    // loc: bool,
     region_no: int,
     set: bool,
     astart: int, // accessible start
     asize: int, // accessible size
-    first_subregion_no: int,
-    last_subregion_no: int,
-    rstart: int, // entire start
-    rsize: int, // entire size
+    // first_subregion_no: int,
+    // last_subregion_no: int,
+    // rstart: int, // entire start
+    // rsize: int, // entire size
     perms: mpu::Permissions
 )]
 pub struct CortexMRegion {
-    #[field(Option<{l. CortexMLocation[l] | l.addr == rstart && l.size == rsize }>[loc])]
+    #[field(Option<{l. CortexMLocation[l] | l.addr == astart && l.size == asize }>[set])]
     location: Option<CortexMLocation>, // actually accessible start and size 
-    #[field({FieldValueU32<RegionBaseAddress::Register>[rbar] | encodes_base(rbar, rstart, region_no) })]
+    #[field({FieldValueU32<RegionBaseAddress::Register>[rbar] | region(value(rbar)) == region_no})]
     base_address: FieldValueU32<RegionBaseAddress::Register>,
-    #[field({FieldValueU32<RegionAttributes::Register>[rasr] | encodes_attrs(rasr, rsize, first_subregion_no, last_subregion_no, perms) })]
+    #[field({FieldValueU32<RegionAttributes::Register>[rasr] | can_access_exactly(rasr, rbar, astart, asize, perms)})]
     attributes: FieldValueU32<RegionAttributes::Register>,
     // Flux tracking of actual region rather than logical region
-    #[field({ GhostRegionState[region_no, set, astart, asize, first_subregion_no, last_subregion_no, rstart, rsize, perms] | subregions_match(first_subregion_no, last_subregion_no, astart, asize, rstart, rsize)})]
+    // #[field({ GhostRegionState[region_no, set, astart, asize, first_subregion_no, last_subregion_no, rstart, rsize, perms] | subregions_match(first_subregion_no, last_subregion_no, astart, asize, rstart, rsize)})]
+    #[field(GhostRegionState[region_no, astart, asize, perms])]
     ghost_region_state: GhostRegionState,
 }
 
@@ -888,19 +936,13 @@ impl CortexMRegion {
         usize[@subregion_start],
         usize[@subregion_end],
         mpu::Permissions[@perms]
-    ) -> Self { r: 
-            encodes_base(r.rbar, rstart, region_num) &&
-            encodes_attrs(r.rasr, rsize, subregion_start, subregion_end, perms) &&
-            subregions_match(subregion_start, subregion_end, astart, asize, rstart, rsize) &&
+    ) -> Self { r:
             r.region_no == region_num &&
             r.set == true &&
             r.astart == astart &&
             r.asize == asize &&
-            r.first_subregion_no == subregion_start &&
-            r.last_subregion_no == subregion_end &&
-            r.rstart == rstart &&
-            r.rsize == rsize &&
-            r.perms == perms 
+            r.perms == perms
+            // TODO: Would it help to add something about the first subregion number and 
         } 
     )]
     fn new_with_subregions(
@@ -1095,16 +1137,16 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         config.set_dirty(true);
     }
 
-    #[flux_rs::sig(fn(
-        _,
-        FluxPtrU8[@memstart],
-        usize[@memsz],
-        usize[@minsz],
-        mpu::Permissions[@perms],
-        config: &strg CortexMConfig[@old_c],
-    ) -> Option<{p. Pair<mpu::Region, usize>[p] | config_post_allocate_region(old_c, new_c, p.snd, mpu_region_base(p.fst), mpu_region_sz(p.fst), perms)}>
-        ensures config: CortexMConfig[#new_c] 
-    )]
+    // #[flux_rs::sig(fn(
+    //     _,
+    //     FluxPtrU8[@memstart],
+    //     usize[@memsz],
+    //     usize[@minsz],
+    //     mpu::Permissions[@perms],
+    //     config: &strg CortexMConfig[@old_c],
+    // ) -> Option<{p. Pair<mpu::Region, usize>[p] | config_post_allocate_region(old_c, new_c, p.snd, mpu_region_base(p.fst), mpu_region_sz(p.fst), perms)}>
+    //     ensures config: CortexMConfig[#new_c] 
+    // )]
     fn allocate_region(
         &self,
         unallocated_memory_start: FluxPtrU8,
@@ -1279,19 +1321,19 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     // When allocating memory for apps, we use two regions, each a power of two
     // in size. By using two regions we halve their size, and also halve their
     // alignment restrictions.
-    #[flux_rs::sig(
-        fn (
-            &Self,
-            FluxPtrU8[@memstart],
-            usize[@memsz],
-            usize[@minsz],
-            usize[@appmsz],
-            usize[@kernelmsz],
-            mpu::Permissions[@perms],
-            config: &strg CortexMConfig[@old_c],
-        ) -> Option<{p. Pair<FluxPtrU8, usize>[p] | config_post_allocate_app_memory_region(old_c, p.fst, p.snd, appmsz, kernelmsz, perms, new_c) }>
-        ensures config: CortexMConfig[#new_c]
-    )]
+    // #[flux_rs::sig(
+    //     fn (
+    //         &Self,
+    //         FluxPtrU8[@memstart],
+    //         usize[@memsz],
+    //         usize[@minsz],
+    //         usize[@appmsz],
+    //         usize[@kernelmsz],
+    //         mpu::Permissions[@perms],
+    //         config: &strg CortexMConfig[@old_c],
+    //     ) -> Option<{p. Pair<FluxPtrU8, usize>[p] | config_post_allocate_app_memory_region(old_c, p.fst, p.snd, appmsz, kernelmsz, perms, new_c) }>
+    //     ensures config: CortexMConfig[#new_c]
+    // )]
     fn allocate_app_memory_region(
         &self,
         unallocated_memory_start: FluxPtrU8,
@@ -1431,16 +1473,16 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         Some(Pair { fst: region_start.as_fluxptr(), snd: memory_size_po2 })
     }
 
-    #[flux_rs::sig(
-        fn (
-            _,
-            FluxPtrU8[@app_break],
-            FluxPtrU8[@kernel_break],
-            mpu::Permissions[@perms],
-            config: &strg CortexMConfig[@old_c]
-        ) -> Result<(), ()>[#res]
-        ensures config: CortexMConfig { new_c: res => config_post_update_app_memory_region(old_c, app_break, kernel_break, perms, new_c) }
-    )]
+    // #[flux_rs::sig(
+    //     fn (
+    //         _,
+    //         FluxPtrU8[@app_break],
+    //         FluxPtrU8[@kernel_break],
+    //         mpu::Permissions[@perms],
+    //         config: &strg CortexMConfig[@old_c]
+    //     ) -> Result<(), ()>[#res]
+    //     ensures config: CortexMConfig { new_c: res => config_post_update_app_memory_region(old_c, app_break, kernel_break, perms, new_c) }
+    // )]
     fn update_app_memory_region(
         &self,
         app_memory_break: FluxPtrU8,
