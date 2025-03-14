@@ -92,6 +92,7 @@ impl Display for MpuConfigDefault {
 // VTOCK-TODO: remove default associated refinements
 #[flux_rs::assoc(fn enabled(self: Self) -> bool {false} )]
 #[flux_rs::assoc(fn configured_for(self: Self, config: Self::MpuConfig) -> bool {false} )]
+#[flux_rs::assoc(fn access_post_allocate_app(c: Self::MpuConfig, fstart: int, fsz: int, hstart: int, hsz: int, kbreak: int, perms: Permissions) -> bool)]
 // #[flux_rs::assoc(fn can_access(self: Self, addr: int, sz: int, perms: Permissions) -> bool {false} )]
 pub trait MPU {
     /// MPU-specific state that defines a particular configuration for the MPU.
@@ -230,6 +231,21 @@ pub trait MPU {
     /// chosen for the process. If it is infeasible to find a memory block or
     /// allocate the MPU region, or if the function has already been called,
     /// returns None. If None is returned no changes are made.
+    #[flux_rs::sig(
+        fn (
+            &Self,
+            FluxPtrU8,
+            usize,
+            usize,
+            usize[@appmsz],
+            usize[@kernelmsz],
+            FluxPtrU8[@fstart],
+            usize[@fsz],
+            Permissions[@perms],
+            config: &strg Self::MpuConfig,
+        ) -> Option<{p. Pair<FluxPtrU8, usize>[p] | <Self as MPU>::access_post_allocate_app(new_c, fstart, fsz, p.fst, appmsz, p.fst + p.snd - kernelmsz, perms)}>
+        ensures config: Self::MpuConfig[#new_c]
+    )]
     fn allocate_app_memory_region(
         &self,
         unallocated_memory_start: FluxPtrU8Mut,
@@ -237,6 +253,8 @@ pub trait MPU {
         min_memory_size: usize,
         initial_app_memory_size: usize,
         initial_kernel_memory_size: usize,
+        flash_start: FluxPtrU8Mut,
+        flash_size: usize,
         permissions: Permissions,
         config: &mut Self::MpuConfig,
     ) -> Option<Pair<FluxPtrU8Mut, usize>>;
@@ -259,10 +277,26 @@ pub trait MPU {
     /// Returns an error if it is infeasible to update the MPU region, or if it
     /// was never created. If an error is returned no changes are made to the
     /// configuration.
+    #[flux_rs::sig(
+        fn (
+            &Self,
+            FluxPtrU8Mut[@memstart],
+            FluxPtrU8Mut[@app_break],
+            FluxPtrU8Mut[@kernel_break],
+            FluxPtrU8Mut[@fstart],
+            usize[@fsz],
+            Permissions[@perms],
+            config: &strg Self::MpuConfig[@old_c],
+        ) -> Result<(), ()>[#res]
+        ensures config: Self::MpuConfig {new_c: res => <Self as MPU>::access_post_allocate_app(new_c, fstart, fsz, memstart, app_break, kernel_break, perms) }
+    )]
     fn update_app_memory_region(
         &self,
+        mem_start: FluxPtrU8Mut,
         app_memory_break: FluxPtrU8Mut,
         kernel_memory_break: FluxPtrU8Mut,
+        flash_start: FluxPtrU8Mut,
+        flash_size: usize,
         permissions: Permissions,
         config: &mut Self::MpuConfig,
     ) -> Result<(), ()>;

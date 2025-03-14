@@ -745,6 +745,8 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         min_memory_size: usize,
         initial_app_memory_size: usize,
         initial_kernel_memory_size: usize,
+        flash_start: FluxPtr,
+        flash_size: usize,
         permissions: mpu::Permissions,
         config: &mut Self::MpuConfig,
     ) -> Option<Pair<FluxPtr, usize>> {
@@ -840,8 +842,11 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
 
     fn update_app_memory_region(
         &self,
+        memory_start: FluxPtr,
         app_memory_break: FluxPtr,
         kernel_memory_break: FluxPtr,
+        flash_start: FluxPtr,
+        flash_size: usize,
         permissions: mpu::Permissions,
         config: &mut Self::MpuConfig,
     ) -> Result<(), ()> {

@@ -184,9 +184,14 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
             Err(Error::AddressOutOfBounds)
         } else if new_break > self.breaks.kernel_memory_break {
             Err(Error::OutOfMemory)
-        } else if let Err(()) = mpu.update_app_memory_region(
+        } else if let Err(()) = 
+        // VTOCK TODO: FIX THIS to pass actual mem start and flash
+        mpu.update_app_memory_region(
+            FluxPtr::from(0),
             new_break,
             self.breaks.kernel_memory_break,
+            FluxPtr::from(0),
+            0,
             mpu::Permissions::ReadWriteOnly,
             &mut self.mpu_config,
         ) {
@@ -243,9 +248,14 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
         } else if new_break > self.breaks.kernel_memory_break {
             None
             // Verify this is compatible with the MPU.
-        } else if let Err(()) = mpu.update_app_memory_region(
+        } else if let Err(()) = 
+        // VTOCK TODO: FIX THIS to pass the actual flash and mem start
+        mpu.update_app_memory_region(
+            FluxPtr::from(0), 
             self.breaks.app_break,
             new_break,
+            FluxPtr::from(0), 
+            0, 
             mpu::Permissions::ReadWriteOnly,
             &mut self.mpu_config,
         ) {
@@ -1690,6 +1700,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             min_total_memory_size,
             min_process_memory_size,
             initial_kernel_memory_size,
+            pb.flash.as_fluxptr(), 
+            pb.flash.len(),
             mpu::Permissions::ReadWriteOnly,
             &mut mpu_config,
         ) {
@@ -2082,6 +2094,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             self.memory_len, //we want exactly as much as we had before restart
             min_process_memory_size,
             initial_kernel_memory_size,
+            self.flash.as_fluxptr(),
+            self.flash.len(),
             mpu::Permissions::ReadWriteOnly,
             &mut breaks_and_mpu_config.mpu_config,
         );

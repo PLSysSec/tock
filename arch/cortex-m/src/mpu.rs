@@ -139,9 +139,9 @@ flux_rs::defs! {
     }
 
     fn can_access_exactly(rbar: FieldValueU32, rasr: FieldValueU32, astart: int, asize: int, perms: mpu::Permissions) -> bool {
-        // accessible start and size are bounded by the logical ones
+        // accessible regions is bounded by the physical region
         addr(value(rbar)) <= bv32(astart) &&
-        size(value(rasr)) >= bv32(asize) &&
+        addr(value(rbar)) + size(value(rasr)) >= bv32(astart + asize) &&
         // the global region is enabled
         region_enable(value(rasr)) &&
         // the permissions match
@@ -150,25 +150,55 @@ flux_rs::defs! {
         subregions_enabled_exactly(value(rasr), first_subregion(rbar, rasr, astart), last_subregion(rbar, rasr, astart, asize))
     }
 
-    fn region_can_access(region: CortexMRegion, start: int, size: int) -> bool {
+    fn region_can_access(region: CortexMRegion, start: int, size: int, perms: mpu::Permissions) -> bool {
         // region set
         region.set &&
-        // region's accesible start is less than the start you want to access
+        // region's accesible block contains the start and end checked
         region.astart <= start &&
-        // and the regions size is greater than the size you want to access
-        region.asize >= size
+        region.asize + region.astart >= start + size
+        &&
+        // and perms are correct
+        region.perms == perms
     }
 
-    fn config_can_access(config: CortexMConfig, start: int, size: int) -> bool {
+    fn config_can_access(config: CortexMConfig, start: int, size: int, perms: mpu::Permissions) -> bool {
         // TODO: What if access is split between two regions??
-        region_can_access(map_get(config, 0), start, size) ||
-        region_can_access(map_get(config, 1), start, size) ||
-        region_can_access(map_get(config, 2), start, size) ||
-        region_can_access(map_get(config, 3), start, size) ||
-        region_can_access(map_get(config, 4), start, size) ||
-        region_can_access(map_get(config, 5), start, size) ||
-        region_can_access(map_get(config, 6), start, size) ||
-        region_can_access(map_get(config, 7), start, size)
+        region_can_access(map_get(config, 0), start, size, perms) ||
+        region_can_access(map_get(config, 1), start, size, perms) ||
+        region_can_access(map_get(config, 2), start, size, perms) ||
+        region_can_access(map_get(config, 3), start, size, perms) ||
+        region_can_access(map_get(config, 4), start, size, perms) ||
+        region_can_access(map_get(config, 5), start, size, perms) ||
+        region_can_access(map_get(config, 6), start, size, perms) ||
+        region_can_access(map_get(config, 7), start, size, perms)
+    }
+
+    fn region_cant_access(region: CortexMRegion, start: int, size: int) -> bool {
+        // region is not set
+        !region.set || 
+        // or the block is below the region accessible block
+        (start < region.astart && start + size < region.astart) ||
+        // or the block is above the region accesible block
+        (start >= region.astart + region.asize && start + size >= region.astart + region.asize)
+    } 
+
+    fn config_cant_access(config: CortexMConfig, start: int, size: int) -> bool {
+        region_cant_access(map_get(config, 0), start, size) ||
+        region_cant_access(map_get(config, 1), start, size) ||
+        region_cant_access(map_get(config, 2), start, size) ||
+        region_cant_access(map_get(config, 3), start, size) ||
+        region_cant_access(map_get(config, 4), start, size) ||
+        region_cant_access(map_get(config, 5), start, size) ||
+        region_cant_access(map_get(config, 6), start, size) ||
+        region_cant_access(map_get(config, 7), start, size)
+    }
+
+    fn access_post_allocate_app(c: CortexMConfig, fstart: int, fsz: int, hstart: int, hsz: int, kbreak: int, perms: mpu::Permissions) -> bool { 
+        config_can_access(c, fstart, fsz, mpu::Permissions { r: true, w: false, x: true }) &&
+        config_can_access(c, hstart, hsz, perms) &&
+        config_cant_access(c, 0, fstart) &&
+        config_cant_access(c, fstart + fsz, hstart - fstart + fsz) &&
+        config_cant_access(c, kbreak, 0xffff_ffff)
     }
 
 }
@@ -575,6 +605,23 @@ impl PartialEq<mpu::Region> for CortexMRegion {
 
 impl CortexMRegion {
 
+    #[flux_rs::sig(
+        fn (
+            FluxPtrU8[@astart],
+            usize[@asize],
+            _, 
+            _, 
+            usize[@no],
+            _, 
+            mpu::Permissions[@perms]
+        ) -> CortexMRegion {r: 
+                r.astart == astart &&
+                r.asize == asize &&
+                r.region_no == no &&
+                r.perms == perms &&
+                r.set  
+            }
+    )]
     fn new(
         logical_start: FluxPtrU8,
         logical_size: usize,
@@ -690,18 +737,18 @@ impl CortexMRegion {
         }
     }
 
-    #[flux_rs::sig(fn (&CortexMRegion[@addr, @attrs, @set, @no, @astart, @asize, @perms]) -> Option<{p. Pair<FluxPtrU8, usize>[p] | p.fst == astart && p.snd == asize}>)]
+    #[flux_rs::sig(fn (&CortexMRegion[@addr, @attrs, @no, @set, @astart, @asize, @perms]) -> Option<{p. Pair<FluxPtrU8, usize>[p] | p.fst == astart && p.snd == asize}>)]
     fn location(&self) -> Option<Pair<FluxPtrU8, usize>> {
         let loc = self.location?;
         Some(Pair {fst: loc.addr, snd: loc.size })
     }
 
-    #[flux_rs::sig(fn(&CortexMRegion[@addr, @attrs, @set, @no, @astart, @asize, @perms]) -> FieldValueU32<RegionBaseAddress::Register>[addr])]
+    #[flux_rs::sig(fn(&CortexMRegion[@addr, @attrs, @no, @set, @astart, @asize, @perms]) -> FieldValueU32<RegionBaseAddress::Register>[addr])]
     fn base_address(&self) -> FieldValueU32<RegionBaseAddress::Register> {
         self.base_address
     }
 
-    #[flux_rs::sig(fn(&CortexMRegion[@addr, @attrs, @set, @no, @astart, @asize, @perms]) -> FieldValueU32<RegionAttributes::Register>[attrs])]
+    #[flux_rs::sig(fn(&CortexMRegion[@addr, @attrs, @no, @set, @astart, @asize, @perms]) -> FieldValueU32<RegionAttributes::Register>[attrs])]
     fn attributes(&self) -> FieldValueU32<RegionAttributes::Register> {
         self.attributes
     }
@@ -725,8 +772,7 @@ impl CortexMRegion {
 
 #[flux_rs::assoc(fn enabled(self: Self) -> bool {enable(self.ctrl)} )]
 #[flux_rs::assoc(fn configured_for(self: Self, config: CortexMConfig) -> bool {mpu_configured_for(self, config)} )]
-// #[flux_rs::assoc(fn config_access_correct(old_c: CortexMConfig, start_addr: int, memsz: int, minsz: int, perms: mpu::Permissions, new_c: CortexMConfig) -> bool {config_access_correct(old_c, start_addr, memsz, minsz, perms, new_c)})]
-// #[flux_rs::assoc(fn can_access(self: Self, addr: int, sz: int, perms: Permissions) -> bool {false} )]
+#[flux_rs::assoc(fn access_post_allocate_app(c: CortexMConfig, fstart: int, fsz: int, hstart: int, hsz: int, kbreak: int, perms: mpu::Permissions) -> bool { access_post_allocate_app(c, fstart, fsz, hstart, hsz, kbreak, perms) })]
 impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     type MpuConfig = CortexMConfig;
 
@@ -963,14 +1009,11 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             usize,
             usize[@appmsz],
             usize[@kernelmsz],
+            FluxPtrU8[@fstart],
+            usize[@fsz],
             mpu::Permissions[@perms],
             config: &strg CortexMConfig,
-        ) -> Option<{
-            p. Pair<FluxPtrU8, usize>[p] | 
-                config_can_access(new_c, p.fst, appmsz) && 
-                !config_can_access(new_c, 0, p.fst) &&
-                !config_can_access(new_c, p.fst + p.snd - kernelmsz, 0xffff_ffff)
-            }>
+        ) -> Option<{p. Pair<FluxPtrU8, usize>[p] | access_post_allocate_app(new_c, fstart, fsz, p.fst, appmsz, p.fst + p.snd - kernelmsz, perms)}>
         ensures config: CortexMConfig[#new_c]
     )]
     fn allocate_app_memory_region(
@@ -980,6 +1023,8 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         min_memory_size: usize,
         initial_app_memory_size: usize,
         initial_kernel_memory_size: usize,
+        flash_start: FluxPtrU8Mut,
+        flash_size: usize,
         permissions: mpu::Permissions,
         config: &mut CortexMConfig,
     ) -> Option<Pair<FluxPtrU8, usize>> {
@@ -1112,22 +1157,24 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
 
     #[flux_rs::sig(
         fn (
-            _,
-            FluxPtrU8[@app_break],
-            FluxPtrU8[@kernel_break],
+            &Self,
+            FluxPtrU8Mut[@memstart],
+            FluxPtrU8Mut[@app_break],
+            FluxPtrU8Mut[@kernel_break],
+            FluxPtrU8Mut[@fstart],
+            usize[@fsz],
             mpu::Permissions[@perms],
-            config: &strg CortexMConfig[@old_c]
+            config: &strg CortexMConfig[@old_c],
         ) -> Result<(), ()>[#res]
-        ensures config: CortexMConfig { new_c: res =>
-            config_can_access(new_c, astart(map_get(old_c, 0)), app_break) &&
-            !config_can_access(new_c, 0, astart(map_get(old_c, 0))) &&
-            !config_can_access(new_c, kernel_break, 0xffff_ffff)
-        }
+        ensures config: CortexMConfig {new_c: res => access_post_allocate_app(new_c, fstart, fsz, memstart, app_break, kernel_break, perms) }
     )]
     fn update_app_memory_region(
         &self,
+        mem_start: FluxPtrU8Mut,
         app_memory_break: FluxPtrU8,
         kernel_memory_break: FluxPtrU8,
+        flash_start: FluxPtrU8Mut,
+        flash_size: usize,
         permissions: mpu::Permissions,
         config: &mut CortexMConfig,
     ) -> Result<(), ()> {
