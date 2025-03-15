@@ -162,9 +162,17 @@ flux_rs::defs! {
     }
 
     fn region_cant_access(region: CortexMRegion, start: int, size: int) -> bool {
-        // doesn't mention permissions because should not depend on those
+        // WHY is this different than !region_can_access:
+        //  1. We don't want to talk about permissions at all here - it shouldn't be allocated at all
+        //  2. region_can_access talks about everything from start..(start + size) being 
+        //  included in one region. However, here we want to say that there is no subslice of 
+        //  start..(start + size) that is accessible via the current region we are looking at
         !region.set ||
-        !(start >= region.astart && start + size < region.astart + region.asize) 
+        // NO slice of start..(start + size) is included in the region
+        // i.e. the start..(start + size) is entirely before the region start
+        // or the start is entirely after region_start + region_size
+        (start < region.astart && start + size <= region.astart) || 
+        start >= region.astart + region.asize
     }
 
     fn config_can_access(config: CortexMConfig, start: int, size: int, perms: mpu::Permissions) -> bool {
