@@ -384,6 +384,8 @@ pub struct MPU<const MIN_REGION_SIZE: usize> {
 
 impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
     pub const unsafe fn new() -> Self {
+        assume(MIN_REGION_SIZE > 0);
+        assume(MIN_REGION_SIZE < 2147483648);
 
         let mpu_addr = 0xE000ED90;
         let mpu_type = ReadWriteU32::new(mpu_addr);
@@ -400,7 +402,6 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
             hw_state: HwGhostState::new(),
         };
 
-        assume(MIN_REGION_SIZE > 0 && MIN_REGION_SIZE < usize::MAX);
         Self {
             registers: regs,
             config_count: Cell::new(NonZeroUsize::MIN),
