@@ -776,6 +776,24 @@ impl CortexMRegion {
 
 impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
 
+    #[flux_rs::sig(
+        fn (
+            _,
+            usize[@region_no],
+            FluxPtrU8[@start],
+            usize[@size],
+            _,
+            mpu::Permissions[@perms],
+            _
+        ) -> Option<{r. CortexMRegion[r] | 
+                r.set &&
+                r.region_no == region_no &&
+                r.perms == perms &&
+                r.astart >= start &&
+                r.astart + r.asize <= start + size 
+            }>
+    )]
+    // VTock todo: Size asked for and actual size mismatch seem problematic?
     fn create_region(
         &self,
         region_num: usize,
@@ -1051,7 +1069,6 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         permissions: mpu::Permissions,
         config: &mut CortexMConfig,
     ) -> Option<Pair<FluxPtrU8, usize>> {
-        // VTOCK TODO: Is this ok? I think not? 
         // first allocate flash
         let region = self.create_region(FLASH_REGION, flash_start, flash_size, flash_size, mpu::Permissions::ReadExecuteOnly, config)?;
         config.region_set(FLASH_REGION, region);
@@ -1210,7 +1227,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         config: &mut CortexMConfig,
     ) -> Result<(), ()> {
         // Get second region for flash and make sure it's allocated
-        let Pair { fst: flash_region_start, snd: flash_region_size } = config.get_region(2).location().ok_or(())?;
+        let Pair { fst: flash_region_start, snd: flash_region_size } = config.get_region(FLASH_REGION).location().ok_or(())?;
         // if the flash region doesn't match exactly, something has gone terribly wrong
         if flash_region_start != flash_start || flash_region_size != flash_region_size {
             return Err(());
@@ -1218,7 +1235,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
 
         // Get first region, or error if the process tried to update app memory
         // MPU region before it was created.
-        let Pair { fst: region_start_ptr, snd: region_size } = config.get_region(0).location().ok_or(())?;
+        let Pair { fst: region_start_ptr, snd: region_size } = config.get_region(HEAP_REGION1).location().ok_or(())?;
         let region_start = region_start_ptr.as_usize();
 
         let app_memory_break = app_memory_break.as_usize();
@@ -1260,7 +1277,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             region_size,
             region_start.as_fluxptr(),
             region_size,
-            0,
+            HEAP_REGION1,
             Some((0, num_enabled_subregions0 - 1)),
             permissions,
         );
@@ -1273,14 +1290,14 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
                 region_size,
                 (region_start + region_size).as_fluxptr(),
                 region_size,
-                1,
+                HEAP_REGION2,
                 Some((0, num_enabled_subregions1 - 1)),
                 permissions,
             )
         };
 
-        config.region_set(0, region0);
-        config.region_set(1, region1);
+        config.region_set(HEAP_REGION1, region0);
+        config.region_set(HEAP_REGION2, region1);
         config.set_dirty(true);
 
         Ok(())
