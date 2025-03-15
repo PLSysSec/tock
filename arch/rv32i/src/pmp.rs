@@ -11,6 +11,7 @@ use crate::csr;
 use flux_support::*;
 use kernel::platform::mpu;
 use kernel::utilities::cells::OptionalCell;
+use kernel::utilities::math;
 use kernel::utilities::registers::{register_bitfields, LocalRegisterCopy};
 
 register_bitfields![u8,

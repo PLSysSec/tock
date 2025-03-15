@@ -360,7 +360,7 @@ register_bitfields![u32,
 /// There should only be one instantiation of this object as it represents
 /// real hardware.
 ///
-#[flux_rs::invariant(MIN_REGION_SIZE > 0 && MIN_REGION_SIZE < 2147483648)]
+#[flux_rs::invariant(MIN_REGION_SIZE > 0 && MIN_REGION_SIZE < usize::MAX)]
 #[flux_rs::refined_by(ctrl: bitvec<32>, rnr: bitvec<32>, rbar: bitvec<32>, rasr: bitvec<32>, regions: Map<int, bitvec<32>>, attrs: Map<int, bitvec<32>>)]
 pub struct MPU<const MIN_REGION_SIZE: usize> {
     /// MMIO reference to MPU registers.
@@ -378,8 +378,6 @@ pub struct MPU<const MIN_REGION_SIZE: usize> {
 
 impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
     pub const unsafe fn new() -> Self {
-        assume(MIN_REGION_SIZE > 0);
-        assume(MIN_REGION_SIZE < usize::MAX);
         let mpu_addr = 0xE000ED90;
         let mpu_type = ReadWriteU32::new(mpu_addr);
         let ctrl = ReadWriteU32::new(mpu_addr + 4);
@@ -554,6 +552,7 @@ impl CortexMConfig {
 
 #[derive(Copy, Clone)]
 #[flux_rs::refined_by(addr: int, size: int)]
+#[flux_rs::invariant(size >= 256)]
 struct CortexMLocation {
     #[field(FluxPtrU8[addr])]
     pub addr: FluxPtrU8,
@@ -646,8 +645,8 @@ impl CortexMRegion {
         fn (
             FluxPtrU8[@astart],
             usize[@asize],
-            _, 
-            _, 
+            FluxPtrU8[@rstart], 
+            usize[@rsize],
             usize[@no],
             _, 
             mpu::Permissions[@perms]
@@ -658,6 +657,7 @@ impl CortexMRegion {
                 r.perms == perms &&
                 r.set  
             }
+        requires rsize > 1 && rsize < usize::MAX && asize >= 256
     )]
     #[flux_rs::trusted] // crashing with `expect local`: https://github.com/flux-rs/flux/issues/1028
     fn new(
@@ -669,9 +669,6 @@ impl CortexMRegion {
         subregions: Option<(usize, usize)>,
         permissions: mpu::Permissions,
     ) -> CortexMRegion {
-        assume(region_size > 1 && region_size < (u32::MAX as usize));
-        assume(logical_size >= 8);
-
         // Determine access and execute permissions
         let (access, execute) = match permissions {
             mpu::Permissions::ReadWriteExecute => (
@@ -796,6 +793,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                 r.astart + r.asize <= start + size &&
                 r.asize >= minsz
             }>
+        requires minsz < usize::MAX 
     )]
     // VTock todo: Size asked for and actual size mismatch seem problematic?
     fn create_region(
@@ -807,8 +805,6 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
         permissions: mpu::Permissions,
         config: &CortexMConfig
     ) -> Option<CortexMRegion> {
-        assume(min_region_size < usize::MAX);
-
         // Check that no previously allocated regions overlap the unallocated memory.
         for region in config.regions_iter() {
             if region.overlaps(unallocated_memory_start, unallocated_memory_size) {
@@ -873,8 +869,6 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
             if size % subregion_size != 0 {
                 size += subregion_size - (size % subregion_size);
             }
-
-            assume(size < 2147483648);
 
             let end = start + size;
             let underlying_region_end = underlying_region_start + underlying_region_size;
@@ -1049,8 +1043,8 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         fn (
             &Self,
             FluxPtrU8,
-            usize[@min_mem_sz],
             usize,
+            usize[@min_mem_sz],
             usize[@appmsz],
             usize[@kernelmsz],
             FluxPtrU8[@fstart],
@@ -1061,7 +1055,6 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         requires min_mem_sz < usize::MAX
         ensures config: CortexMConfig[#new_c]
     )]
-    // VTOCK TODO: Should this return a result that indicates what went wrong? i.e. did the flash allocation fail or did the heap allocation fail?
     fn allocate_app_memory_regions(
         &self,
         unallocated_memory_start: FluxPtrU8,
@@ -1173,8 +1166,6 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         let num_enabled_subregions0 = math::min(num_enabled_subregions, 8);
         let num_enabled_subregions1 = num_enabled_subregions.saturating_sub(8);
 
-        assume(num_enabled_subregions0 > 0);
-
         let region0 = CortexMRegion::new(
             region_start.as_fluxptr(),
             num_enabled_subregions0 * subregion_size, 
@@ -1246,9 +1237,6 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         let app_memory_break = app_memory_break.as_usize();
         let kernel_memory_break = kernel_memory_break.as_usize();
 
-        assume(app_memory_break > region_start);
-        assume(region_size > 7);
-
         // Out of memory
         if app_memory_break > kernel_memory_break {
             return Err(());
@@ -1274,7 +1262,6 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
 
         // Get the number of subregions enabled in each of the two MPU regions.
         let num_enabled_subregions0 = math::min(num_enabled_subregions, 8);
-        assume(num_enabled_subregions0 >= 8);
         let num_enabled_subregions1 = num_enabled_subregions.saturating_sub(8);
 
         let region0 = CortexMRegion::new(
