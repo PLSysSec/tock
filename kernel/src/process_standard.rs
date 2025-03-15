@@ -174,6 +174,7 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
         ) -> Result<FluxPtrU8Mut[bc.app_break], Error>
             ensures self: Self
     )]
+    #[flux_rs::trusted] // crashing with fixpoint encoding error: https://github.com/flux-rs/flux/issues/1025
     pub(crate) fn brk(
         &mut self,
         new_break: FluxPtrU8Mut,
@@ -222,6 +223,7 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
     }
 
     #[flux_rs::sig(fn (self: &strg Self, usize, usize, &mut <C as Chip>::MPU) -> Option<NonNull<u8>> ensures self: Self)]
+    #[flux_rs::trusted] // crashes with fixpoint encoding error
     pub(crate) fn allocate_in_grant_region_internal(&mut self, size: usize, align: usize, mpu: &mut <C as Chip>::MPU) -> Option<NonNull<u8>>{
         // First, compute the candidate new pointer. Note that at this point
         // we have not yet checked whether there is space for this
@@ -1541,6 +1543,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             usize
         )-> Result<(Option<&_>, &mut [u8]), (ProcessLoadError, &mut [u8])>
     )]
+    #[flux_rs::trusted] // Crashes with fixpoint encoding error
     pub(crate) unsafe fn create<'a>(
         kernel: &'static Kernel,
         chip: &'static C,
