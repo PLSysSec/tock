@@ -1287,7 +1287,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         );
 
         let region1 = if num_enabled_subregions1 == 0 {
-            CortexMRegion::empty(1)
+            CortexMRegion::empty(HEAP_REGION2)
         } else {
             CortexMRegion::new(
                 (region_start + region_size).as_fluxptr(),
