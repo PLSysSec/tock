@@ -782,7 +782,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
             usize[@region_no],
             FluxPtrU8[@start],
             usize[@size],
-            _,
+            usize[@minsz],
             mpu::Permissions[@perms],
             _
         ) -> Option<{r. CortexMRegion[r] | 
@@ -790,7 +790,8 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                 r.region_no == region_no &&
                 r.perms == perms &&
                 r.astart >= start &&
-                r.astart + r.asize <= start + size 
+                r.astart + r.asize <= start + size &&
+                r.asize >= minsz
             }>
     )]
     // VTock todo: Size asked for and actual size mismatch seem problematic?
