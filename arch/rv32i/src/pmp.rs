@@ -746,7 +746,6 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         initial_kernel_memory_size: usize,
         flash_start: FluxPtr,
         flash_size: usize,
-        permissions: mpu::Permissions,
         config: &mut Self::MpuConfig,
     ) -> Result<Pair<FluxPtr, usize>, mpu::AllocateAppMemoryError> {
         // An app memory region can only be allocated once per `MpuConfig`.
@@ -827,7 +826,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         // All checks passed, store region allocation, indicate the
         // app_memory_region, and mark config as dirty:
         config.regions[region_num] = (
-            permissions.into(),
+            mpu::Permissions::ReadWriteOnly.into(),
             start as *const u8,
             (start + pmp_region_size) as *const u8,
         );
@@ -848,7 +847,6 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         kernel_memory_break: FluxPtr,
         flash_start: FluxPtr,
         flash_size: usize,
-        permissions: mpu::Permissions,
         config: &mut Self::MpuConfig,
     ) -> Result<(), ()> {
         let region_num = config.app_memory_region.get().ok_or(())?;
@@ -870,7 +868,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
 
         // If we're not out of memory, update the region configuration
         // accordingly:
-        config.regions[region_num].0 = permissions.into();
+        config.regions[region_num].0 = mpu::Permissions::ReadWriteOnly.into();
         config.regions[region_num].2 = u8::from(app_memory_break) as *const u8;
         config.is_dirty.set(true);
 

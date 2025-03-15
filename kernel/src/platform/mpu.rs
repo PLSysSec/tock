@@ -26,7 +26,7 @@ pub enum Permissions {
 
 pub enum AllocateAppMemoryError {
     HeapError,
-    FlashError
+    FlashError,
 }
 
 /// MPU region.
@@ -97,7 +97,8 @@ impl Display for MpuConfigDefault {
 // VTOCK-TODO: remove default associated refinements
 #[flux_rs::assoc(fn enabled(self: Self) -> bool {false} )]
 #[flux_rs::assoc(fn configured_for(self: Self, config: Self::MpuConfig) -> bool)]
-#[flux_rs::assoc(fn config_can_access(c: Self::MpuConfig, start: int, size: int, perms: Permissions) -> bool)]
+#[flux_rs::assoc(fn config_can_access_flash(c: Self::MpuConfig, fstart: int, fsize: int) -> bool)]
+#[flux_rs::assoc(fn config_can_access_heap(c: Self::MpuConfig, hstart: int, hsize: int) -> bool)]
 #[flux_rs::assoc(fn config_cant_access_at_all(c: Self::MpuConfig, start: int, size: int) -> bool)]
 pub trait MPU {
     /// MPU-specific state that defines a particular configuration for the MPU.
@@ -248,14 +249,13 @@ pub trait MPU {
             usize[@kernelmsz],
             FluxPtrU8[@fstart],
             usize[@fsz],
-            Permissions[@perms],
             config: &strg Self::MpuConfig[@old_c],
         ) -> Result<{p. Pair<FluxPtrU8, usize>[p] | 
-                <Self as MPU>::config_can_access(new_c, fstart, fsz, Permissions { r: true, w: false, x: true }) &&
-                <Self as MPU>::config_can_access(new_c, p.fst, appmsz, perms) &&
+                <Self as MPU>::config_can_access_flash(new_c, fstart, fsz) &&
+                <Self as MPU>::config_can_access_heap(new_c, p.fst, appmsz) &&
                 <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart) &&
-                <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz, p.fst - fstart + fsz) &&
-                <Self as MPU>::config_cant_access_at_all(new_c, p.fst + p.snd - kernelmsz, 0xffff_ffff)
+                <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz, p.fst - (fstart + fsz)) &&
+                <Self as MPU>::config_cant_access_at_all(new_c, p.fst + appmsz, 0xffff_ffff)
             }, AllocateAppMemoryError>
         requires min_mem_sz < usize::MAX && fsz < usize::MAX
         ensures config: Self::MpuConfig[#new_c]
@@ -269,7 +269,6 @@ pub trait MPU {
         initial_kernel_memory_size: usize,
         flash_start: FluxPtrU8Mut,
         flash_size: usize,
-        permissions: Permissions,
         config: &mut Self::MpuConfig,
     ) -> Result<Pair<FluxPtrU8Mut, usize>, AllocateAppMemoryError>;
 
@@ -299,17 +298,16 @@ pub trait MPU {
             FluxPtrU8Mut[@kernel_break],
             FluxPtrU8Mut[@fstart],
             usize[@fsz],
-            Permissions[@perms],
             config: &strg Self::MpuConfig[@old_c],
         ) -> Result<(), ()>[#res]
-        requires <Self as MPU>::config_can_access(old_c, fstart, fsz, Permissions { r: true, w: false, x: true })
+        requires <Self as MPU>::config_can_access_flash(old_c, fstart, fsz)
         ensures config: Self::MpuConfig {new_c: res => 
-                <Self as MPU>::config_can_access(new_c, fstart, fsz, Permissions { r: true, w: false, x: true }) &&
-                <Self as MPU>::config_can_access(new_c, memstart, app_break - memstart, perms) &&
-                <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart) &&
-                <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz, memstart - fstart + fsz) &&
-                <Self as MPU>::config_cant_access_at_all(new_c, kernel_break, 0xffff_ffff)
-            }
+            <Self as MPU>::config_can_access_flash(new_c, fstart, fsz) &&
+            <Self as MPU>::config_can_access_heap(new_c, memstart, app_break) &&
+            <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart) &&
+            <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz, memstart - (fstart + fsz)) &&
+            <Self as MPU>::config_cant_access_at_all(new_c, app_break, 0xffff_ffff)
+        }
     )]
     fn update_app_memory_regions(
         &self,
@@ -318,7 +316,6 @@ pub trait MPU {
         kernel_memory_break: FluxPtrU8Mut,
         flash_start: FluxPtrU8Mut,
         flash_size: usize,
-        permissions: Permissions,
         config: &mut Self::MpuConfig,
     ) -> Result<(), ()>;
 
@@ -331,7 +328,7 @@ pub trait MPU {
     /// # Arguments
     ///
     /// - `config`: MPU region configuration
-    // #[flux_rs::sig(fn(self: &strg Self, &Self::MpuConfig[@config]) ensures self: Self{r: <Self as MPU>::configured_for(r, config)})]
+    #[flux_rs::sig(fn(self: &strg Self, &Self::MpuConfig[@config]) ensures self: Self{r: <Self as MPU>::configured_for(r, config)})]
     fn configure_mpu(&mut self, config: &Self::MpuConfig);
 }
 

@@ -170,21 +170,31 @@ flux_rs::defs! {
         !region.set ||
         // NO slice of start..(start + size) is included in the region
         // i.e. the start..(start + size) is entirely before the region start
-        // or the start is entirely after region_start + region_size
         (start < region.astart && start + size <= region.astart) || 
+        // or the start is entirely after region_start + region_size
         start >= region.astart + region.asize
     }
 
-    fn config_can_access(config: CortexMConfig, start: int, size: int, perms: mpu::Permissions) -> bool {
-        // TODO: What if access is split between two regions??
-        region_can_access(map_get(config, 0), start, size, perms) ||
-        region_can_access(map_get(config, 1), start, size, perms) ||
-        region_can_access(map_get(config, 2), start, size, perms) ||
-        region_can_access(map_get(config, 3), start, size, perms) ||
-        region_can_access(map_get(config, 4), start, size, perms) ||
-        region_can_access(map_get(config, 5), start, size, perms) ||
-        region_can_access(map_get(config, 6), start, size, perms) ||
-        region_can_access(map_get(config, 7), start, size, perms)
+    fn config_can_access_flash(config: CortexMConfig, fstart: int, fsize: int) -> bool {
+        // checks the flash is accessible with read and execute perms
+        region_can_access(map_get(config, 2), fstart, fsize, mpu::Permissions {r: true, w: false, x: true})
+    }
+
+    fn can_access_heap_split(region0: CortexMRegion, region1: CortexMRegion, hstart: int, hsize: int) -> bool {
+        region0.astart + region0.asize == region1.astart &&
+        hstart >= region0.astart &&
+        hstart + hsize <= region1.astart + region1.asize &&
+        region0.perms == mpu::Permissions {r: true, w: true, x: false} &&
+        region1.perms == mpu::Permissions {r: true, w: true, x: false}
+    }
+
+    fn config_can_access_heap(config: CortexMConfig, hstart: int, hsize: int) -> bool {
+        // checks the heap is accessible with read and write perms
+        // either you can access it through 0 or 1 
+        region_can_access(map_get(config, 0), hstart, hsize, mpu::Permissions {r: true, w: true, x: false}) ||
+        region_can_access(map_get(config, 1), hstart, hsize, mpu::Permissions {r: true, w: true, x: false}) ||
+        // or its accessible through the combination of 0 and 1
+        can_access_heap_split(map_get(config, 0), map_get(config, 1), hstart, hsize)
     }
 
     fn config_cant_access_at_all(config: CortexMConfig, start: int, size: int) -> bool {
@@ -197,15 +207,6 @@ flux_rs::defs! {
         region_cant_access_at_all(map_get(config, 6), start, size) &&
         region_cant_access_at_all(map_get(config, 7), start, size)
     }
-
-    fn access_post_allocate_app(c: CortexMConfig, fstart: int, fsz: int, hstart: int, hsz: int, kbreak: int, perms: mpu::Permissions) -> bool { 
-        config_can_access(c, fstart, fsz, mpu::Permissions { r: true, w: false, x: true }) &&
-        config_can_access(c, hstart, hsz, perms) &&
-        config_cant_access_at_all(c, 0, fstart) &&
-        config_cant_access_at_all(c, fstart + fsz, hstart - fstart + fsz) &&
-        config_cant_access_at_all(c, kbreak, 0xffff_ffff)
-    }
-
 }
 
 // VTOCK_TODO: better solution for hardware register spooky-action-at-a-distance
@@ -923,7 +924,8 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
 
 #[flux_rs::assoc(fn enabled(self: Self) -> bool {enable(self.ctrl)} )]
 #[flux_rs::assoc(fn configured_for(self: Self, config: CortexMConfig) -> bool {mpu_configured_for(self, config)} )]
-#[flux_rs::assoc(fn config_can_access(c: CortexMConfig, start: int, size: int, perms: mpu::Permissions) -> bool { config_can_access(c, start, size, perms) })]
+#[flux_rs::assoc(fn config_can_access_flash(c: CortexMConfig, fstart: int, fsize: int) -> bool { config_can_access_flash(c, fstart, fsize) })]
+#[flux_rs::assoc(fn config_can_access_heap(c: CortexMConfig, hstart: int, hsize: int) -> bool { config_can_access_heap(c, hstart, hsize) })]
 #[flux_rs::assoc(fn config_cant_access_at_all(c: CortexMConfig, start: int, size: int) -> bool { config_cant_access_at_all(c, start, size) } )]
 impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     type MpuConfig = CortexMConfig;
@@ -1050,9 +1052,14 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             usize[@kernelmsz],
             FluxPtrU8[@fstart],
             usize[@fsz],
-            mpu::Permissions[@perms],
             config: &strg CortexMConfig[@old_c],
-        ) -> Result<{p. Pair<FluxPtrU8, usize>[p] | access_post_allocate_app(new_c, fstart, fsz, p.fst, appmsz, p.fst + p.snd - kernelmsz, perms)}, AllocateAppMemoryError>
+        ) -> Result<{p. Pair<FluxPtrU8, usize>[p] | 
+            config_can_access_flash(new_c, fstart, fsz) &&
+            config_can_access_heap(new_c, p.fst, appmsz) &&
+            config_cant_access_at_all(new_c, 0, fstart) &&
+            config_cant_access_at_all(new_c, fstart + fsz, p.fst - (fstart + fsz)) &&
+            config_cant_access_at_all(new_c, p.fst + appmsz, 0xffff_ffff)
+        }, mpu::AllocateAppMemoryError>
         requires min_mem_sz < usize::MAX && fsz < usize::MAX
         ensures config: CortexMConfig[#new_c]
     )]
@@ -1065,7 +1072,6 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         initial_kernel_memory_size: usize,
         flash_start: FluxPtrU8Mut,
         flash_size: usize,
-        permissions: mpu::Permissions,
         config: &mut CortexMConfig,
     ) -> Result<Pair<FluxPtrU8, usize>, mpu::AllocateAppMemoryError> {
         // first allocate flash
@@ -1178,7 +1184,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             region_size, 
             HEAP_REGION1,
             Some((0, num_enabled_subregions0 - 1)),
-            permissions,
+            mpu::Permissions::ReadWriteOnly
         );
 
         // We cannot have a completely unused MPU region
@@ -1192,7 +1198,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
                 region_size,
                 HEAP_REGION2,
                 Some((0, num_enabled_subregions1 - 1)),
-                permissions,
+                mpu::Permissions::ReadWriteOnly
             )
         };
 
@@ -1211,11 +1217,16 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             FluxPtrU8Mut[@kernel_break],
             FluxPtrU8Mut[@fstart],
             usize[@fsz],
-            mpu::Permissions[@perms],
             config: &strg CortexMConfig[@old_c],
         ) -> Result<(), ()>[#res]
-        requires config_can_access(old_c, fstart, fsz, mpu::Permissions { r: true, w: false, x: true })
-        ensures config: CortexMConfig {new_c: res => access_post_allocate_app(new_c, fstart, fsz, memstart, app_break, kernel_break, perms) }
+        requires config_can_access_flash(old_c, fstart, fsz)
+        ensures config: CortexMConfig {new_c: res => 
+            config_can_access_flash(new_c, fstart, fsz) &&
+            config_can_access_heap(new_c, memstart, app_break) &&
+            config_cant_access_at_all(new_c, 0, fstart) &&
+            config_cant_access_at_all(new_c, fstart + fsz, memstart - (fstart + fsz)) &&
+            config_cant_access_at_all(new_c, app_break, 0xffff_ffff)
+        }
     )]
     fn update_app_memory_regions(
         &self,
@@ -1224,7 +1235,6 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         kernel_memory_break: FluxPtrU8,
         flash_start: FluxPtrU8Mut,
         flash_size: usize,
-        permissions: mpu::Permissions,
         config: &mut CortexMConfig,
     ) -> Result<(), ()> {
         // Get second region for flash and make sure it's allocated
@@ -1276,7 +1286,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             region_size,
             HEAP_REGION1,
             Some((0, num_enabled_subregions0 - 1)),
-            permissions,
+            mpu::Permissions::ReadWriteOnly
         );
 
         let region1 = if num_enabled_subregions1 == 0 {
@@ -1289,7 +1299,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
                 region_size,
                 HEAP_REGION2,
                 Some((0, num_enabled_subregions1 - 1)),
-                permissions,
+                mpu::Permissions::ReadWriteOnly
             )
         };
 

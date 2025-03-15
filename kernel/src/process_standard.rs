@@ -193,7 +193,6 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
             self.breaks.kernel_memory_break,
             FluxPtr::from(0),
             0,
-            mpu::Permissions::ReadWriteOnly,
             &mut self.mpu_config,
         ) {
             Err(Error::OutOfMemory)
@@ -258,7 +257,6 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
             new_break,
             FluxPtr::from(0), 
             0, 
-            mpu::Permissions::ReadWriteOnly,
             &mut self.mpu_config,
         ) {
             None
@@ -1682,7 +1680,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             initial_kernel_memory_size,
             pb.flash.as_fluxptr(), 
             pb.flash.len(),
-            mpu::Permissions::ReadWriteOnly,
             &mut mpu_config,
         ) {
             Ok(Pair { fst: memory_start, snd: memory_size }) => (memory_start, memory_size),
@@ -2072,7 +2069,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             initial_kernel_memory_size,
             self.flash.as_fluxptr(),
             self.flash.len(),
-            mpu::Permissions::ReadWriteOnly,
             &mut breaks_and_mpu_config.mpu_config,
         );
         let (app_mpu_mem_start, app_mpu_mem_len) = match app_mpu_mem {
