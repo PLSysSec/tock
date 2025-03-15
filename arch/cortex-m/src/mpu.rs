@@ -154,11 +154,17 @@ flux_rs::defs! {
     fn region_can_access(region: CortexMRegion, start: int, size: int, perms: mpu::Permissions) -> bool {
         // region set
         region.set &&
-        // region's accesible block contains the start and end checked
+        // region's accesible block contains the start..end (exclusive) checked
         start >= region.astart &&
         start + size < region.astart + region.asize &&
         // and perms are correct
         region.perms == perms
+    }
+
+    fn region_cant_access(region: CortexMRegion, start: int, size: int) -> bool {
+        // doesn't mention permissions because should not depend on those
+        !region.set ||
+        !(start >= region.astart && start + size < region.astart + region.asize) 
     }
 
     fn config_can_access(config: CortexMConfig, start: int, size: int, perms: mpu::Permissions) -> bool {
@@ -172,15 +178,6 @@ flux_rs::defs! {
         region_can_access(map_get(config, 6), start, size, perms) ||
         region_can_access(map_get(config, 7), start, size, perms)
     }
-
-    fn region_cant_access(region: CortexMRegion, start: int, size: int) -> bool {
-        // region is not set
-        !region.set || 
-        // or the block is below the region accessible block
-        (start < region.astart && start + size < region.astart) ||
-        // or the block is above the region accesible block
-        (start >= region.astart + region.asize && start + size >= region.astart + region.asize)
-    } 
 
     fn config_cant_access(config: CortexMConfig, start: int, size: int) -> bool {
         region_cant_access(map_get(config, 0), start, size) &&
