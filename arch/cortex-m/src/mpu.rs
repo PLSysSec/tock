@@ -379,7 +379,7 @@ pub struct MPU<const MIN_REGION_SIZE: usize> {
 impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
     pub const unsafe fn new() -> Self {
         assume(MIN_REGION_SIZE > 0);
-        assume(MIN_REGION_SIZE < 2147483648);
+        assume(MIN_REGION_SIZE < usize::MAX);
         let mpu_addr = 0xE000ED90;
         let mpu_type = ReadWriteU32::new(mpu_addr);
         let ctrl = ReadWriteU32::new(mpu_addr + 4);
@@ -807,7 +807,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
         permissions: mpu::Permissions,
         config: &CortexMConfig
     ) -> Option<CortexMRegion> {
-        assume(min_region_size < 2147483648);
+        assume(min_region_size < usize::MAX);
 
         // Check that no previously allocated regions overlap the unallocated memory.
         for region in config.regions_iter() {
@@ -1049,7 +1049,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         fn (
             &Self,
             FluxPtrU8,
-            usize,
+            usize[@min_mem_sz],
             usize,
             usize[@appmsz],
             usize[@kernelmsz],
@@ -1058,6 +1058,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             mpu::Permissions[@perms],
             config: &strg CortexMConfig[@old_c],
         ) -> Result<{p. Pair<FluxPtrU8, usize>[p] | access_post_allocate_app(new_c, fstart, fsz, p.fst, appmsz, p.fst + p.snd - kernelmsz, perms)}, AllocateAppMemoryError>
+        requires min_mem_sz < usize::MAX
         ensures config: CortexMConfig[#new_c]
     )]
     // VTOCK TODO: Should this return a result that indicates what went wrong? i.e. did the flash allocation fail or did the heap allocation fail?
@@ -1088,11 +1089,11 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         }
 
         // Make sure there is enough memory for app memory and kernel memory.
-        let memory_size = cmp::max(
+        // TODO: Add extern spec
+        let memory_size = math::max(
             min_memory_size,
             initial_app_memory_size + initial_kernel_memory_size,
         );
-        assume(memory_size > 1 && memory_size < 2147483648);
 
         // Size must be a power of two, so:
         // https://www.youtube.com/watch?v=ovo6zwv6DX4.
@@ -1169,7 +1170,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         }
 
         // Get the number of subregions enabled in each of the two MPU regions.
-        let num_enabled_subregions0 = cmp::min(num_enabled_subregions, 8);
+        let num_enabled_subregions0 = math::min(num_enabled_subregions, 8);
         let num_enabled_subregions1 = num_enabled_subregions.saturating_sub(8);
 
         assume(num_enabled_subregions0 > 0);
@@ -1272,7 +1273,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         }
 
         // Get the number of subregions enabled in each of the two MPU regions.
-        let num_enabled_subregions0 = cmp::min(num_enabled_subregions, 8);
+        let num_enabled_subregions0 = math::min(num_enabled_subregions, 8);
         assume(num_enabled_subregions0 >= 8);
         let num_enabled_subregions1 = num_enabled_subregions.saturating_sub(8);
 

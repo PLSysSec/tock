@@ -792,7 +792,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         // kernel memory sections, and is `min_memory_size` bytes
         // long. Calculate the length of this block with our new PMP-aliged
         // size:
-        let memory_block_size = cmp::max(
+        let memory_block_size = math::max(
             min_memory_size,
             pmp_region_size + initial_kernel_memory_size,
         );
