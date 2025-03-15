@@ -747,11 +747,11 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         flash_size: usize,
         permissions: mpu::Permissions,
         config: &mut Self::MpuConfig,
-    ) -> Option<Pair<FluxPtr, usize>> {
+    ) -> Result<Pair<FluxPtr, usize>, mpu::AllocateAppMemoryError> {
         // An app memory region can only be allocated once per `MpuConfig`.
         // If we already have one, abort:
         if config.app_memory_region.is_some() {
-            return None;
+            return Err(mpu::AllocateAppMemoryError::HeapError);
         }
 
         // Find a free region slot. If we don't have one, abort early:
@@ -760,7 +760,8 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
             .iter()
             .enumerate()
             .find(|(_i, (pmpcfg, _, _))| *pmpcfg == TORUserPMPCFG::OFF)
-            .map(|(i, _)| i)?;
+            .map(|(i, _)| i)
+            .ok_or(mpu::AllocateAppMemoryError::HeapError)?;
 
         // Now, meet the PMP TOR region constraints for the region specified by
         // `initial_app_memory_size` (which is the part of the region actually
@@ -809,7 +810,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
             > (usize::from(unallocated_memory_start)) + unallocated_memory_size
         {
             // Overflowing the provided memory region, can't make allocation:
-            return None;
+            return Err(mpu::AllocateAppMemoryError::HeapError);
         }
 
         // Finally, check that this new region does not overlap with any
@@ -818,7 +819,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
             if region.0 != TORUserPMPCFG::OFF
                 && region_overlaps(region, start as *const u8, memory_block_size)
             {
-                return None;
+                return Err(mpu::AllocateAppMemoryError::HeapError);
             }
         }
 
@@ -832,7 +833,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         config.is_dirty.set(true);
         config.app_memory_region.replace(region_num);
 
-        Some(Pair {
+        Ok(Pair {
             fst: flux_support::FluxPtr::from(start),
             snd: memory_block_size,
         })

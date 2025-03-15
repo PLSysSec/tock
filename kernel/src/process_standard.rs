@@ -1560,29 +1560,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             None => return Err((ProcessLoadError::MpuConfigurationError, remaining_memory)),
         };
 
-        // Allocate MPU region for flash.
-        if chip
-            .mpu()
-            .allocate_region(
-                pb.flash.as_fluxptr(), // TODO: How to get the start here?
-                pb.flash.len(),
-                pb.flash.len(),
-                mpu::Permissions::ReadExecuteOnly,
-                &mut mpu_config,
-            )
-            .is_none()
-        {
-            if config::CONFIG.debug_load_processes {
-                debug!(
-                        "[!] flash={:#010X}-{:#010X} process={:?} - couldn't allocate MPU region for flash",
-                        pb.flash.as_fluxptr().as_usize(),
-                        pb.flash.as_fluxptr().as_usize() + pb.flash.len() - 1,
-                        process_name
-                    );
-            }
-            return Err((ProcessLoadError::MpuInvalidFlashLength, remaining_memory));
-        }
-
         // Determine how much space we need in the application's memory space
         // just for kernel and grant state. We need to make sure we allocate
         // enough memory just for that.
@@ -1705,8 +1682,19 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             mpu::Permissions::ReadWriteOnly,
             &mut mpu_config,
         ) {
-            Some(Pair { fst: memory_start, snd: memory_size }) => (memory_start, memory_size),
-            None => {
+            Ok(Pair { fst: memory_start, snd: memory_size }) => (memory_start, memory_size),
+            Err(mpu::AllocateAppMemoryError::FlashError) => {
+                if config::CONFIG.debug_load_processes {
+                    debug!(
+                            "[!] flash={:#010X}-{:#010X} process={:?} - couldn't allocate MPU region for flash",
+                            pb.flash.as_fluxptr().as_usize(),
+                            pb.flash.as_fluxptr().as_usize() + pb.flash.len() - 1,
+                            process_name
+                        );
+                }
+                return Err((ProcessLoadError::MpuInvalidFlashLength, remaining_memory));
+            }
+            Err(mpu::AllocateAppMemoryError::HeapError) => {
                 // Failed to load process. Insufficient memory.
                 if config::CONFIG.debug_load_processes {
                     debug!(
@@ -2054,23 +2042,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             .mpu()
             .reset_config(&mut breaks_and_mpu_config.mpu_config);
 
-        // Allocate MPU region for flash.
-        let app_mpu_flash = self.chip.mpu().allocate_region(
-            self.flash.as_fluxptr(),
-            self.flash.len(),
-            self.flash.len(),
-            mpu::Permissions::ReadExecuteOnly,
-            &mut breaks_and_mpu_config.mpu_config,
-        );
-        if app_mpu_flash.is_none() {
-            // We were unable to allocate an MPU region for flash. This is very
-            // unexpected since we previously ran this process. However, we
-            // return now and leave the process faulted and it will not be
-            // scheduled.
-            return Err(ErrorCode::FAIL);
-        }
-
-        // RAM
+        // RAM and Flash
 
         // Re-determine the minimum amount of RAM the kernel must allocate to
         // the process based on the specific requirements of the syscall
@@ -2088,6 +2060,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let initial_kernel_memory_size =
             grant_ptrs_offset + Self::CALLBACKS_OFFSET + Self::PROCESS_STRUCT_OFFSET;
 
+        // allocate mpu regions for app flash and ram 
         let app_mpu_mem = self.chip.mpu().allocate_app_memory_regions(
             self.mem_start(),
             self.memory_len,
@@ -2100,8 +2073,11 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             &mut breaks_and_mpu_config.mpu_config,
         );
         let (app_mpu_mem_start, app_mpu_mem_len) = match app_mpu_mem {
-            Some(Pair { fst: start, snd: len }) => (start, len),
-            None => {
+            Ok(Pair { fst: start, snd: len }) => (start, len),
+            Err(mpu::AllocateAppMemoryError::FlashError) => {
+                return Err(ErrorCode::FAIL);
+            }
+            Err(mpu::AllocateAppMemoryError::HeapError) => {
                 // We couldn't configure the MPU for the process. This shouldn't
                 // happen since we were able to start the process before, but at
                 // this point it is better to leave the app faulted and not

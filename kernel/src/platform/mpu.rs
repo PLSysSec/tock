@@ -24,6 +24,11 @@ pub enum Permissions {
     ExecuteOnly,
 }
 
+pub enum AllocateAppMemoryError {
+    HeapError,
+    FlashError
+}
+
 /// MPU region.
 ///
 /// This is one contiguous address space protected by the MPU.
@@ -245,13 +250,13 @@ pub trait MPU {
             usize[@fsz],
             Permissions[@perms],
             config: &strg Self::MpuConfig[@old_c],
-        ) -> Option<{p. Pair<FluxPtrU8, usize>[p] | 
+        ) -> Result<{p. Pair<FluxPtrU8, usize>[p] | 
                 <Self as MPU>::config_can_access(new_c, fstart, fsz, Permissions { r: true, w: false, x: true }) &&
                 <Self as MPU>::config_can_access(new_c, p.fst, appmsz, perms) &&
                 <Self as MPU>::config_cant_access(new_c, 0, fstart) &&
                 <Self as MPU>::config_cant_access(new_c, fstart + fsz, p.fst - fstart + fsz) &&
                 <Self as MPU>::config_cant_access(new_c, p.fst + p.snd - kernelmsz, 0xffff_ffff)
-            }>
+            }, AllocateAppMemoryError>
         ensures config: Self::MpuConfig[#new_c]
     )]
     fn allocate_app_memory_regions(
@@ -265,7 +270,7 @@ pub trait MPU {
         flash_size: usize,
         permissions: Permissions,
         config: &mut Self::MpuConfig,
-    ) -> Option<Pair<FluxPtrU8Mut, usize>>;
+    ) -> Result<Pair<FluxPtrU8Mut, usize>, AllocateAppMemoryError>;
 
     /// Updates the MPU region for app-owned memory.
     ///

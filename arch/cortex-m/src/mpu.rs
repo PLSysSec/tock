@@ -14,6 +14,7 @@ use core::num::NonZeroUsize;
 use flux_support::register_bitfields;
 use flux_support::*;
 use kernel::platform::mpu;
+use kernel::platform::mpu::AllocateAppMemoryError;
 use kernel::utilities::cells::OptionalCell;
 use kernel::utilities::math;
 
@@ -1054,7 +1055,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             usize[@fsz],
             mpu::Permissions[@perms],
             config: &strg CortexMConfig[@old_c],
-        ) -> Option<{p. Pair<FluxPtrU8, usize>[p] | access_post_allocate_app(new_c, fstart, fsz, p.fst, appmsz, p.fst + p.snd - kernelmsz, perms)}>
+        ) -> Result<{p. Pair<FluxPtrU8, usize>[p] | access_post_allocate_app(new_c, fstart, fsz, p.fst, appmsz, p.fst + p.snd - kernelmsz, perms)}, AllocateAppMemoryError>
         ensures config: CortexMConfig[#new_c]
     )]
     // VTOCK TODO: Should this return a result that indicates what went wrong? i.e. did the flash allocation fail or did the heap allocation fail?
@@ -1069,9 +1070,9 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         flash_size: usize,
         permissions: mpu::Permissions,
         config: &mut CortexMConfig,
-    ) -> Option<Pair<FluxPtrU8, usize>> {
+    ) -> Result<Pair<FluxPtrU8, usize>, mpu::AllocateAppMemoryError> {
         // first allocate flash
-        let region = self.create_region(FLASH_REGION, flash_start, flash_size, flash_size, mpu::Permissions::ReadExecuteOnly, config)?;
+        let region = self.create_region(FLASH_REGION, flash_start, flash_size, flash_size, mpu::Permissions::ReadExecuteOnly, config).ok_or(AllocateAppMemoryError::FlashError)?;
         config.region_set(FLASH_REGION, region);
         // VTOCK TODO: Is this necessary?
         config.set_dirty(true);
@@ -1080,7 +1081,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         // memory.
         for region in config.regions_iter() {
             if region.overlaps(unallocated_memory_start, unallocated_memory_size) {
-                return None;
+                return Err(AllocateAppMemoryError::HeapError);
             }
         }
 
@@ -1104,7 +1105,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             memory_size_po2 = 512;
         } else if exponent > 32 {
             // Region sizes must be 4GB or smaller.
-            return None;
+            return Err(AllocateAppMemoryError::HeapError);
         }
 
         // Region size is the actual size the MPU region will be set to, and is
@@ -1142,7 +1143,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         //let kernel_memory_break = region_start + memory_size_po2 - initial_kernel_memory_size;
 
         let kernel_memory_break =
-            (region_start + memory_size_po2).checked_sub(initial_kernel_memory_size)?;
+            (region_start + memory_size_po2).checked_sub(initial_kernel_memory_size).ok_or(mpu::AllocateAppMemoryError::HeapError)?;
 
         // If the last subregion covering app-owned memory overlaps the start of
         // kernel-owned memory, we make the entire process memory block twice as
@@ -1162,7 +1163,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         if region_start + memory_size_po2
             > (unallocated_memory_start.as_usize()) + unallocated_memory_size
         {
-            return None;
+            return Err(AllocateAppMemoryError::HeapError);
         }
 
         // Get the number of subregions enabled in each of the two MPU regions.
@@ -1200,7 +1201,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         config.region_set(HEAP_REGION2, region1);
         config.set_dirty(true);
 
-        Some(Pair { fst: region_start.as_fluxptr(), snd: memory_size_po2 })
+        Ok(Pair { fst: region_start.as_fluxptr(), snd: memory_size_po2 })
     }
 
     #[flux_rs::sig(
