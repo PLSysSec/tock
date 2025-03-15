@@ -735,6 +735,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         Ok(())
     }
 
+    // VTOCK TODO: allocate flash here
     fn allocate_app_memory_regions(
         &self,
         unallocated_memory_start: FluxPtr,
@@ -837,6 +838,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         })
     }
 
+    // VTOCK TODO: check flash is set
     fn update_app_memory_regions(
         &self,
         memory_start: FluxPtr,
