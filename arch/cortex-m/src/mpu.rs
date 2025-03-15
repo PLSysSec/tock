@@ -161,7 +161,7 @@ flux_rs::defs! {
         region.perms == perms
     }
 
-    fn region_cant_access(region: CortexMRegion, start: int, size: int) -> bool {
+    fn region_cant_access_at_all(region: CortexMRegion, start: int, size: int) -> bool {
         // WHY is this different than !region_can_access:
         //  1. We don't want to talk about permissions at all here - it shouldn't be allocated at all
         //  2. region_can_access talks about everything from start..(start + size) being 
@@ -187,23 +187,23 @@ flux_rs::defs! {
         region_can_access(map_get(config, 7), start, size, perms)
     }
 
-    fn config_cant_access(config: CortexMConfig, start: int, size: int) -> bool {
-        region_cant_access(map_get(config, 0), start, size) &&
-        region_cant_access(map_get(config, 1), start, size) &&
-        region_cant_access(map_get(config, 2), start, size) &&
-        region_cant_access(map_get(config, 3), start, size) &&
-        region_cant_access(map_get(config, 4), start, size) &&
-        region_cant_access(map_get(config, 5), start, size) &&
-        region_cant_access(map_get(config, 6), start, size) &&
-        region_cant_access(map_get(config, 7), start, size)
+    fn config_cant_access_at_all(config: CortexMConfig, start: int, size: int) -> bool {
+        region_cant_access_at_all(map_get(config, 0), start, size) &&
+        region_cant_access_at_all(map_get(config, 1), start, size) &&
+        region_cant_access_at_all(map_get(config, 2), start, size) &&
+        region_cant_access_at_all(map_get(config, 3), start, size) &&
+        region_cant_access_at_all(map_get(config, 4), start, size) &&
+        region_cant_access_at_all(map_get(config, 5), start, size) &&
+        region_cant_access_at_all(map_get(config, 6), start, size) &&
+        region_cant_access_at_all(map_get(config, 7), start, size)
     }
 
     fn access_post_allocate_app(c: CortexMConfig, fstart: int, fsz: int, hstart: int, hsz: int, kbreak: int, perms: mpu::Permissions) -> bool { 
         config_can_access(c, fstart, fsz, mpu::Permissions { r: true, w: false, x: true }) &&
         config_can_access(c, hstart, hsz, perms) &&
-        config_cant_access(c, 0, fstart) &&
-        config_cant_access(c, fstart + fsz, hstart - fstart + fsz) &&
-        config_cant_access(c, kbreak, 0xffff_ffff)
+        config_cant_access_at_all(c, 0, fstart) &&
+        config_cant_access_at_all(c, fstart + fsz, hstart - fstart + fsz) &&
+        config_cant_access_at_all(c, kbreak, 0xffff_ffff)
     }
 
 }
@@ -925,7 +925,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
 #[flux_rs::assoc(fn enabled(self: Self) -> bool {enable(self.ctrl)} )]
 #[flux_rs::assoc(fn configured_for(self: Self, config: CortexMConfig) -> bool {mpu_configured_for(self, config)} )]
 #[flux_rs::assoc(fn config_can_access(c: CortexMConfig, start: int, size: int, perms: mpu::Permissions) -> bool { config_can_access(c, start, size, perms) })]
-#[flux_rs::assoc(fn config_cant_access(c: CortexMConfig, start: int, size: int) -> bool { config_cant_access(c, start, size) } )]
+#[flux_rs::assoc(fn config_cant_access_at_all(c: CortexMConfig, start: int, size: int) -> bool { config_cant_access_at_all(c, start, size) } )]
 impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     type MpuConfig = CortexMConfig;
 
@@ -950,7 +950,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         self.registers.mpu_type.read(Type::DREGION()) as usize
     }
 
-    #[flux_rs::sig(fn (_) -> Option<{c. CortexMConfig[c] | config_cant_access(c, 0, 0xffff_ffff)}>)]
+    #[flux_rs::sig(fn (_) -> Option<{c. CortexMConfig[c] | config_cant_access_at_all(c, 0, 0xffff_ffff)}>)]
     fn new_config(&self) -> Option<CortexMConfig> {
         let id = self.config_count.get();
         self.config_count.set(id.checked_add(1)?);
@@ -969,7 +969,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         Some(ret)
     }
 
-    #[flux_rs::sig(fn (_, config: &strg CortexMConfig) ensures config: CortexMConfig{c: config_cant_access(c, 0, 0xffff_ffff)})]
+    #[flux_rs::sig(fn (_, config: &strg CortexMConfig) ensures config: CortexMConfig{c: config_cant_access_at_all(c, 0, 0xffff_ffff)})]
     fn reset_config(&self, config: &mut CortexMConfig) {
         config.region_set(0, CortexMRegion::empty(0));
         config.region_set(1, CortexMRegion::empty(1));
