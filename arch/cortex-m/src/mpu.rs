@@ -156,7 +156,7 @@ flux_rs::defs! {
         region.set &&
         // region's accesible block contains the start and end checked
         start >= region.astart &&
-        start + size <= region.astart + region.asize &&
+        start + size < region.astart + region.asize &&
         // and perms are correct
         region.perms == perms
     }
@@ -378,6 +378,8 @@ pub struct MPU<const MIN_REGION_SIZE: usize> {
 
 impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
     pub const unsafe fn new() -> Self {
+        assume(MIN_REGION_SIZE > 0 && MIN_REGION_SIZE < usize::MAX);
+
         let mpu_addr = 0xE000ED90;
         let mpu_type = ReadWriteU32::new(mpu_addr);
         let ctrl = ReadWriteU32::new(mpu_addr + 4);
@@ -514,11 +516,7 @@ impl CortexMConfig {
 
     #[flux_rs::trusted]
     // #[flux_rs::sig(fn(self: &Self, idx: usize, region: CortexMRegion))]
-    #[flux_rs::sig(fn(&CortexMConfig[@self], {usize[@idx] | idx < 8}) -> &CortexMRegion{r:
-        r.region_no == idx &&
-        value(r.rbar) == rbar(map_get(self.regions, idx)) &&
-        value(r.rasr) == rasr(map_get(self.regions, idx))
-    })]
+    #[flux_rs::sig(fn(&CortexMConfig[@self], {usize[@idx] | idx < 8}) -> &CortexMRegion[map_get(self.regions, idx)])]
     fn get_region(&self, idx: usize) -> &CortexMRegion {
         &self.regions[idx]
     }
@@ -795,7 +793,6 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
             }>
         requires minsz < usize::MAX 
     )]
-    // VTock todo: Size asked for and actual size mismatch seem problematic?
     fn create_region(
         &self,
         region_num: usize,
@@ -1052,7 +1049,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             mpu::Permissions[@perms],
             config: &strg CortexMConfig[@old_c],
         ) -> Result<{p. Pair<FluxPtrU8, usize>[p] | access_post_allocate_app(new_c, fstart, fsz, p.fst, appmsz, p.fst + p.snd - kernelmsz, perms)}, AllocateAppMemoryError>
-        requires min_mem_sz < usize::MAX
+        requires min_mem_sz < usize::MAX && fsz < usize::MAX
         ensures config: CortexMConfig[#new_c]
     )]
     fn allocate_app_memory_regions(
@@ -1270,7 +1267,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
 
         let region0 = CortexMRegion::new(
             region_start.as_fluxptr(),
-            region_size,
+            num_enabled_subregions0 * subregion_size, 
             region_start.as_fluxptr(),
             region_size,
             HEAP_REGION1,
@@ -1283,7 +1280,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         } else {
             CortexMRegion::new(
                 (region_start + region_size).as_fluxptr(),
-                region_size,
+                num_enabled_subregions1 * subregion_size,
                 (region_start + region_size).as_fluxptr(),
                 region_size,
                 HEAP_REGION2,
