@@ -6,24 +6,6 @@
 
 use core::f32;
 
-#[flux_rs::sig(fn (fst: usize, snd: usize) -> usize[if fst >= snd { fst } else { snd }])]
-pub fn max(fst: usize, snd: usize) -> usize {
-    if fst >= snd {
-        fst
-    } else {
-        snd
-    }
-}
-
-#[flux_rs::sig(fn (fst: usize, snd: usize) -> usize[if fst <= snd { fst } else { snd }])]
-pub fn min(fst: usize, snd: usize) -> usize {
-    if fst <= snd {
-        fst
-    } else {
-        snd
-    }
-}
-
 // VTOCK-TODO: supplementary Z3 proofs for these two functions
 // VTOCK-TODO: use actual const names
 

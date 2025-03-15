@@ -9,6 +9,15 @@ pub fn max_usize(lhs: usize, rhs: usize) -> usize {
     }
 }
 
+#[flux_rs::sig(fn(lhs: usize, rhs: usize) -> usize {r: (lhs <= rhs => r == lhs) && (rhs > lhs => r == lhs)})]
+pub fn min_usize(lhs: usize, rhs: usize) -> usize {
+    if lhs <= rhs {
+        lhs
+    } else {
+        rhs
+    }
+}
+
 #[flux_rs::sig(fn(lhs: u32, rhs: u32) -> u32 {r: (lhs >= rhs => r == lhs) && (rhs > lhs => r == rhs)})]
 pub fn max_u32(lhs: u32, rhs: u32) -> u32 {
     if lhs >= rhs {

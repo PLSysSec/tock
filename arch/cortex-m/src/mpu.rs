@@ -1082,8 +1082,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         }
 
         // Make sure there is enough memory for app memory and kernel memory.
-        // TODO: Add extern spec
-        let memory_size = math::max(
+        let memory_size = max_usize(
             min_memory_size,
             initial_app_memory_size + initial_kernel_memory_size,
         );
@@ -1091,15 +1090,15 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         // Size must be a power of two, so:
         // https://www.youtube.com/watch?v=ovo6zwv6DX4.
         let mut memory_size_po2 = math::closest_power_of_two_usize(memory_size);
-        let exponent = math::log_base_two(memory_size_po2 as u32);
+        // let exponent = math::log_base_two(memory_size_po2 as u32);
 
         // Check for compliance with the constraints of the MPU.
-        if exponent < 9 {
+        if memory_size_po2 < 512 {
             // Region sizes must be 256 bytes or larger to support subregions.
             // Since we are using two regions, and each must be at least 256
             // bytes, we need the entire memory region to be at least 512 bytes.
             memory_size_po2 = 512;
-        } else if exponent > 32 {
+        } else if memory_size_po2 >= 4294967296 { // 2 ^ 32
             // Region sizes must be 4GB or smaller.
             return Err(AllocateAppMemoryError::HeapError);
         }
@@ -1138,8 +1137,13 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         let subregions_enabled_end = region_start + num_enabled_subregions * subregion_size;
         //let kernel_memory_break = region_start + memory_size_po2 - initial_kernel_memory_size;
 
-        let kernel_memory_break =
-            (region_start + memory_size_po2).checked_sub(initial_kernel_memory_size).ok_or(mpu::AllocateAppMemoryError::HeapError)?;
+        // VTOCK TODO: checked_sub spec? Where is that coming from?
+        // let kernel_memory_break =
+        //     (region_start + memory_size_po2).checked_sub(initial_kernel_memory_size).ok_or(mpu::AllocateAppMemoryError::HeapError)?;
+        if region_start + memory_size_po2 < initial_kernel_memory_size {
+            return Err(mpu::AllocateAppMemoryError::HeapError);
+        }
+        let kernel_memory_break = region_start + memory_size_po2 - initial_kernel_memory_size;
 
         // If the last subregion covering app-owned memory overlaps the start of
         // kernel-owned memory, we make the entire process memory block twice as
@@ -1163,7 +1167,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         }
 
         // Get the number of subregions enabled in each of the two MPU regions.
-        let num_enabled_subregions0 = math::min(num_enabled_subregions, 8);
+        let num_enabled_subregions0 = min_usize(num_enabled_subregions, 8);
         let num_enabled_subregions1 = num_enabled_subregions.saturating_sub(8);
 
         let region0 = CortexMRegion::new(
@@ -1261,7 +1265,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         }
 
         // Get the number of subregions enabled in each of the two MPU regions.
-        let num_enabled_subregions0 = math::min(num_enabled_subregions, 8);
+        let num_enabled_subregions0 = min_usize(num_enabled_subregions, 8);
         let num_enabled_subregions1 = num_enabled_subregions.saturating_sub(8);
 
         let region0 = CortexMRegion::new(
