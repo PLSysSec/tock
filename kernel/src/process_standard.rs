@@ -1680,7 +1680,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             pb.flash.len(),
             &mut mpu_config,
         ) {
-            Ok(breaks_and_size) => breaks_and_size,
+            Ok(bnsz) => bnsz,
             Err(mpu::AllocateAppMemoryError::FlashError) => {
                 if config::CONFIG.debug_load_processes {
                     debug!(
@@ -1690,7 +1690,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
                             process_name
                         );
                 }
-                return Err((ProcessLoadError::MpuInvalidFlashLength, remaining_memory));
+                return Err((ProcessLoadError::MpuInvalidFlashLength, remaining_memory))
             }
             Err(mpu::AllocateAppMemoryError::HeapError) => {
                 // Failed to load process. Insufficient memory.
@@ -1703,9 +1703,10 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
                             min_total_memory_size
                         );
                 }
-                return Err((ProcessLoadError::NotEnoughMemory, remaining_memory));
+                return Err((ProcessLoadError::NotEnoughMemory, remaining_memory))
             }
         };
+
         let allocation_start = breaks_and_size.breaks.memory_start;
         let allocation_size = breaks_and_size.memory_size;
 
@@ -1772,7 +1773,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         //   1. optional padding at the start of the memory region of
         //      `app_memory_start_offset` bytes,
         //
-        //   2. the app accessible memory region of `min_process_memory_size`,
+        //   2. the app accessible memory region of `process_allocated_size` (the size given by the MPU region),
         //
         //   3. optional unallocated memory, and
         //
