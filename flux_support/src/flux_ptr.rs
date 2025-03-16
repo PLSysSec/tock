@@ -32,6 +32,15 @@ impl From<usize> for FluxPtr {
     }
 }
 
+#[flux_rs::trusted]
+impl From<*mut u8> for FluxPtr {
+    fn from(value: *mut u8) -> Self {
+        FluxPtr {
+            inner: value as *mut u8,
+        }
+    }
+}
+
 // Support cast from FluxPtr to u32
 impl From<FluxPtr> for u32 {
     fn from(ptr: FluxPtr) -> u32 {

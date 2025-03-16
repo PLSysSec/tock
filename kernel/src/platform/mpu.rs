@@ -24,6 +24,22 @@ pub enum Permissions {
     ExecuteOnly,
 }
 
+#[flux_rs::refined_by(memory_start: int, app_break: int)]
+pub struct AllocatedAppBreaks {
+    #[field(FluxPtrU8[memory_start])]
+    pub memory_start: FluxPtrU8,
+    #[field(FluxPtrU8[app_break])]
+    pub app_break: FluxPtrU8,
+}
+
+#[flux_rs::refined_by(memory_start: int, app_break: int, memory_size: int)]
+pub struct AllocatedAppBreaksAndSize {
+    #[field(AllocatedAppBreaks[memory_start, app_break])]
+    pub breaks: AllocatedAppBreaks,
+    #[field(usize[memory_size])]
+    pub memory_size: usize
+}
+
 pub enum AllocateAppMemoryError {
     HeapError,
     FlashError,
@@ -250,13 +266,14 @@ pub trait MPU {
             FluxPtrU8[@fstart],
             usize[@fsz],
             config: &strg Self::MpuConfig[@old_c],
-        ) -> Result<{p. Pair<FluxPtrU8, usize>[p] | 
-                <Self as MPU>::config_can_access_flash(new_c, fstart, fsz) &&
-                <Self as MPU>::config_can_access_heap(new_c, p.fst, appmsz) &&
-                <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart) &&
-                <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz, p.fst - (fstart + fsz)) &&
-                <Self as MPU>::config_cant_access_at_all(new_c, p.fst + appmsz, 0xffff_ffff)
-            }, AllocateAppMemoryError>
+        ) -> Result<{b. AllocatedAppBreaksAndSize[b] | 
+            b.app_break <= b.memory_size - kernelmsz &&
+            <Self as MPU>::config_can_access_flash(new_c, fstart, fsz) &&
+            <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break) &&
+            <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart) &&
+            <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
+            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break, 0xffff_ffff)
+        }, AllocateAppMemoryError>
         requires min_mem_sz < usize::MAX && fsz < usize::MAX
         ensures config: Self::MpuConfig[#new_c]
     )]
@@ -270,7 +287,7 @@ pub trait MPU {
         flash_start: FluxPtrU8Mut,
         flash_size: usize,
         config: &mut Self::MpuConfig,
-    ) -> Result<Pair<FluxPtrU8Mut, usize>, AllocateAppMemoryError>;
+    ) -> Result<AllocatedAppBreaksAndSize, AllocateAppMemoryError>;
 
     /// Updates the MPU region for app-owned memory.
     ///
@@ -293,31 +310,30 @@ pub trait MPU {
     #[flux_rs::sig(
         fn (
             &Self,
-            FluxPtrU8Mut[@memstart],
             FluxPtrU8Mut[@app_break],
             FluxPtrU8Mut[@kernel_break],
             FluxPtrU8Mut[@fstart],
             usize[@fsz],
             config: &strg Self::MpuConfig[@old_c],
-        ) -> Result<(), ()>[#res]
-        requires <Self as MPU>::config_can_access_flash(old_c, fstart, fsz)
-        ensures config: Self::MpuConfig {new_c: res => 
+        ) -> Result<{b. AllocatedAppBreaks[b] | 
+            b.app_break <= kernel_break &&
             <Self as MPU>::config_can_access_flash(new_c, fstart, fsz) &&
-            <Self as MPU>::config_can_access_heap(new_c, memstart, app_break) &&
+            <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz, memstart - (fstart + fsz)) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, app_break, 0xffff_ffff)
-        }
+            <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
+            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break, 0xffff_ffff)
+        }, ()>
+        requires <Self as MPU>::config_can_access_flash(old_c, fstart, fsz)
+        ensures config: Self::MpuConfig[#new_c] 
     )]
     fn update_app_memory_regions(
         &self,
-        mem_start: FluxPtrU8Mut,
         app_memory_break: FluxPtrU8Mut,
         kernel_memory_break: FluxPtrU8Mut,
         flash_start: FluxPtrU8Mut,
         flash_size: usize,
         config: &mut Self::MpuConfig,
-    ) -> Result<(), ()>;
+    ) -> Result<AllocatedAppBreaks, ()>;
 
     /// Configures the MPU with the provided region configuration.
     ///

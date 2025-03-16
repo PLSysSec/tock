@@ -11,7 +11,6 @@ use crate::csr;
 use flux_support::*;
 use kernel::platform::mpu;
 use kernel::utilities::cells::OptionalCell;
-use kernel::utilities::math;
 use kernel::utilities::registers::{register_bitfields, LocalRegisterCopy};
 
 register_bitfields![u8,
@@ -747,7 +746,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         flash_start: FluxPtr,
         flash_size: usize,
         config: &mut Self::MpuConfig,
-    ) -> Result<Pair<FluxPtr, usize>, mpu::AllocateAppMemoryError> {
+    ) -> Result<mpu::AllocatedAppBreaksAndSize, mpu::AllocateAppMemoryError> {
         // An app memory region can only be allocated once per `MpuConfig`.
         // If we already have one, abort:
         if config.app_memory_region.is_some() {
@@ -833,22 +832,24 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         config.is_dirty.set(true);
         config.app_memory_region.replace(region_num);
 
-        Ok(Pair {
-            fst: flux_support::FluxPtr::from(start),
-            snd: memory_block_size,
+        Ok(mpu::AllocatedAppBreaksAndSize {
+            breaks: mpu::AllocatedAppBreaks {
+                memory_start: FluxPtr::from(start),
+                app_break: FluxPtr::from(start + pmp_region_size),
+            },
+            memory_size: memory_block_size,
         })
     }
 
     // VTOCK TODO: check flash is set
     fn update_app_memory_regions(
         &self,
-        memory_start: FluxPtr,
         app_memory_break: FluxPtr,
         kernel_memory_break: FluxPtr,
         flash_start: FluxPtr,
         flash_size: usize,
         config: &mut Self::MpuConfig,
-    ) -> Result<(), ()> {
+    ) -> Result<mpu::AllocatedAppBreaks, ()> {
         let region_num = config.app_memory_region.get().ok_or(())?;
 
         let mut app_memory_break = app_memory_break as FluxPtr;
@@ -872,7 +873,10 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         config.regions[region_num].2 = u8::from(app_memory_break) as *const u8;
         config.is_dirty.set(true);
 
-        Ok(())
+        Ok(mpu::AllocatedAppBreaks {
+            memory_start: FluxPtr::from(config.regions[region_num].1 as *mut u8),
+            app_break: app_memory_break,
+        })
     }
 
     fn configure_mpu(&mut self, config: &Self::MpuConfig) {

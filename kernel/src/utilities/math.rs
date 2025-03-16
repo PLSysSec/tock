@@ -6,6 +6,8 @@
 
 use core::f32;
 
+use flux_support::assume;
+
 // VTOCK-TODO: supplementary Z3 proofs for these two functions
 // VTOCK-TODO: use actual const names
 
@@ -61,7 +63,9 @@ impl PowerOfTwo {
     /// Converts a number two the nearest `PowerOfTwo` greater-than-or-equal to
     /// it.
     pub fn ceiling<F: Into<u32>>(f: F) -> PowerOfTwo {
-        PowerOfTwo(log_base_two(closest_power_of_two(f.into())))
+        let v = f.into();
+        assume(v < u32::MAX);
+        PowerOfTwo(log_base_two(closest_power_of_two(v)))
     }
 
     /// Creates a new `PowerOfTwo` representing the number zero.

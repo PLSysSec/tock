@@ -186,9 +186,8 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
         } else if new_break > self.breaks.kernel_memory_break {
             Err(Error::OutOfMemory)
         } else if let Err(()) = 
-        // VTOCK TODO: FIX THIS to pass actual mem start and flash
+        // VTOCK TODO: FIX THIS to pass actual flash
         mpu.update_app_memory_regions(
-            FluxPtr::from(0),
             new_break,
             self.breaks.kernel_memory_break,
             FluxPtr::from(0),
@@ -250,9 +249,8 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
             None
             // Verify this is compatible with the MPU.
         } else if let Err(()) = 
-        // VTOCK TODO: FIX THIS to pass the actual flash and mem start
+        // VTOCK TODO: FIX THIS to pass the actual flash 
         mpu.update_app_memory_regions(
-            FluxPtr::from(0), 
             self.breaks.app_break,
             new_break,
             FluxPtr::from(0), 
@@ -1672,7 +1670,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // - the kernel-owned allocation growing downward starting at the end
         //   of this allocation, `initial_kernel_memory_size` bytes long.
         //
-        let (allocation_start, allocation_size) = match chip.mpu().allocate_app_memory_regions(
+        let breaks_and_size = match chip.mpu().allocate_app_memory_regions(
             remaining_memory.as_fluxptr(),
             remaining_memory.len(),
             min_total_memory_size,
@@ -1682,7 +1680,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             pb.flash.len(),
             &mut mpu_config,
         ) {
-            Ok(Pair { fst: memory_start, snd: memory_size }) => (memory_start, memory_size),
+            Ok(breaks_and_size) => breaks_and_size,
             Err(mpu::AllocateAppMemoryError::FlashError) => {
                 if config::CONFIG.debug_load_processes {
                     debug!(
@@ -1708,6 +1706,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
                 return Err((ProcessLoadError::NotEnoughMemory, remaining_memory));
             }
         };
+        let allocation_start = breaks_and_size.breaks.memory_start;
+        let allocation_size = breaks_and_size.memory_size;
 
         // Determine the offset of the app-owned part of the above memory
         // allocation. An MPU may not place it at the very start of
@@ -1795,14 +1795,15 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let allocated_memory_start = allocated_memory.as_fluxptr();
         let allocated_memory_len = allocated_memory.len();
 
-        // Slice off the process-accessible memory:
-        let (app_accessible_memory, allocated_kernel_memory) =
-            allocated_memory.split_at_mut(min_process_memory_size);
-
         // Set the initial process-accessible memory:
-        let initial_app_brk = app_accessible_memory
-            .as_fluxptr()
-            .add(app_accessible_memory.len());
+        let initial_app_brk = breaks_and_size.breaks.app_break;
+        // Slice off the process-accessible memory:
+        // use the size of the accessible region given to us by the MPU since 
+        // a process should not be able to access anything past it's app break
+        let process_allocated_size = initial_app_brk.as_usize() - breaks_and_size.breaks.memory_start.as_usize();
+        let (app_accessible_memory, allocated_kernel_memory) =
+            allocated_memory.split_at_mut(process_allocated_size);
+
 
         // Set the initial allow high water mark to the start of process memory
         // since no `allow` calls have been made yet.
@@ -2071,8 +2072,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             self.flash.len(),
             &mut breaks_and_mpu_config.mpu_config,
         );
-        let (app_mpu_mem_start, app_mpu_mem_len) = match app_mpu_mem {
-            Ok(Pair { fst: start, snd: len }) => (start, len),
+        let breaks_and_size = match app_mpu_mem {
+            Ok(breaks_and_size) => breaks_and_size,
             Err(mpu::AllocateAppMemoryError::FlashError) => {
                 return Err(ErrorCode::FAIL);
             }
@@ -2088,21 +2089,21 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // Reset memory pointers now that we know the layout of the process
         // memory and know that we can configure the MPU.
 
+        let app_mpu_mem_start = breaks_and_size.breaks.memory_start;
+
         // app_brk is set based on minimum syscall size above the start of
         // memory.
-        let app_brk = app_mpu_mem_start.wrapping_add(min_process_memory_size);
+        let app_brk = breaks_and_size.breaks.app_break;
         // self.app_break.set(app_brk);
         // kernel_brk is calculated backwards from the end of memory the size of
         // the initial kernel data structures.
-        let kernel_brk = app_mpu_mem_start
-            .wrapping_add(app_mpu_mem_len)
-            .wrapping_sub(initial_kernel_memory_size);
+        let kernel_brk = app_mpu_mem_start.as_usize() + breaks_and_size.memory_size - initial_kernel_memory_size;
         // self.kernel_memory_break.set(kernel_brk);
         // High water mark for `allow`ed memory is reset to the start of the
         // process's memory region.
         // self.allow_high_water_mark.set(app_mpu_mem_start);
         let breaks = ProcessBreaks {
-            kernel_memory_break: kernel_brk,
+            kernel_memory_break: FluxPtr::from(kernel_brk),
             app_break: app_brk,
             allow_high_water_mark: app_mpu_mem_start,
         };
