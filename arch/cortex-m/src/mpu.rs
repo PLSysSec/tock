@@ -558,11 +558,10 @@ impl CortexMConfig {
 
 #[derive(Copy, Clone)]
 #[flux_rs::refined_by(addr: int, size: int)]
-#[flux_rs::invariant(size >= 256)]
 struct CortexMLocation {
     #[field(FluxPtrU8[addr])]
     pub addr: FluxPtrU8,
-    #[field({usize[size] | size >= 256})]
+    #[field(usize[size])]
     pub size: usize,
 }
 
@@ -663,7 +662,7 @@ impl CortexMRegion {
                 r.perms == perms &&
                 r.set  
             }
-        requires rsize > 1 && rsize < usize::MAX && asize >= 256
+        requires rsize > 1 && rsize < usize::MAX && rsize >= 256
     )]
     fn new(
         logical_start: FluxPtrU8,
@@ -1063,7 +1062,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
             config_cant_access_at_all(new_c, b.app_break, 0xffff_ffff)
         }, mpu::AllocateAppMemoryError>
-        requires min_mem_sz < usize::MAX && fsz < usize::MAX
+        requires min_mem_sz < usize::MAX && fsz < usize::MAX && appmsz + kernelmsz < usize::MAX
         ensures config: CortexMConfig[#new_c]
     )]
     fn allocate_app_memory_regions(

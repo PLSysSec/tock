@@ -274,7 +274,7 @@ pub trait MPU {
             <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
             <Self as MPU>::config_cant_access_at_all(new_c, b.app_break, 0xffff_ffff)
         }, AllocateAppMemoryError>
-        requires min_mem_sz < usize::MAX && fsz < usize::MAX
+        requires min_mem_sz < usize::MAX && fsz < usize::MAX && appmsz + kernelmsz < usize::MAX
         ensures config: Self::MpuConfig[#new_c]
     )]
     fn allocate_app_memory_regions(
