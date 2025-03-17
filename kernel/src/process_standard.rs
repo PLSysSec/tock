@@ -185,7 +185,7 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
             Err(Error::AddressOutOfBounds)
         } else if new_break > self.breaks.kernel_memory_break {
             Err(Error::OutOfMemory)
-        } else if let Err(()) = 
+        } else if let Ok(new_break) =
         // VTOCK TODO: FIX THIS to pass actual flash
         mpu.update_app_memory_regions(
             new_break,
@@ -194,12 +194,13 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
             0,
             &mut self.mpu_config,
         ) {
-            Err(Error::OutOfMemory)
-        } else {
             let old_break = self.breaks.app_break;
-            self.breaks.set_app_break(new_break);
+            self.breaks.set_app_break(new_break.app_break);
             mpu.configure_mpu(&self.mpu_config);
             Ok(old_break)
+        } else {
+            // MPU could not allocate a region without overlapping kernel memory
+            Err(Error::OutOfMemory)
         }
     }
 
