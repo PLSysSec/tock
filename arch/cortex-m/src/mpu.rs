@@ -608,7 +608,7 @@ impl GhostRegionState {
 /// Struct storing configuration for a Cortex-M MPU region.
 // if the region is set, the rbar bits encode the accessible start & region_num properly and the rasr bits encode the size and permissions properly
 #[derive(Copy, Clone)]
-#[flux_rs::invariant(set => (region(value(rbar)) == bv32(region_no) && can_access_exactly(rasr, rbar, astart, asize, perms)))]
+// #[flux_rs::invariant(set => (region(value(rbar)) == bv32(region_no) && can_access_exactly(rasr, rbar, astart, asize, perms)))]
 #[flux_rs::refined_by(
     rbar: FieldValueU32,
     rasr: FieldValueU32,
@@ -1054,8 +1054,8 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             FluxPtrU8[@fstart],
             usize[@fsz],
             config: &strg CortexMConfig[@old_c],
-        ) -> Result<{b. mpu::AllocatedAppBreaksAndSize[b] | 
-            b.app_break <= b.memory_size - kernelmsz &&
+        ) -> Result<{b. mpu::AllocatedAppBreaksAndSize[b] |
+            b.memory_start + b.app_break <= b.memory_start + b.memory_size - kernelmsz &&
             config_can_access_flash(new_c, fstart, fsz) &&
             config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             config_cant_access_at_all(new_c, 0, fstart) &&

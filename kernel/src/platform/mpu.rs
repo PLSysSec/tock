@@ -267,7 +267,7 @@ pub trait MPU {
             usize[@fsz],
             config: &strg Self::MpuConfig[@old_c],
         ) -> Result<{b. AllocatedAppBreaksAndSize[b] | 
-            b.app_break <= b.memory_size - kernelmsz &&
+            b.memory_start + b.app_break <= b.memory_start + b.memory_size - kernelmsz &&
             <Self as MPU>::config_can_access_flash(new_c, fstart, fsz) &&
             <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart) &&
