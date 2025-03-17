@@ -221,7 +221,6 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
     }
 
     #[flux_rs::sig(fn (self: &strg Self, usize, usize, &mut <C as Chip>::MPU) -> Option<NonNull<u8>> ensures self: Self)]
-    #[flux_rs::trusted] // crashes with fixpoint encoding error
     pub(crate) fn allocate_in_grant_region_internal(&mut self, size: usize, align: usize, mpu: &mut <C as Chip>::MPU) -> Option<NonNull<u8>>{
         // First, compute the candidate new pointer. Note that at this point
         // we have not yet checked whether there is space for this
@@ -248,18 +247,11 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
         } else if new_break > self.breaks.kernel_memory_break {
             None
             // Verify this is compatible with the MPU.
-        } else if let Err(()) = 
-        // VTOCK TODO: FIX THIS to pass the actual flash 
-        mpu.update_app_memory_regions(
-            self.breaks.app_break,
-            new_break,
-            FluxPtr::from(0), 
-            0, 
-            &mut self.mpu_config,
-        ) {
-            None
         } else {
             // Allocation is valid.
+            // The app break is precisely the end of the process
+            // accessible memory so we don't need to ask the MPU
+            // anything
 
             // We always allocate down, so we must lower the
             // kernel_memory_break.
