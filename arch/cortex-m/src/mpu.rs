@@ -1054,7 +1054,11 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
             config_cant_access_at_all(new_c, b.app_break, 0xffff_ffff)
         }, mpu::AllocateAppMemoryError>
-        requires min_mem_sz < usize::MAX && fsz < usize::MAX && appmsz + kernelmsz < usize::MAX
+        requires 
+            min_mem_sz < usize::MAX &&
+            fsz < usize::MAX &&
+            appmsz + kernelmsz < usize::MAX && 
+            config_cant_access_at_all(old_c, 0, 0xffff_ffff)
         ensures config: CortexMConfig[#new_c]
     )]
     fn allocate_app_memory_regions(
