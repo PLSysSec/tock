@@ -727,7 +727,6 @@ impl CortexMRegion {
     }
 
     #[flux_rs::sig(fn (usize[@region_num]) -> Self {r: r.region_no == region_num && region(value(r.rbar)) == bv32(region_num) && !r.set && !region_enable(value(r.rasr))})]
-    #[flux_rs::trusted] // crashes with fixpoint encoding error
     fn empty(region_num: usize) -> CortexMRegion {
         CortexMRegion {
             location: None,
