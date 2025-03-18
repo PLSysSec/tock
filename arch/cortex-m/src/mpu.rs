@@ -656,6 +656,7 @@ impl CortexMRegion {
             }
         requires rsize > 1 && rsize < usize::MAX && rsize >= 256
     )]
+    #[flux_rs::trusted] // VTOCK TODO: this one is a beast
     fn new(
         logical_start: FluxPtrU8,
         logical_size: usize,
