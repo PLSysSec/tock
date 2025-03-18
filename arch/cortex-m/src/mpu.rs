@@ -608,30 +608,22 @@ impl GhostRegionState {
 /// Struct storing configuration for a Cortex-M MPU region.
 // if the region is set, the rbar bits encode the accessible start & region_num properly and the rasr bits encode the size and permissions properly
 #[derive(Copy, Clone)]
-// #[flux_rs::invariant(set => (region(value(rbar)) == bv32(region_no) && can_access_exactly(rasr, rbar, astart, asize, perms)))]
 #[flux_rs::refined_by(
     rbar: FieldValueU32,
     rasr: FieldValueU32,
-    // loc: bool,
     region_no: int,
     set: bool,
     astart: int, // accessible start
     asize: int, // accessible size
-    // first_subregion_no: int,
-    // last_subregion_no: int,
-    // rstart: int, // entire start
-    // rsize: int, // entire size
     perms: mpu::Permissions
 )]
 pub struct CortexMRegion {
     #[field(Option<{l. CortexMLocation[l] | l.addr == astart && l.size == asize }>[set])]
     location: Option<CortexMLocation>, // actually accessible start and size 
-    #[field({FieldValueU32<RegionBaseAddress::Register>[rbar] | region(value(rbar)) == bv32(region_no)})]
+    #[field({FieldValueU32<RegionBaseAddress::Register>[rbar] | set => region(value(rbar)) == bv32(region_no)})]
     base_address: FieldValueU32<RegionBaseAddress::Register>,
-    #[field({FieldValueU32<RegionAttributes::Register>[rasr] | can_access_exactly(rasr, rbar, astart, asize, perms)})]
+    #[field({FieldValueU32<RegionAttributes::Register>[rasr] | set => can_access_exactly(rasr, rbar, astart, asize, perms)})]
     attributes: FieldValueU32<RegionAttributes::Register>,
-    // Flux tracking of actual region rather than logical region
-    // #[field({ GhostRegionState[region_no, set, astart, asize, first_subregion_no, last_subregion_no, rstart, rsize, perms] | subregions_match(first_subregion_no, last_subregion_no, astart, asize, rstart, rsize)})]
     #[field(GhostRegionState[region_no, astart, asize, perms])]
     ghost_region_state: GhostRegionState,
 }
