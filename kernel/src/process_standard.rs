@@ -151,9 +151,10 @@ impl ProcessBreaks {
     }
 }
 
-#[flux_rs::refined_by(kernel_break: int, app_break: int, allow_high_water_mark: int)]
+#[flux_rs::refined_by(kernel_break: int, app_break: int, allow_high_water_mark: int, mpu_config: <<C as Chip>::MPU as MPU>::MpuConfig)]
 struct BreaksAndMPUConfig<C: 'static + Chip> {
     /// Configuration data for the MPU
+    #[field(<<C as Chip>::MPU as MPU>::MpuConfig[mpu_config])]
     pub mpu_config: <<C as Chip>::MPU as MPU>::MpuConfig,
 
     // MPU regions are saved as a pointer-size pair.
@@ -170,6 +171,8 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
             self: &strg Self[@bc],
             FluxPtrU8Mut,
             FluxPtrU8Mut,
+            FluxPtrU8,
+            usize,
             &mut <C as Chip>::MPU
         ) -> Result<FluxPtrU8Mut[bc.app_break], Error>
             ensures self: Self
@@ -179,19 +182,19 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
         &mut self,
         new_break: FluxPtrU8Mut,
         mem_end: FluxPtrU8Mut,
+        flash_start: FluxPtrU8,
+        flash_len: usize,
         mpu: &mut <C as Chip>::MPU,
     ) -> Result<FluxPtrU8Mut, Error> {
         if new_break < self.breaks.allow_high_water_mark || new_break >= mem_end {
             Err(Error::AddressOutOfBounds)
         } else if new_break > self.breaks.kernel_memory_break {
             Err(Error::OutOfMemory)
-        } else if let Ok(new_break) =
-        // VTOCK TODO: FIX THIS to pass actual flash
-        mpu.update_app_memory_regions(
+        } else if let Ok(new_break) = mpu.update_app_memory_regions(
             new_break,
             self.breaks.kernel_memory_break,
-            FluxPtr::from(0),
-            0,
+            flash_start,
+            flash_len,
             &mut self.mpu_config,
         ) {
             let old_break = self.breaks.app_break;
@@ -290,8 +293,20 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
     }
 }
 
+#[flux_rs::refined_by(start: int, len: int)]
+#[flux_rs::opaque]
+struct FlashGhostState {}
+
+impl FlashGhostState {
+    #[flux_rs::trusted]
+    #[flux_rs::sig(fn (start: FluxPtr, len: usize) -> Self[start, len])]
+    pub(crate) fn new(start: FluxPtr, len: usize)  -> Self {
+        Self {}
+    }
+}
+
 /// A type for userspace processes in Tock.
-#[flux_rs::refined_by(mem_start: FluxPtr, mem_len: int)]
+#[flux_rs::refined_by(mem_start: FluxPtr, mem_len: int, flash_start: int, flash_len: int)]
 #[flux_rs::invariant(mem_start + mem_len <= usize::MAX)] // mem doesn't overflow address space
 pub struct ProcessStandard<'a, C: 'static + Chip> {
     /// Identifier of this process and the index of the process in the process
@@ -351,8 +366,15 @@ pub struct ProcessStandard<'a, C: 'static + Chip> {
     memory_len: usize,
 
     // breaks and corresponding configuration
-    // FLUX TODO: Add some invariant using an existential like the one below
-    // #[field(MapCell<BreaksAndMPUConfig<C>{bc: bc.app_break >= mem_start && bc.kernel_break <= mem_start + mem_len}>)]
+    #[field(MapCell<BreaksAndMPUConfig<C>{bc: 
+        bc.app_break >= mem_start && 
+        bc.kernel_break <= mem_start + mem_len &&
+        <<C as Chip>::MPU as MPU>::config_can_access_heap(bc.mpu_config, mem_start, bc.app_break) &&
+        <<C as Chip>::MPU as MPU>::config_can_access_flash(bc.mpu_config, flash_start, flash_len) &&
+        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(bc.mpu_config, 0, flash_start) &&
+        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(bc.mpu_config, flash_start + flash_len, mem_start) &&
+        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(bc.mpu_config, bc.app_break, 0xffff_ffff)
+    }>)]
     breaks_and_config: MapCell<BreaksAndMPUConfig<C>>,
 
     /// Reference to the slice of `GrantPointerEntry`s stored in the process's
@@ -367,6 +389,8 @@ pub struct ProcessStandard<'a, C: 'static + Chip> {
     /// Process flash segment. This is the region of nonvolatile flash that
     /// the process occupies.
     flash: &'static [u8],
+    #[field(FlashGhostState[flash_start, flash_len])]
+    _flash_ghost: FlashGhostState,
 
     /// The footers of the process binary (may be zero-sized), which are metadata
     /// about the process not covered by integrity. Used, among other things, to
@@ -796,7 +820,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
 
         self.breaks_and_config
             .map_or(Err(Error::KernelError), |breaks_and_config| {
-                breaks_and_config.brk(new_break, self.mem_end(), self.chip.mpu())
+                breaks_and_config.brk(new_break, self.mem_end(), self.flash_start(), self.flash_size(), self.chip.mpu())
             })
     }
 
@@ -2256,8 +2280,16 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     }
 
     /// The start address of the flash region allocated for this process.
+    #[flux_rs::trusted]
+    #[flux_rs::sig(fn (&Self[@f]) -> FluxPtrU8Mut[f.flash_start])]
     fn flash_start(&self) -> FluxPtrU8Mut {
         self.flash.as_fluxptr()
+    }
+
+    #[flux_rs::trusted]
+    #[flux_rs::sig(fn (&Self[@f]) -> usize[f.flash_len])]
+    fn flash_size(&self) -> usize {
+        self.flash.len()
     }
 
     /// Get the first address of process's flash that isn't protected by the
@@ -2271,6 +2303,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
 
     /// The first address after the end of the flash region allocated for this
     /// process.
+    #[flux_rs::trusted]
+    #[flux_rs::sig(fn (&Self[@f]) -> FluxPtrU8Mut[f.flash_start + f.flash_len])]
     fn flash_end(&self) -> FluxPtrU8Mut {
         self.flash.as_fluxptr().wrapping_add(self.flash.len())
     }
