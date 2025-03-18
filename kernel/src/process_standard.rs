@@ -171,13 +171,13 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
             self: &strg Self[@bc],
             FluxPtrU8Mut,
             FluxPtrU8Mut,
-            FluxPtrU8,
-            usize,
+            FluxPtrU8[@fstart],
+            usize[@fsize],
             &mut <C as Chip>::MPU
         ) -> Result<FluxPtrU8Mut[bc.app_break], Error>
+            requires <<C as Chip>::MPU as MPU>::config_can_access_flash(bc.mpu_config, fstart, fsize)
             ensures self: Self
     )]
-    #[flux_rs::trusted] // crashing with fixpoint encoding error: https://github.com/flux-rs/flux/issues/1025
     pub(crate) fn brk(
         &mut self,
         new_break: FluxPtrU8Mut,
@@ -207,25 +207,24 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
         }
     }
 
-    #[flux_rs::sig(fn (self: &strg Self[@bc], FluxPtrU8Mut[@buf_start], usize[@size]) ensures self: Self)]
+    #[flux_rs::sig(
+        fn (self: &strg Self[@bc], FluxPtrU8Mut[@buf_start], usize[@size]) 
+            requires buf_start + size <= bc.app_break
+            ensures self: Self
+    )]
     pub(crate) fn build_readwrite_process_buffer(&mut self, buf_start_addr: FluxPtrU8Mut, size: usize) {
         // TODO: Check for buffer aliasing here
         // Valid buffer, we need to adjust the app's watermark
         // note: `in_app_owned_memory` ensures this offset does not wrap
         let buf_end_addr = buf_start_addr.wrapping_add(size);
-        // VTOCK TODO: Get rid of this assume - it should hold
-        assume(self.breaks.app_break >= buf_end_addr);
 
         let new_water_mark = max_ptr(self.breaks.allow_high_water_mark, buf_end_addr);
-        // assert(self.breaks.kernel_memory_break >= self.breaks.app_break);
-        // assert(self.breaks.app_break >= self.breaks.allow_high_water_mark);
-        // assert(self.breaks.app_break >= new_water_mark);
 
         self.breaks.set_high_water_mark(new_water_mark);
     }
 
-    #[flux_rs::sig(fn (self: &strg Self, usize, usize, &mut <C as Chip>::MPU) -> Option<NonNull<u8>> ensures self: Self)]
-    pub(crate) fn allocate_in_grant_region_internal(&mut self, size: usize, align: usize, mpu: &mut <C as Chip>::MPU) -> Option<NonNull<u8>>{
+    #[flux_rs::sig(fn (self: &strg Self, usize, usize) -> Option<NonNull<u8>> ensures self: Self)]
+    pub(crate) fn allocate_in_grant_region_internal(&mut self, size: usize, align: usize) -> Option<NonNull<u8>>{
         // First, compute the candidate new pointer. Note that at this point
         // we have not yet checked whether there is space for this
         // allocation or that it meets alignment requirements.
@@ -2189,7 +2188,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     /// to be accessible to the process and to not overlap with the grant
     /// region.
     #[flux_rs::sig(fn(&Self[@p], FluxPtr[@ptr], usize[@sz]) -> Result<bool{b: b == true => ptr >= p.mem_start}, ()>)]
-    // ptr + sz <= usize::MAX
     fn in_app_owned_memory(&self, buf_start_addr: FluxPtrU8Mut, size: usize) -> Result<bool, ()> {
         let buf_end_addr = buf_start_addr.wrapping_add(size);
         self.breaks_and_config.map_or(Err(()), |breaks_and_config| {
@@ -2199,7 +2197,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
                 self.mem_start(),
             ))
         })
-        // buf_start_addr >= self.mem_start()
     }
 
     /// Checks if the buffer represented by the passed in base pointer and size
@@ -2234,7 +2231,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     // #[flux_rs::sig(fn(&Self, usize, usize{align: align > 0}) -> Option<NonNull<u8>>)]
     fn allocate_in_grant_region_internal(&self, size: usize, align: usize) -> Option<NonNull<u8>> {
         self.breaks_and_config.and_then(|breaks_and_config| 
-            breaks_and_config.allocate_in_grant_region_internal(size, align, &mut self.chip.mpu())
+            breaks_and_config.allocate_in_grant_region_internal(size, align)
         )
     }
 

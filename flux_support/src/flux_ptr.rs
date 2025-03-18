@@ -89,11 +89,12 @@ impl core::cmp::Ord for FluxPtr {
 
 // VTOCK-TODO: fill in these functions with obvious implementations
 impl FluxPtr {
-    #[sig(fn(self: Self[@lhs], rhs: usize) -> Self{r: ((lhs + rhs <= usize::MAX) => r == lhs + rhs) && ((lhs + rhs > usize::MAX) => r == lhs + rhs - usize::MAX) })]
+    #[sig(fn(self: Self[@lhs], rhs: usize) -> Self[if lhs + rhs <= usize::MAX { lhs + rhs } else { lhs + rhs - usize::MAX }])]
     pub const fn wrapping_add(self, _count: usize) -> FluxPtr {
         unimplemented!()
     }
 
+    #[sig(fn(self: Self[@lhs], rhs: usize) -> Self[if lhs - rhs >= 0 { lhs - rhs } else { - (lhs - rhs) }])]
     pub const fn wrapping_sub(self, _count: usize) -> FluxPtr {
         unimplemented!()
     }

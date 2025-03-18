@@ -1047,7 +1047,8 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             usize[@fsz],
             config: &strg CortexMConfig[@old_c],
         ) -> Result<{b. mpu::AllocatedAppBreaksAndSize[b] |
-            b.memory_start + b.app_break <= b.memory_start + b.memory_size - kernelmsz &&
+            b.app_break <= b.memory_start + b.memory_size - kernelmsz &&
+            b.app_break >= b.memory_start + appmsz &&
             config_can_access_flash(new_c, fstart, fsz) &&
             config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             config_cant_access_at_all(new_c, 0, fstart) &&
@@ -1225,6 +1226,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             config: &strg CortexMConfig[@old_c],
         ) -> Result<{b. mpu::AllocatedAppBreaks[b] |
             b.app_break <= kernel_break &&
+            b.app_break >= app_break &&
             config_can_access_flash(new_c, fstart, fsz) &&
             config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             config_cant_access_at_all(new_c, 0, fstart) &&
