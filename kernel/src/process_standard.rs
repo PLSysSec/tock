@@ -126,7 +126,7 @@ impl ProcessBreaks {
     #[flux_rs::sig(
         fn (self: &strg Self[@pb], FluxPtrU8Mut[@new_break]) 
             requires pb.kernel_break >= new_break && new_break >= pb.allow_high_water_mark
-            ensures self: Self{ new_pb:  new_pb.app_break == new_break }
+            ensures self: Self[{app_break: new_break, ..pb}]
     )]
     pub(crate) fn set_app_break(&mut self, new_break: FluxPtrU8Mut) {
         self.app_break = new_break;
@@ -135,7 +135,7 @@ impl ProcessBreaks {
     #[flux_rs::sig(
         fn (self: &strg Self[@pb], FluxPtrU8Mut[@new_hwm]) 
             requires pb.app_break >= new_hwm
-            ensures self: Self{ new_pb:  new_pb.allow_high_water_mark == new_hwm }
+            ensures self: Self[{allow_high_water_mark: new_hwm, ..pb}]
     )]
     pub(crate) fn set_high_water_mark(&mut self, new_high_water_mark: FluxPtrU8Mut) {
         self.allow_high_water_mark = new_high_water_mark;
@@ -170,7 +170,7 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
         fn (
             self: &strg Self[@bc],
             FluxPtrU8Mut,
-            FluxPtrU8Mut,
+            FluxPtrU8Mut[@mem_end],
             FluxPtrU8[@fstart],
             usize[@fsize],
             &mut <C as Chip>::MPU
@@ -750,6 +750,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         });
     }
 
+    #[flux_rs::trusted] // VTOCK: This is problematic and deals with IPC
     fn add_mpu_region(
         &self,
         unallocated_memory_start: FluxPtrU8Mut,
@@ -778,6 +779,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         })
     }
 
+    #[flux_rs::trusted] // VTOCK TODO: This is problematic and deals with IPC
     fn remove_mpu_region(&self, region: mpu::Region) -> Result<(), ErrorCode> {
         self.breaks_and_config
             .map_or(Err(ErrorCode::INVAL), |breaks_and_config| {
@@ -1555,7 +1557,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             usize
         )-> Result<(Option<&_>, &mut [u8]), (ProcessLoadError, &mut [u8])>
     )]
-    #[flux_rs::trusted] // Crashes with fixpoint encoding error
+    #[flux_rs::trusted] // VTock TODO: There is a place_ty issue here
     pub(crate) unsafe fn create<'a>(
         kernel: &'static Kernel,
         chip: &'static C,
