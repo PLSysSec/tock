@@ -315,6 +315,7 @@ pub trait MPU {
     #[flux_rs::sig(
         fn (
             &Self,
+            FluxPtrU8[@mem_start],
             FluxPtrU8Mut[@app_break],
             FluxPtrU8Mut[@kernel_break],
             FluxPtrU8Mut[@fstart],
@@ -323,17 +324,19 @@ pub trait MPU {
         ) -> Result<{b. AllocatedAppBreaks[b] | 
             b.app_break <= kernel_break &&
             b.app_break >= app_break &&
+            b.memory_start == mem_start &&
             <Self as MPU>::config_can_access_flash(new_c, fstart, fsz) &&
             <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart) &&
             <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
             <Self as MPU>::config_cant_access_at_all(new_c, b.app_break, 0xffff_ffff)
-        }, ()>
+        }, ()>[#res]
         requires <Self as MPU>::config_can_access_flash(old_c, fstart, fsz)
-        ensures config: Self::MpuConfig[#new_c] 
+        ensures config: Self::MpuConfig[#new_c], res => old_c == new_c
     )]
     fn update_app_memory_regions(
         &self,
+        mem_start: FluxPtrU8,
         app_memory_break: FluxPtrU8Mut,
         kernel_memory_break: FluxPtrU8Mut,
         flash_start: FluxPtrU8Mut,

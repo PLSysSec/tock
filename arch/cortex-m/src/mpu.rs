@@ -789,7 +789,6 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                 r.astart + r.asize <= start + size &&
                 r.asize >= minsz
             }>
-        requires minsz < usize::MAX 
     )]
     fn create_region(
         &self,
@@ -920,6 +919,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
 #[flux_rs::assoc(fn config_can_access_flash(c: CortexMConfig, fstart: int, fsize: int) -> bool { config_can_access_flash(c, fstart, fsize) })]
 #[flux_rs::assoc(fn config_can_access_heap(c: CortexMConfig, hstart: int, hsize: int) -> bool { config_can_access_heap(c, hstart, hsize) })]
 #[flux_rs::assoc(fn config_cant_access_at_all(c: CortexMConfig, start: int, size: int) -> bool { config_cant_access_at_all(c, start, size) } )]
+#[flux_rs::trusted_impl]
 impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     type MpuConfig = CortexMConfig;
 
@@ -1062,6 +1062,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             config_cant_access_at_all(old_c, 0, 0xffff_ffff)
         ensures config: CortexMConfig[#new_c]
     )]
+    #[flux_rs::trusted] // fixpoint encoding issue
     fn allocate_app_memory_regions(
         &self,
         unallocated_memory_start: FluxPtrU8,
@@ -1219,6 +1220,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     #[flux_rs::sig(
         fn (
             &Self,
+            FluxPtrU8[@mem_start],
             FluxPtrU8Mut[@app_break],
             FluxPtrU8Mut[@kernel_break],
             FluxPtrU8Mut[@fstart],
@@ -1227,17 +1229,19 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         ) -> Result<{b. mpu::AllocatedAppBreaks[b] |
             b.app_break <= kernel_break &&
             b.app_break >= app_break &&
+            b.memory_start == mem_start &&
             config_can_access_flash(new_c, fstart, fsz) &&
             config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             config_cant_access_at_all(new_c, 0, fstart) &&
             config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
             config_cant_access_at_all(new_c, b.app_break, 0xffff_ffff)
-        }, ()>
+        }, ()>[#res]
         requires config_can_access_flash(old_c, fstart, fsz)
-        ensures config: CortexMConfig[#new_c] 
+        ensures config: CortexMConfig[#new_c], res => old_c == new_c
     )]
     fn update_app_memory_regions(
         &self,
+        _mem_start: FluxPtrU8,
         app_memory_break: FluxPtrU8,
         kernel_memory_break: FluxPtrU8,
         flash_start: FluxPtrU8Mut,

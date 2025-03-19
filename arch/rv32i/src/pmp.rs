@@ -844,8 +844,9 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
     // VTOCK TODO: check flash is set
     fn update_app_memory_regions(
         &self,
-        app_memory_break: FluxPtr,
-        kernel_memory_break: FluxPtr,
+        mem_start: FluxPtrU8,
+        app_memory_break: FluxPtrU8Mut,
+        kernel_memory_break: FluxPtrU8Mut,
         flash_start: FluxPtr,
         flash_size: usize,
         config: &mut Self::MpuConfig,
