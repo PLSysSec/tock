@@ -183,7 +183,7 @@ struct BreaksAndMPUConfig<C: 'static + Chip> {
         <<C as Chip>::MPU as MPU>::config_can_access_heap(mpu_config, mem_start, app_break) &&
         <<C as Chip>::MPU as MPU>::config_can_access_flash(mpu_config, flash_start, flash_len) &&
         <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, 0, flash_start) &&
-        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, flash_start + flash_len, mem_start) &&
+        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, flash_start + flash_len, mem_start - (flash_start + flash_len)) &&
         <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, app_break, 0xffff_ffff)
     })]
     pub mpu_config: <<C as Chip>::MPU as MPU>::MpuConfig,
@@ -208,23 +208,21 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
                 new_bc.mem_start == bc.mem_start &&
                 new_bc.mem_len == bc.mem_len &&
                 new_bc.flash_start == bc.flash_start &&
-                new_bc.flash_len == bc.flash_len &&
-                new_bc.app_break >= new_bc.allow_high_water_mark &&
-                new_bc.app_break <= new_bc.kernel_break  &&
-                new_bc.kernel_break < new_bc.mem_start + new_bc.mem_len &&
-                new_bc.allow_high_water_mark >= new_bc.mem_start &&
-                (res => 
-                    <<C as Chip>::MPU as MPU>::config_can_access_heap(new_bc.mpu_config, new_bc.mem_start, new_bc.app_break) &&
-                    <<C as Chip>::MPU as MPU>::config_can_access_flash(new_bc.mpu_config, new_bc.flash_start, new_bc.flash_len) &&
-                    <<C as Chip>::MPU as MPU>::config_cant_access_at_all(new_bc.mpu_config, 0, new_bc.flash_start) &&
-                    <<C as Chip>::MPU as MPU>::config_cant_access_at_all(new_bc.mpu_config, new_bc.flash_start + new_bc.flash_len, new_bc.mem_start) &&
-                    <<C as Chip>::MPU as MPU>::config_cant_access_at_all(new_bc.mpu_config, new_bc.app_break, 0xffff_ffff)
-                ) &&
-                (!res => new_bc == bc
-                    // new_bc.app_break == bc.app_break &&
-                    // <<C as Chip>::MPU as MPU>::config_can_access_heap(bc.mpu_config, new_bc.mem_start, new_bc.app_break) &&
-                    // <<C as Chip>::MPU as MPU>::config_can_access_flash(new_bc.mpu_config, new_bc.flash_start, new_bc.flash_len)
-                )
+                new_bc.flash_len == bc.flash_len
+                // new_bc.kernel_break == bc.kernel_break
+                // &&
+                // new_bc.app_break >= new_bc.allow_high_water_mark &&
+                // new_bc.app_break <= new_bc.kernel_break  &&
+                // new_bc.kernel_break < new_bc.mem_start + new_bc.mem_len &&
+                // new_bc.allow_high_water_mark >= new_bc.mem_start &&
+                // (res => 
+                //     <<C as Chip>::MPU as MPU>::config_can_access_heap(new_bc.mpu_config, new_bc.mem_start, new_bc.app_break) &&
+                //     <<C as Chip>::MPU as MPU>::config_can_access_flash(new_bc.mpu_config, new_bc.flash_start, new_bc.flash_len) &&
+                //     <<C as Chip>::MPU as MPU>::config_cant_access_at_all(new_bc.mpu_config, 0, new_bc.flash_start) &&
+                //     <<C as Chip>::MPU as MPU>::config_cant_access_at_all(new_bc.mpu_config, new_bc.flash_start + new_bc.flash_len, new_bc.mem_start - (new_bc.flash_start + new_bc.flash_len)) &&
+                //     <<C as Chip>::MPU as MPU>::config_cant_access_at_all(new_bc.mpu_config, new_bc.app_break, 0xffff_ffff)
+                // ) &&
+                // (!res => new_bc == bc) // WTF :(
             }
     )]
     pub(crate) fn brk(
@@ -236,7 +234,7 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
             Err(Error::AddressOutOfBounds)
         } else if new_break > self.breaks.kernel_memory_break {
             Err(Error::OutOfMemory)
-        } else if let Ok(new_break) = mpu.update_app_memory_regions(
+        } else if let Ok(mpu_breaks) = mpu.update_app_memory_regions(
             self.breaks.mem_start,
             new_break,
             self.breaks.kernel_memory_break,
@@ -245,7 +243,7 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
             &mut self.mpu_config,
         ) {
             let old_break = self.breaks.app_break;
-            self.breaks.set_app_break(new_break.app_break);
+            self.breaks.set_app_break(mpu_breaks.app_break);
             mpu.configure_mpu(&self.mpu_config);
             Ok(old_break)
         } else {

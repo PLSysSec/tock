@@ -1237,7 +1237,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             config_cant_access_at_all(new_c, b.app_break, 0xffff_ffff)
         }, ()>[#res]
         requires config_can_access_flash(old_c, fstart, fsz)
-        ensures config: CortexMConfig[#new_c], res => old_c == new_c
+        ensures config: CortexMConfig[#new_c], !res => old_c == new_c
     )]
     fn update_app_memory_regions(
         &self,

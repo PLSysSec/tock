@@ -332,7 +332,7 @@ pub trait MPU {
             <Self as MPU>::config_cant_access_at_all(new_c, b.app_break, 0xffff_ffff)
         }, ()>[#res]
         requires <Self as MPU>::config_can_access_flash(old_c, fstart, fsz)
-        ensures config: Self::MpuConfig[#new_c], res => old_c == new_c
+        ensures config: Self::MpuConfig[#new_c], !res => old_c == new_c
     )]
     fn update_app_memory_regions(
         &self,
