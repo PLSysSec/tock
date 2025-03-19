@@ -352,7 +352,7 @@ register_bitfields![u32,
 /// There should only be one instantiation of this object as it represents
 /// real hardware.
 ///
-#[flux_rs::invariant(MIN_REGION_SIZE > 0 && MIN_REGION_SIZE < u32::MAX)]
+#[flux_rs::invariant(MIN_REGION_SIZE > 0 && MIN_REGION_SIZE < 2147483648)]
 #[flux_rs::refined_by(ctrl: bitvec<32>, rnr: bitvec<32>, rbar: bitvec<32>, rasr: bitvec<32>, regions: Map<int, bitvec<32>>, attrs: Map<int, bitvec<32>>)]
 pub struct MPU<const MIN_REGION_SIZE: usize> {
     /// MMIO reference to MPU registers.
