@@ -33,7 +33,7 @@ flux_rs::defs! {
     fn hfnmiena(reg:bitvec<32>) -> bool { bit(reg, 0x00000002)}
     fn privdefena(reg:bitvec<32>) -> bool { bit(reg, 0x00000004)}
     // RNR
-    fn region_num(reg:bitvec<32>) -> bitvec<32> { extract(reg, 0x000000ff, 0) }
+    fn num(reg:bitvec<32>) -> bitvec<32> { extract(reg, 0x000000ff, 0) }
     // Rbar
     fn valid(reg:bitvec<32>) -> bool { bit(reg, 0x00000010)}
     fn region(reg:bitvec<32>) -> bitvec<32> { extract(reg, 0x0000000f, 0)}
@@ -54,26 +54,11 @@ flux_rs::defs! {
     fn map_get<T>(m: Map<int, T>, k:int) -> T { map_select(m, k) }
     fn map_def(v: bitvec<32>) -> Map<int, bitvec<32>> { map_default(v) }
 
-
-    // fn enabled(mpu: MPU) -> bool { enable(mpu.ctrl)}
-    // VTOCK_TODO: simplify
     fn mpu_configured_for(mpu: MPU, config: CortexMConfig) -> bool {
-        map_get(mpu.regions, 0) == rbar(map_get(config.regions, 0)) &&
-        map_get(mpu.attrs, 0) == rasr(map_get(config.regions, 0)) &&
-        map_get(mpu.regions, 1) == rbar(map_get(config.regions, 1)) &&
-        map_get(mpu.attrs, 1) == rasr(map_get(config.regions, 1)) &&
-        map_get(mpu.regions, 2) == rbar(map_get(config.regions, 2)) &&
-        map_get(mpu.attrs, 2) == rasr(map_get(config.regions, 2)) &&
-        map_get(mpu.regions, 3) == rbar(map_get(config.regions, 3)) &&
-        map_get(mpu.attrs, 3) == rasr(map_get(config.regions, 3)) &&
-        map_get(mpu.regions, 4) == rbar(map_get(config.regions, 4)) &&
-        map_get(mpu.attrs, 4) == rasr(map_get(config.regions, 4)) &&
-        map_get(mpu.regions, 5) == rbar(map_get(config.regions, 5)) &&
-        map_get(mpu.attrs, 5) == rasr(map_get(config.regions, 5)) &&
-        map_get(mpu.regions, 6) == rbar(map_get(config.regions, 6)) &&
-        map_get(mpu.attrs, 6) == rasr(map_get(config.regions, 6)) &&
-        map_get(mpu.regions, 7) == rbar(map_get(config.regions, 7)) &&
-        map_get(mpu.attrs, 7) == rasr(map_get(config.regions, 7))
+        forall i in 0..8 {
+            map_get(mpu.regions, i) == rbar(map_get(config.regions, i)) &&
+            map_get(mpu.attrs, i) == rasr(map_get(config.regions, i))
+        }
     }
 
     // https://developer.arm.com/documentation/dui0552/a/cortex-m3-peripherals/optional-memory-protection-unit/mpu-access-permission-attributes?lang=en
@@ -105,6 +90,11 @@ flux_rs::defs! {
     */
 
     // VR: STARTING FROM SCRATCH
+
+    fn region_no(r: CortexMRegion) -> int {
+        r.region_no
+    }
+
     fn astart(r: CortexMRegion) -> int {
         r.astart
     }
@@ -199,14 +189,9 @@ flux_rs::defs! {
     }
 
     fn config_cant_access_at_all(config: CortexMConfig, start: int, size: int) -> bool {
-        region_cant_access_at_all(map_get(config, 0), start, size) &&
-        region_cant_access_at_all(map_get(config, 1), start, size) &&
-        region_cant_access_at_all(map_get(config, 2), start, size) &&
-        region_cant_access_at_all(map_get(config, 3), start, size) &&
-        region_cant_access_at_all(map_get(config, 4), start, size) &&
-        region_cant_access_at_all(map_get(config, 5), start, size) &&
-        region_cant_access_at_all(map_get(config, 6), start, size) &&
-        region_cant_access_at_all(map_get(config, 7), start, size)
+        forall i in 0..8 {
+            region_cant_access_at_all(map_get(config, i), start, size)
+        }
     }
 }
 
@@ -523,8 +508,7 @@ impl CortexMConfig {
     }
 
     #[flux_rs::trusted]
-    // #[flux_rs::sig(fn(self: &Self, idx: usize, region: CortexMRegion))]
-    #[flux_rs::sig(fn(&CortexMConfig[@self], {usize[@idx] | idx < 8}) -> &CortexMRegion[map_get(self.regions, idx)])]
+    #[flux_rs::sig(fn(&CortexMConfig[@self], {usize[@idx] | idx < 8}) -> &CortexMRegion{r: r == map_get(self.regions, idx) && idx == region_no(map_get(self.regions, idx))})]
     fn get_region(&self, idx: usize) -> &CortexMRegion {
         &self.regions[idx]
     }
@@ -617,7 +601,7 @@ impl GhostRegionState {
 pub struct CortexMRegion {
     #[field(Option<{l. CortexMLocation[l] | l.addr == astart && l.size == asize }>[set])]
     location: Option<CortexMLocation>, // actually accessible start and size
-    #[field({FieldValueU32<RegionBaseAddress::Register>[rbar] | set => region_num(value(rbar)) == bv32(region_no)})]
+    #[field({FieldValueU32<RegionBaseAddress::Register>[rbar] | set => region(value(rbar)) == bv32(region_no)})]
     base_address: FieldValueU32<RegionBaseAddress::Register>,
     #[field({FieldValueU32<RegionAttributes::Register>[rasr] | (set => can_access_exactly(rasr, rbar, astart, asize, perms)) && (!set => !region_enable(value(rasr)))})]
     attributes: FieldValueU32<RegionAttributes::Register>,
@@ -930,7 +914,6 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
 #[flux_rs::assoc(fn config_can_access_flash(c: CortexMConfig, fstart: int, fsize: int) -> bool { config_can_access_flash(c, fstart, fsize) })]
 #[flux_rs::assoc(fn config_can_access_heap(c: CortexMConfig, hstart: int, hsize: int) -> bool { config_can_access_heap(c, hstart, hsize) })]
 #[flux_rs::assoc(fn config_cant_access_at_all(c: CortexMConfig, start: int, size: int) -> bool { config_cant_access_at_all(c, start, size) } )]
-#[flux_rs::trusted_impl]
 impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     type MpuConfig = CortexMConfig;
 
@@ -1082,7 +1065,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             config_cant_access_at_all(old_c, 0, u32::MAX)
         ensures config: CortexMConfig[#new_c]
     )]
-    #[flux_rs::trusted] // fixpoint encoding issue
+    #[flux_rs::trusted_impl] // fixpoint encoding
     fn allocate_app_memory_regions(
         &self,
         unallocated_memory_start: FluxPtrU8,
@@ -1270,6 +1253,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         requires config_can_access_flash(old_c, fstart, fsz)
         ensures config: CortexMConfig[#new_c], !res => old_c == new_c
     )]
+    #[flux_rs::trusted_impl] // fixpoint encoding
     fn update_app_memory_regions(
         &self,
         _mem_start: FluxPtrU8,
@@ -1367,6 +1351,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     // TODO: reimplement dirty tracking
     // TODO: add for loop back in
     #[flux_rs::sig(fn(self: &strg Self, &CortexMConfig[@config]) ensures self: Self{mpu: mpu_configured_for(mpu, config)})]
+    #[flux_rs::trusted_impl] // fixpoint encoding
     fn configure_mpu(&mut self, config: &CortexMConfig) {
         // If the hardware is already configured for this app and the app's MPU
         // configuration has not changed, then skip the hardware update.
