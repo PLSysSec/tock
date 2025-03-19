@@ -33,7 +33,7 @@ flux_rs::defs! {
     fn hfnmiena(reg:bitvec<32>) -> bool { bit(reg, 0x00000002)}
     fn privdefena(reg:bitvec<32>) -> bool { bit(reg, 0x00000004)}
     // RNR
-    fn num(reg:bitvec<32>) -> bitvec<32> { extract(reg, 0x000000ff, 0) }
+    fn region_num(reg:bitvec<32>) -> bitvec<32> { extract(reg, 0x000000ff, 0) }
     // Rbar
     fn valid(reg:bitvec<32>) -> bool { bit(reg, 0x00000010)}
     fn region(reg:bitvec<32>) -> bitvec<32> { extract(reg, 0x0000000f, 0)}
@@ -367,7 +367,7 @@ register_bitfields![u32,
 /// There should only be one instantiation of this object as it represents
 /// real hardware.
 ///
-#[flux_rs::invariant(MIN_REGION_SIZE > 0 && MIN_REGION_SIZE < usize::MAX)]
+#[flux_rs::invariant(MIN_REGION_SIZE > 0 && MIN_REGION_SIZE < u32::MAX)]
 #[flux_rs::refined_by(ctrl: bitvec<32>, rnr: bitvec<32>, rbar: bitvec<32>, rasr: bitvec<32>, regions: Map<int, bitvec<32>>, attrs: Map<int, bitvec<32>>)]
 pub struct MPU<const MIN_REGION_SIZE: usize> {
     /// MMIO reference to MPU registers.
@@ -617,9 +617,9 @@ impl GhostRegionState {
 pub struct CortexMRegion {
     #[field(Option<{l. CortexMLocation[l] | l.addr == astart && l.size == asize }>[set])]
     location: Option<CortexMLocation>, // actually accessible start and size
-    #[field({FieldValueU32<RegionBaseAddress::Register>[rbar] | set => region(value(rbar)) == bv32(region_no)})]
+    #[field({FieldValueU32<RegionBaseAddress::Register>[rbar] | set => region_num(value(rbar)) == bv32(region_no)})]
     base_address: FieldValueU32<RegionBaseAddress::Register>,
-    #[field({FieldValueU32<RegionAttributes::Register>[rasr] | set => can_access_exactly(rasr, rbar, astart, asize, perms)})]
+    #[field({FieldValueU32<RegionAttributes::Register>[rasr] | (set => can_access_exactly(rasr, rbar, astart, asize, perms)) && (!set => !region_enable(value(rasr)))})]
     attributes: FieldValueU32<RegionAttributes::Register>,
     #[field(GhostRegionState[region_no, astart, asize, perms])]
     ghost_region_state: GhostRegionState,
@@ -654,7 +654,7 @@ impl CortexMRegion {
                 r.perms == perms &&
                 r.set  
             }
-        requires rsize > 1 && rsize < usize::MAX && rsize >= 256
+        requires rsize >= 256 && rsize < u32::MAX
     )]
     #[flux_rs::trusted] // VTOCK TODO: this one is a beast
     fn new(
@@ -731,7 +731,7 @@ impl CortexMRegion {
         }
     }
 
-    #[flux_rs::sig(fn (usize[@region_num]) -> Self {r: r.region_no == region_num && region(value(r.rbar)) == bv32(region_num) && !r.set && !region_enable(value(r.rasr))})]
+    #[flux_rs::sig(fn ({usize[@region_no] | region_no < 8}) -> Self {r: r.region_no == region_no && !r.set})]
     fn empty(region_num: usize) -> CortexMRegion {
         CortexMRegion {
             location: None,
@@ -796,10 +796,11 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                 r.region_no == region_no &&
                 r.perms == perms &&
                 r.astart >= start &&
-                r.astart + r.asize <= start + size &&
+                r.astart + r.asize < start + size &&
                 r.asize >= minsz
             }>
     )]
+    #[flux_rs::trusted] // TODO: Hanging
     fn create_region(
         &self,
         region_num: usize,
@@ -954,7 +955,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         self.registers.mpu_type.read(Type::DREGION()) as usize
     }
 
-    #[flux_rs::sig(fn (_) -> Option<{c. CortexMConfig[c] | config_cant_access_at_all(c, 0, 0xffff_ffff)}>)]
+    #[flux_rs::sig(fn (_) -> Option<{c. CortexMConfig[c] | config_cant_access_at_all(c, 0, u32::MAX)}>)]
     fn new_config(&self) -> Option<CortexMConfig> {
         let id = self.config_count.get();
         self.config_count.set(id.checked_add(1)?);
@@ -973,7 +974,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         Some(ret)
     }
 
-    #[flux_rs::sig(fn (_, config: &strg CortexMConfig) ensures config: CortexMConfig{c: config_cant_access_at_all(c, 0, 0xffff_ffff)})]
+    #[flux_rs::sig(fn (_, config: &strg CortexMConfig) ensures config: CortexMConfig{c: config_cant_access_at_all(c, 0, u32::MAX)})]
     fn reset_config(&self, config: &mut CortexMConfig) {
         config.region_set(0, CortexMRegion::empty(0));
         config.region_set(1, CortexMRegion::empty(1));
@@ -1072,13 +1073,13 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             config_cant_access_at_all(new_c, 0, fstart) &&
             config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
-            config_cant_access_at_all(new_c, b.app_break, 0xffff_ffff)
+            config_cant_access_at_all(new_c, b.app_break, u32::MAX)
         }, mpu::AllocateAppMemoryError>
         requires 
-            min_mem_sz < usize::MAX &&
-            fsz < usize::MAX &&
-            appmsz + kernelmsz < usize::MAX && 
-            config_cant_access_at_all(old_c, 0, 0xffff_ffff)
+            min_mem_sz < u32::MAX &&
+            fsz < u32::MAX &&
+            appmsz + kernelmsz < u32::MAX && 
+            config_cant_access_at_all(old_c, 0, u32::MAX)
         ensures config: CortexMConfig[#new_c]
     )]
     #[flux_rs::trusted] // fixpoint encoding issue
@@ -1125,16 +1126,15 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         // Size must be a power of two, so:
         // https://www.youtube.com/watch?v=ovo6zwv6DX4.
         let mut memory_size_po2 = math::closest_power_of_two_usize(memory_size);
-        // let exponent = math::log_base_two(memory_size_po2 as u32);
+        let exponent = math::log_base_two_u32_usize(memory_size_po2);
 
         // Check for compliance with the constraints of the MPU.
-        if memory_size_po2 < 512 {
+        if exponent < 9 {
             // Region sizes must be 256 bytes or larger to support subregions.
             // Since we are using two regions, and each must be at least 256
             // bytes, we need the entire memory region to be at least 512 bytes.
             memory_size_po2 = 512;
-        } else if memory_size_po2 >= 4294967296 {
-            // 2 ^ 32
+        } else if exponent > 32 {
             // Region sizes must be 4GB or smaller.
             return Err(AllocateAppMemoryError::HeapError);
         }
@@ -1265,7 +1265,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             config_cant_access_at_all(new_c, 0, fstart) &&
             config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
-            config_cant_access_at_all(new_c, b.app_break, 0xffff_ffff)
+            config_cant_access_at_all(new_c, b.app_break, u32::MAX)
         }, ()>[#res]
         requires config_can_access_flash(old_c, fstart, fsz)
         ensures config: CortexMConfig[#new_c], !res => old_c == new_c

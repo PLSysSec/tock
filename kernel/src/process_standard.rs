@@ -184,7 +184,7 @@ struct BreaksAndMPUConfig<C: 'static + Chip> {
         <<C as Chip>::MPU as MPU>::config_can_access_flash(mpu_config, flash_start, flash_len) &&
         <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, 0, flash_start) &&
         <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, flash_start + flash_len, mem_start - (flash_start + flash_len)) &&
-        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, app_break, 0xffff_ffff)
+        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, app_break, u32::MAX)
     })]
     pub mpu_config: <<C as Chip>::MPU as MPU>::MpuConfig,
 
@@ -208,20 +208,6 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
                 new_bc.mem_len == bc.mem_len &&
                 new_bc.flash_start == bc.flash_start &&
                 new_bc.flash_len == bc.flash_len
-                // new_bc.kernel_break == bc.kernel_break
-                // &&
-                // new_bc.app_break >= new_bc.allow_high_water_mark &&
-                // new_bc.app_break <= new_bc.kernel_break  &&
-                // new_bc.kernel_break < new_bc.mem_start + new_bc.mem_len &&
-                // new_bc.allow_high_water_mark >= new_bc.mem_start &&
-                // (res => 
-                //     <<C as Chip>::MPU as MPU>::config_can_access_heap(new_bc.mpu_config, new_bc.mem_start, new_bc.app_break) &&
-                //     <<C as Chip>::MPU as MPU>::config_can_access_flash(new_bc.mpu_config, new_bc.flash_start, new_bc.flash_len) &&
-                //     <<C as Chip>::MPU as MPU>::config_cant_access_at_all(new_bc.mpu_config, 0, new_bc.flash_start) &&
-                //     <<C as Chip>::MPU as MPU>::config_cant_access_at_all(new_bc.mpu_config, new_bc.flash_start + new_bc.flash_len, new_bc.mem_start - (new_bc.flash_start + new_bc.flash_len)) &&
-                //     <<C as Chip>::MPU as MPU>::config_cant_access_at_all(new_bc.mpu_config, new_bc.app_break, 0xffff_ffff)
-                // ) &&
-                // (!res => new_bc == bc) // WTF :(
             }
     )]
     pub(crate) fn brk(

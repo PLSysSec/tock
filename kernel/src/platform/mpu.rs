@@ -160,7 +160,7 @@ pub trait MPU {
     /// The underlying implementation may only be able to allocate a finite
     /// number of MPU configurations. It may return `None` if this resource is
     /// exhausted.
-    #[flux_rs::sig(fn (_) -> Option<{c. Self::MpuConfig[c] | <Self as MPU>::config_cant_access_at_all(c, 0, 0xffff_ffff)}>)]
+    #[flux_rs::sig(fn (_) -> Option<{c. Self::MpuConfig[c] | <Self as MPU>::config_cant_access_at_all(c, 0, u32::MAX)}>)]
     fn new_config(&self) -> Option<Self::MpuConfig>;
 
     /// Resets an MPU configuration.
@@ -168,7 +168,7 @@ pub trait MPU {
     /// This method resets an MPU configuration to its initial state, as
     /// returned by [`MPU::new_config`]. After invoking this operation, it must
     /// not have any userspace-acessible regions pre-allocated.
-    #[flux_rs::sig(fn (_, config: &strg Self::MpuConfig) ensures config: Self::MpuConfig {c: <Self as MPU>::config_cant_access_at_all(c, 0, 0xffff_ffff)})]
+    #[flux_rs::sig(fn (_, config: &strg Self::MpuConfig) ensures config: Self::MpuConfig {c: <Self as MPU>::config_cant_access_at_all(c, 0, u32::MAX)})]
     fn reset_config(&self, config: &mut Self::MpuConfig);
 
     /// Allocates a new MPU region.
@@ -273,13 +273,13 @@ pub trait MPU {
             <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart) &&
             <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break, 0xffff_ffff)
+            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break, u32::MAX)
         }, AllocateAppMemoryError>
         requires 
-            min_mem_sz < usize::MAX &&
-            fsz < usize::MAX &&
-            appmsz + kernelmsz < usize::MAX &&
-            <Self as MPU>::config_cant_access_at_all(old_c, 0, 0xffff_ffff)
+            min_mem_sz < u32::MAX &&
+            fsz < u32::MAX &&
+            appmsz + kernelmsz < u32::MAX &&
+            <Self as MPU>::config_cant_access_at_all(old_c, 0, u32::MAX)
         ensures config: Self::MpuConfig[#new_c]
     )]
     fn allocate_app_memory_regions(
@@ -329,7 +329,7 @@ pub trait MPU {
             <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart) &&
             <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break, 0xffff_ffff)
+            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break, u32::MAX)
         }, ()>[#res]
         requires <Self as MPU>::config_can_access_flash(old_c, fstart, fsz)
         ensures config: Self::MpuConfig[#new_c], !res => old_c == new_c
