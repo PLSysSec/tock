@@ -106,20 +106,33 @@ struct GrantPointerEntry {
 // VTOCK-TODO: break up this struct when we have a better solution for interior mutability
 // VTOCK-TODO: is it ok for app_break == kernel_break?
 // kernel_memory_break > app_break && app_break <= high_water_mark
-#[flux_rs::refined_by(kernel_break: int, app_break: int, allow_high_water_mark: int)]
+#[flux_rs::refined_by(kernel_break: int, app_break: int, allow_high_water_mark: int, mem_start: int, mem_len: int, flash_start: int, flash_len: int)]
 #[flux_rs::invariant(kernel_break >= app_break)]
+#[flux_rs::invariant(kernel_break < mem_start + mem_len)]
 #[flux_rs::invariant(app_break >= allow_high_water_mark)]
+#[flux_rs::invariant(allow_high_water_mark >= mem_start)]
 #[derive(Clone, Copy)]
 struct ProcessBreaks {
     /// Pointer to the end of the allocated (and MPU protected) grant region.
-    #[field({FluxPtrU8Mut[kernel_break] | kernel_break >= app_break})]
+    #[field({FluxPtrU8Mut[kernel_break] | kernel_break >= app_break && kernel_break < mem_start + mem_len})]
     pub kernel_memory_break: FluxPtrU8Mut,
     /// Pointer to the end of process RAM that has been sbrk'd to the process.
     #[field(FluxPtrU8Mut[app_break])]
     pub app_break: FluxPtrU8Mut,
     /// Pointer to high water mark for process buffers shared through `allow`
-    #[field({FluxPtrU8Mut[allow_high_water_mark] | app_break >= allow_high_water_mark})]
+    #[field({FluxPtrU8Mut[allow_high_water_mark] | app_break >= allow_high_water_mark && allow_high_water_mark >= mem_start})]
     pub allow_high_water_mark: FluxPtrU8Mut,
+    // start of process heap (where stack ends)
+    #[field(FluxPtrU8[mem_start])]
+    pub mem_start: FluxPtrU8,
+    // length of process memory block
+    #[field(usize[mem_len])]
+    pub mem_len: usize,
+    /// Process flash segment. This is the region of nonvolatile flash that
+    /// the process occupies.
+    flash: &'static [u8],
+    #[field(FlashGhostState[flash_start, flash_len])]
+    _flash_ghost: FlashGhostState,
 }
 
 impl ProcessBreaks {
@@ -151,18 +164,36 @@ impl ProcessBreaks {
     }
 }
 
-#[flux_rs::refined_by(kernel_break: int, app_break: int, allow_high_water_mark: int, mpu_config: <<C as Chip>::MPU as MPU>::MpuConfig)]
+#[flux_rs::refined_by(
+    kernel_break: int,
+    app_break: int,
+    allow_high_water_mark: int,
+    mem_start: int,
+    mem_len: int,
+    flash_start: int, 
+    flash_len: int,
+    mpu_config: <<C as Chip>::MPU as MPU>::MpuConfig
+)]
 struct BreaksAndMPUConfig<C: 'static + Chip> {
     /// Configuration data for the MPU
-    #[field(<<C as Chip>::MPU as MPU>::MpuConfig[mpu_config])]
+    #[field({<<C as Chip>::MPU as MPU>::MpuConfig[mpu_config] | 
+        app_break >= mem_start &&
+        kernel_break <= mem_start + mem_len &&
+        <<C as Chip>::MPU as MPU>::config_can_access_heap(mpu_config, mem_start, app_break) &&
+        <<C as Chip>::MPU as MPU>::config_can_access_flash(mpu_config, flash_start, flash_len) &&
+        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, 0, flash_start) &&
+        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, flash_start + flash_len, mem_start) &&
+        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, app_break, 0xffff_ffff)
+    })]
     pub mpu_config: <<C as Chip>::MPU as MPU>::MpuConfig,
 
     // MPU regions are saved as a pointer-size pair.
     mpu_regions: [Cell<Option<mpu::Region>>; 6], // VTOCK TODO: Need to get rid of these cells
 
     /// Pointers that demarcate kernel-managed regions and userspace-managed regions.
-    #[field(ProcessBreaks[kernel_break, app_break, allow_high_water_mark])]
+    #[field(ProcessBreaks[kernel_break, app_break, allow_high_water_mark, mem_start, mem_len, flash_start, flash_len])]
     breaks: ProcessBreaks,
+
 }
 
 impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
@@ -292,6 +323,7 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
     }
 }
 
+#[derive(Clone, Copy)]
 #[flux_rs::refined_by(start: int, len: int)]
 #[flux_rs::opaque]
 struct FlashGhostState {}
@@ -299,14 +331,13 @@ struct FlashGhostState {}
 impl FlashGhostState {
     #[flux_rs::trusted]
     #[flux_rs::sig(fn (start: FluxPtr, len: usize) -> Self[start, len])]
-    pub(crate) fn new(start: FluxPtr, len: usize)  -> Self {
+    pub(crate) fn new(_start: FluxPtr, _len: usize)  -> Self {
         Self {}
     }
 }
 
 /// A type for userspace processes in Tock.
-#[flux_rs::refined_by(mem_start: FluxPtr, mem_len: int, flash_start: int, flash_len: int)]
-#[flux_rs::invariant(mem_start + mem_len <= usize::MAX)] // mem doesn't overflow address space
+#[flux_rs::refined_by(mem_start: int, mem_len: int, flash_start: int, flash_len: int)]
 pub struct ProcessStandard<'a, C: 'static + Chip> {
     /// Identifier of this process and the index of the process in the process
     /// table.
@@ -361,18 +392,16 @@ pub struct ProcessStandard<'a, C: 'static + Chip> {
     #[field(FluxPtrU8Mut[mem_start])]
     memory_start: FluxPtrU8Mut,
     /// Number of bytes of memory allocated to this process.
-    #[field({usize[mem_len] | mem_start + mem_len <= usize::MAX})]
+    #[field(usize[mem_len])]
     memory_len: usize,
 
     // breaks and corresponding configuration
+    // refinement says that these are the same
     #[field(MapCell<BreaksAndMPUConfig<C>{bc: 
-        bc.app_break >= mem_start && 
-        bc.kernel_break <= mem_start + mem_len &&
-        <<C as Chip>::MPU as MPU>::config_can_access_heap(bc.mpu_config, mem_start, bc.app_break) &&
-        <<C as Chip>::MPU as MPU>::config_can_access_flash(bc.mpu_config, flash_start, flash_len) &&
-        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(bc.mpu_config, 0, flash_start) &&
-        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(bc.mpu_config, flash_start + flash_len, mem_start) &&
-        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(bc.mpu_config, bc.app_break, 0xffff_ffff)
+        bc.mem_start == mem_start &&
+        bc.mem_len == mem_len &&
+        bc.flash_start == flash_start &&
+        bc.flash_len == flash_len
     }>)]
     breaks_and_config: MapCell<BreaksAndMPUConfig<C>>,
 
@@ -1917,6 +1946,10 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // process.kernel_memory_break = Cell::new(kernel_memory_break);
         // process.app_break = Cell::new(initial_app_brk);
         let breaks = ProcessBreaks {
+            mem_start: allocated_memory_start,
+            mem_len: allocated_memory_len,
+            flash: pb.flash,
+            _flash_ghost: FlashGhostState::new(pb.flash.as_fluxptr(), pb.flash.len()),
             kernel_memory_break,
             app_break: initial_app_brk,
             allow_high_water_mark: initial_allow_high_water_mark,
@@ -2122,6 +2155,10 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // process's memory region.
         // self.allow_high_water_mark.set(app_mpu_mem_start);
         let breaks = ProcessBreaks {
+            mem_start: self.memory_start,
+            mem_len: self.memory_len,
+            flash: self.flash,
+            _flash_ghost: FlashGhostState::new(self.flash_start(), self.flash_size()),
             kernel_memory_break: FluxPtr::from(kernel_brk),
             app_break: app_brk,
             allow_high_water_mark: app_mpu_mem_start,
