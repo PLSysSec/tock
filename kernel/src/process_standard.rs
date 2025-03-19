@@ -194,7 +194,6 @@ struct BreaksAndMPUConfig<C: 'static + Chip> {
     /// Pointers that demarcate kernel-managed regions and userspace-managed regions.
     #[field(ProcessBreaks[kernel_break, app_break, allow_high_water_mark, mem_start, mem_len, flash_start, flash_len])]
     breaks: ProcessBreaks,
-
 }
 
 impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
@@ -278,7 +277,11 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
                 new_bc.flash_len == bc.flash_len 
             }
     )]
-    pub(crate) fn build_readwrite_process_buffer(&mut self, buf_start_addr: FluxPtrU8Mut, size: usize) -> Result<(),()> {
+    pub(crate) fn build_readwrite_process_buffer(
+        &mut self,
+        buf_start_addr: FluxPtrU8Mut,
+        size: usize,
+    ) -> Result<(), ()> {
         // Check that buffer is in app owned memory
         let buf_end_addr = buf_start_addr.wrapping_add(size);
         if self.in_app_owned_memory(buf_start_addr, buf_end_addr) {
@@ -305,7 +308,11 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
                 bc.flash_len == old_bc.flash_len
             }
     )]
-    pub(crate) fn allocate_in_grant_region_internal(&mut self, size: usize, align: usize) -> Option<NonNull<u8>>{
+    pub(crate) fn allocate_in_grant_region_internal(
+        &mut self,
+        size: usize,
+        align: usize,
+    ) -> Option<NonNull<u8>> {
         // First, compute the candidate new pointer. Note that at this point
         // we have not yet checked whether there is space for this
         // allocation or that it meets alignment requirements.
@@ -379,7 +386,7 @@ struct FlashGhostState {}
 impl FlashGhostState {
     #[flux_rs::trusted]
     #[flux_rs::sig(fn (start: FluxPtr, len: usize) -> Self[start, len])]
-    pub(crate) fn new(_start: FluxPtr, _len: usize)  -> Self {
+    pub(crate) fn new(_start: FluxPtr, _len: usize) -> Self {
         Self {}
     }
 }
@@ -936,10 +943,12 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             // Therefore, we can encapsulate the unsafe.
             Ok(unsafe { ReadWriteProcessBuffer::new(buf_start_addr, 0, self.processid()) })
         } else {
-            let _ = self.breaks_and_config
+            let _ = self
+                .breaks_and_config
                 .map_or(Err(ErrorCode::INVAL), |breaks_and_config| {
                     Ok(breaks_and_config.build_readwrite_process_buffer(buf_start_addr, size))
-                }).map_err(|_| ErrorCode::INVAL)?;
+                })
+                .map_err(|_| ErrorCode::INVAL)?;
             // Clippy complains that we're dereferencing a pointer in a public
             // and safe function here. While we are not dereferencing the
             // pointer here, we pass it along to an unsafe function, which is as
@@ -1767,7 +1776,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             min_total_memory_size,
             min_process_memory_size,
             initial_kernel_memory_size,
-            pb.flash.as_fluxptr(), 
+            pb.flash.as_fluxptr(),
             pb.flash.len(),
             &mut mpu_config,
         ) {
@@ -1781,7 +1790,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
                             process_name
                         );
                 }
-                return Err((ProcessLoadError::MpuInvalidFlashLength, remaining_memory))
+                return Err((ProcessLoadError::MpuInvalidFlashLength, remaining_memory));
             }
             Err(mpu::AllocateAppMemoryError::HeapError) => {
                 // Failed to load process. Insufficient memory.
@@ -1794,7 +1803,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
                             min_total_memory_size
                         );
                 }
-                return Err((ProcessLoadError::NotEnoughMemory, remaining_memory))
+                return Err((ProcessLoadError::NotEnoughMemory, remaining_memory));
             }
         };
 
@@ -1890,12 +1899,12 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // Set the initial process-accessible memory:
         let initial_app_brk = breaks_and_size.breaks.app_break;
         // Slice off the process-accessible memory:
-        // use the size of the accessible region given to us by the MPU since 
+        // use the size of the accessible region given to us by the MPU since
         // a process should not be able to access anything past it's app break
-        let process_allocated_size = initial_app_brk.as_usize() - breaks_and_size.breaks.memory_start.as_usize();
+        let process_allocated_size =
+            initial_app_brk.as_usize() - breaks_and_size.breaks.memory_start.as_usize();
         let (app_accessible_memory, allocated_kernel_memory) =
             allocated_memory.split_at_mut(process_allocated_size);
-
 
         // Set the initial allow high water mark to the start of process memory
         // since no `allow` calls have been made yet.
@@ -2157,7 +2166,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let initial_kernel_memory_size =
             grant_ptrs_offset + Self::CALLBACKS_OFFSET + Self::PROCESS_STRUCT_OFFSET;
 
-        // allocate mpu regions for app flash and ram 
+        // allocate mpu regions for app flash and ram
         let app_mpu_mem = self.chip.mpu().allocate_app_memory_regions(
             self.mem_start(),
             self.memory_len,
@@ -2193,7 +2202,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // self.app_break.set(app_brk);
         // kernel_brk is calculated backwards from the end of memory the size of
         // the initial kernel data structures.
-        let kernel_brk = app_mpu_mem_start.as_usize() + breaks_and_size.memory_size - initial_kernel_memory_size;
+        let kernel_brk =
+            app_mpu_mem_start.as_usize() + breaks_and_size.memory_size - initial_kernel_memory_size;
         // self.kernel_memory_break.set(kernel_brk);
         // High water mark for `allow`ed memory is reset to the start of the
         // process's memory region.
@@ -2274,10 +2284,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     fn in_app_owned_memory(&self, buf_start_addr: FluxPtrU8Mut, size: usize) -> Result<bool, ()> {
         let buf_end_addr = buf_start_addr.wrapping_add(size);
         self.breaks_and_config.map_or(Err(()), |breaks_and_config| {
-            Ok(breaks_and_config.in_app_owned_memory(
-                buf_start_addr,
-                buf_end_addr
-            ))
+            Ok(breaks_and_config.in_app_owned_memory(buf_start_addr, buf_end_addr))
         })
     }
 
@@ -2312,9 +2319,9 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     /// allocation, then this will return `None`.
     // #[flux_rs::sig(fn(&Self, usize, usize{align: align > 0}) -> Option<NonNull<u8>>)]
     fn allocate_in_grant_region_internal(&self, size: usize, align: usize) -> Option<NonNull<u8>> {
-        self.breaks_and_config.and_then(|breaks_and_config| 
+        self.breaks_and_config.and_then(|breaks_and_config| {
             breaks_and_config.allocate_in_grant_region_internal(size, align)
-        )
+        })
     }
 
     /// Create the identifier for a custom grant that grant.rs uses to access

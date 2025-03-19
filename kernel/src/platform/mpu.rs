@@ -37,7 +37,7 @@ pub struct AllocatedAppBreaksAndSize {
     #[field(AllocatedAppBreaks[memory_start, app_break])]
     pub breaks: AllocatedAppBreaks,
     #[field(usize[memory_size])]
-    pub memory_size: usize
+    pub memory_size: usize,
 }
 
 pub enum AllocateAppMemoryError {
