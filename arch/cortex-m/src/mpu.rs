@@ -352,7 +352,7 @@ register_bitfields![u32,
 /// There should only be one instantiation of this object as it represents
 /// real hardware.
 ///
-#[flux_rs::invariant(MIN_REGION_SIZE > 0 && MIN_REGION_SIZE < 2147483648)]
+#[flux_rs::invariant(MIN_REGION_SIZE > 0 && MIN_REGION_SIZE <= u32::MAX / 2 + 1)]
 #[flux_rs::refined_by(ctrl: bitvec<32>, rnr: bitvec<32>, rbar: bitvec<32>, rasr: bitvec<32>, regions: Map<int, bitvec<32>>, attrs: Map<int, bitvec<32>>)]
 pub struct MPU<const MIN_REGION_SIZE: usize> {
     /// MMIO reference to MPU registers.
@@ -629,7 +629,7 @@ impl CortexMRegion {
             FluxPtrU8[@rstart], 
             usize[@rsize],
             usize[@no],
-            _, 
+            Option<(usize,usize)>[@subregions], 
             mpu::Permissions[@perms]
         ) -> CortexMRegion {r: 
                 r.astart == astart &&
@@ -638,7 +638,7 @@ impl CortexMRegion {
                 r.perms == perms &&
                 r.set  
             }
-        requires rsize >= 256 && rsize < u32::MAX
+        requires (subregions => rsize >= 256) && rsize < u32::MAX
     )]
     #[flux_rs::trusted] // VTOCK TODO: this one is a beast
     fn new(
@@ -783,7 +783,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                 r.astart + r.asize < start + size &&
                 r.asize >= minsz
             }>
-        requires minsz > 0 && minsz + 32 <= u32::MAX / 2 && start <= u32::MAX / 2 
+        requires minsz > 0 && minsz <= u32::MAX / 2 && start <= u32::MAX / 2 
     )]
     // #[flux_rs::trusted] // TODO: Hanging
     fn create_region(
@@ -839,7 +839,17 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                     power_of_two(tz)
                 } else {
                     // This case means `start` is 0.
-                    let mut ceil = math::closest_power_of_two(size as u32) as usize;
+                    
+                    // VTOCK Bug? 
+                    // This is interesting. We are able to prove the case this way 
+                    // assert(size <= (u32::MAX / 2 + 1) as usize); 
+                    // 
+                    // but casting the usize to u32 does not work: 
+                    // assert(size as u32 <= u32::MAX / 2 + 1); 
+                    // if size as u32 > u32::MAX / 2 + 1 {
+                    //     return None
+                    // }
+                    let mut ceil = math::closest_power_of_two_usize(size);
                     if ceil < 256 {
                         ceil = 256
                     }
@@ -879,6 +889,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                 region_start = underlying_region_start;
                 region_size = underlying_region_size;
                 subregions = Some((min_subregion, max_subregion));
+                assert(underlying_region_size >= 256);
             } else {
                 // In this case, we can't use subregions to solve the alignment
                 // problem. Instead, we round up `size` to a power of two and

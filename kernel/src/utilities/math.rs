@@ -13,7 +13,7 @@ use flux_support::assume;
 
 /// Get closest power of two greater than the given number.
 #[flux_rs::trusted] // Bitwise arithmetic
-#[flux_rs::sig(fn(num: u32) -> u32{r: r >= num && r/2 <= num} requires num <= u32::MAX / 2)]
+#[flux_rs::sig(fn(num: u32) -> u32{r: r >= num && r/2 <= num && num <= u32::MAX / 2 + 1} requires num <= u32::MAX / 2 + 1)]
 pub fn closest_power_of_two(mut num: u32) -> u32 {
     num -= 1;
     num |= num >> 1;
@@ -29,7 +29,7 @@ pub fn closest_power_of_two(mut num: u32) -> u32 {
 // bitwise arithmetic
 // 2147483648 is half of u32::MAX. Anything higher than that deviates from closest_power_of_two
 // I added this function to avoid unnecessary downcasts, which can be dangerous.
-#[flux_rs::sig(fn(num: usize) -> usize{r: r >= num && r/2 <= num} requires num <= u32::MAX / 2)]
+#[flux_rs::sig(fn(num: usize) -> usize{r: r >= num && r/2 <= num && num <= u32::MAX / 2 + 1} requires num <= u32::MAX / 2 + 1)]
 pub fn closest_power_of_two_usize(mut num: usize) -> usize {
     num -= 1;
     num |= num >> 1;
