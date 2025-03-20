@@ -201,7 +201,7 @@ flux_rs::defs! {
 */
 
 // VTOCK-TODO: supplementary proof?
-#[flux_rs::sig(fn(n: u32{n < 32}) -> usize {r: r > 0 })]
+#[flux_rs::sig(fn(n: u32{n < 32}) -> usize {r: r > 0 &&  r <= u32::MAX / 2 + 1})]
 #[flux_rs::trusted]
 fn power_of_two(n: u32) -> usize {
     1_usize << n
@@ -783,8 +783,9 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                 r.astart + r.asize < start + size &&
                 r.asize >= minsz
             }>
+        requires minsz > 0 && minsz + 32 <= u32::MAX / 2 && start <= u32::MAX / 2 
     )]
-    #[flux_rs::trusted] // TODO: Hanging
+    // #[flux_rs::trusted] // TODO: Hanging
     fn create_region(
         &self,
         region_num: usize,
@@ -883,6 +884,10 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                 // problem. Instead, we round up `size` to a power of two and
                 // shift `start` up in memory to make it align with `size`.
 
+                // VTOCK Bug - this can overflow and there is no check like the one below
+                if size > (u32::MAX / 2 + 1) as usize {
+                    return None;
+                }
                 size = math::closest_power_of_two_usize(size);
                 start += size - (start % size);
 
@@ -1169,12 +1174,12 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         // big so there is plenty of space between app-owned and kernel-owned
         // memory.
         if subregions_enabled_end > kernel_memory_break {
-            memory_size_po2 *= 2;
-            region_size *= 2;
+            // memory_size_po2 *= 2;
+            // region_size *= 2;
 
-            if region_start % region_size != 0 {
-                region_start += region_size - (region_start % region_size);
-            }
+            // if region_start % region_size != 0 {
+            //     region_start += region_size - (region_start % region_size);
+            // }
 
             num_enabled_subregions = initial_app_memory_size * 8 / region_size + 1;
         }
