@@ -34,4 +34,7 @@ impl usize {
 
     #[sig(fn(num: usize, rhs: usize) -> usize[if num < rhs { 0 } else { num - rhs }])]
     fn saturating_sub(self, rhs: usize) -> usize;
+
+    #[sig(fn(num: usize, rhs: usize) -> usize[(num + rhs - 1) / rhs] requires rhs > 0)]
+    fn div_ceil(self, rhs: usize) -> usize;
 }

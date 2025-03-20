@@ -1254,6 +1254,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         fn (
             &Self,
             FluxPtrU8[@mem_start],
+            FluxPtrU8[@old_app_break],
             FluxPtrU8Mut[@app_break],
             FluxPtrU8Mut[@kernel_break],
             FluxPtrU8Mut[@fstart],
@@ -1275,7 +1276,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             config_can_access_flash(old_c, fstart, fsz) &&
             config_cant_access_at_all(old_c, 0, fstart) &&
             config_cant_access_at_all(old_c, fstart + fsz, mem_start - (fstart + fsz)) &&
-            config_cant_access_at_all(old_c, kernel_break, u32::MAX - app_break) &&
+            config_cant_access_at_all(old_c, old_app_break, u32::MAX - old_app_break) &&
             app_break - mem_start <= u32::MAX / 2 + 1 &&
             app_break - mem_start > 0
         ensures config: CortexMConfig[#new_c], !res => old_c == new_c
@@ -1284,6 +1285,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     fn update_app_memory_regions(
         &self,
         mem_start: FluxPtrU8,
+        _old_app_memory_break: FluxPtrU8,
         app_memory_break: FluxPtrU8,
         kernel_memory_break: FluxPtrU8,
         flash_start: FluxPtrU8Mut,
@@ -1332,7 +1334,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
 
         // Determine the number of subregions to enable.
         // Want `round_up(app_memory_size / subregion_size)`.
-        let num_enabled_subregions = (app_memory_size + subregion_size - 1) / subregion_size;
+        let num_enabled_subregions = app_memory_size.div_ceil(subregion_size);
 
         let subregions_enabled_end = region_start + subregion_size * num_enabled_subregions;
 
