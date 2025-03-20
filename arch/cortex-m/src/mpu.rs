@@ -779,11 +779,11 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                 r.set &&
                 r.region_no == region_no &&
                 r.perms == perms &&
-                r.astart >= start &&
-                r.astart + r.asize < start + size &&
-                r.asize >= minsz
+                r.astart + r.asize <= start + size &&
+                r.asize >= minsz &&
+                (size == minsz => start == r.astart && size == r.asize)
             }>
-        requires minsz > 0 && minsz <= u32::MAX / 2 + 1 && start <= u32::MAX / 2 + 1
+        requires minsz > 0 && minsz <= u32::MAX / 2 + 1 && size <= u32::MAX / 2 + 1 && start <= u32::MAX / 2 + 1
     )]
     // #[flux_rs::trusted] // TODO: Hanging
     fn create_region(
@@ -839,13 +839,13 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                     power_of_two(tz)
                 } else {
                     // This case means `start` is 0.
-                    
-                    // VTOCK Bug? 
-                    // This is interesting. We are able to prove the case this way 
-                    // assert(size <= (u32::MAX / 2 + 1) as usize); 
-                    // 
-                    // but casting the usize to u32 does not work: 
-                    // assert(size as u32 <= u32::MAX / 2 + 1); 
+
+                    // VTOCK Bug?
+                    // This is interesting. We are able to prove the case this way
+                    // assert(size <= (u32::MAX / 2 + 1) as usize);
+                    //
+                    // but casting the usize to u32 does not work:
+                    // assert(size as u32 <= u32::MAX / 2 + 1);
                     // if size as u32 > u32::MAX / 2 + 1 {
                     //     return None
                     // }
@@ -889,7 +889,6 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                 region_start = underlying_region_start;
                 region_size = underlying_region_size;
                 subregions = Some((min_subregion, max_subregion));
-                assert(underlying_region_size >= 256);
             } else {
                 // In this case, we can't use subregions to solve the alignment
                 // problem. Instead, we round up `size` to a power of two and
@@ -911,17 +910,21 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
         if start + size > (unallocated_memory_start.as_usize()) + unallocated_memory_size {
             return None;
         }
+        assert(start + size <= (unallocated_memory_start.as_usize()) + unallocated_memory_size);
 
-        let region = CortexMRegion::new(
-            start.as_fluxptr(),
+        if region_size > u32::MAX as usize {
+            return None;
+        }
+
+        Some(CortexMRegion::new(
+            FluxPtr::from(start),
             size,
-            region_start.as_fluxptr(),
+            FluxPtr::from(region_start),
             region_size,
             region_num,
             subregions,
             permissions,
-        );
-        return Some(region);
+        ))
     }
 }
 
@@ -1312,7 +1315,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
 
         // if the region start and memory start don't match, something has gone terribly wrong
         if mem_start.as_usize() != region_start {
-            return Err(())
+            return Err(());
         }
 
         // VTOCK todo: can we prove this?
@@ -1376,7 +1379,10 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         config.region_set(HEAP_REGION2, region1);
         config.set_dirty(true);
 
-        Ok(mpu::AllocatedAppBreaks::new(FluxPtr::from(region_start), FluxPtr::from(subregions_enabled_end)))
+        Ok(mpu::AllocatedAppBreaks::new(
+            FluxPtr::from(region_start),
+            FluxPtr::from(subregions_enabled_end),
+        ))
     }
 
     // TODO: reimplement dirty tracking

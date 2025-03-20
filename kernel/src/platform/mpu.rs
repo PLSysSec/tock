@@ -37,7 +37,7 @@ impl AllocatedAppBreaks {
     pub fn new(memory_start: FluxPtrU8, app_break: FluxPtrU8) -> Self {
         Self {
             memory_start,
-            app_break
+            app_break,
         }
     }
 }
@@ -55,7 +55,7 @@ impl AllocatedAppBreaksAndSize {
     pub fn new(memory_start: FluxPtrU8, app_break: FluxPtrU8, memory_size: usize) -> Self {
         Self {
             breaks: AllocatedAppBreaks::new(memory_start, app_break),
-            memory_size
+            memory_size,
         }
     }
 }

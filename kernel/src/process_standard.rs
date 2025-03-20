@@ -222,11 +222,15 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
         mpu: &mut <C as Chip>::MPU,
     ) -> Result<FluxPtrU8Mut, Error> {
         // VTOCK BUG: original check is not good enough
-        // 1. need to make sure break is not equal to mem_start 
+        // 1. need to make sure break is not equal to mem_start
         // 2. need to make sure the new break is not too big
-        if new_break < self.breaks.allow_high_water_mark || new_break >= self.mem_end() 
-            || new_break <= self.mem_start() 
-            || new_break.wrapping_sub(self.mem_start().as_usize()).as_usize() > (u32::MAX / 2 + 1) as usize 
+        if new_break < self.breaks.allow_high_water_mark
+            || new_break >= self.mem_end()
+            || new_break <= self.mem_start()
+            || new_break
+                .wrapping_sub(self.mem_start().as_usize())
+                .as_usize()
+                > (u32::MAX / 2 + 1) as usize
         {
             Err(Error::AddressOutOfBounds)
         } else if new_break > self.breaks.kernel_memory_break {
