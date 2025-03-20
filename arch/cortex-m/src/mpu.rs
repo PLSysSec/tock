@@ -783,7 +783,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                 r.astart + r.asize < start + size &&
                 r.asize >= minsz
             }>
-        requires minsz > 0 && minsz <= u32::MAX / 2 && start <= u32::MAX / 2 
+        requires minsz > 0 && minsz <= u32::MAX / 2 + 1 && start <= u32::MAX / 2 + 1
     )]
     // #[flux_rs::trusted] // TODO: Hanging
     fn create_region(
@@ -1069,14 +1069,17 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             b.app_break <= b.memory_start + b.memory_size - kernelmsz &&
             b.app_break >= b.memory_start + appmsz &&
             config_can_access_flash(new_c, fstart, fsz) &&
-            config_can_access_heap(new_c, b.memory_start, b.app_break) &&
+            config_can_access_heap(new_c, b.memory_start, b.app_break - b.memory_start) &&
             config_cant_access_at_all(new_c, 0, fstart) &&
             config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
-            config_cant_access_at_all(new_c, b.app_break, u32::MAX)
+            config_cant_access_at_all(new_c, b.app_break, u32::MAX - b.app_break)
         }, mpu::AllocateAppMemoryError>
         requires 
-            min_mem_sz < u32::MAX &&
-            fsz < u32::MAX &&
+            min_mem_sz > 0 &&
+            min_mem_sz <= u32::MAX / 2 + 1 &&
+            fstart <= u32::MAX / 2 + 1 &&
+            fsz > 0 &&
+            fsz <= u32::MAX / 2 + 1 &&
             appmsz + kernelmsz < u32::MAX && 
             config_cant_access_at_all(old_c, 0, u32::MAX)
         ensures config: CortexMConfig[#new_c]
@@ -1256,23 +1259,31 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             FluxPtrU8Mut[@fstart],
             usize[@fsz],
             config: &strg CortexMConfig[@old_c],
-        ) -> Result<{b. mpu::AllocatedAppBreaks[b] |
+        ) -> Result<{b. mpu::AllocatedAppBreaks[b] | 
             b.app_break <= kernel_break &&
             b.app_break >= app_break &&
             b.memory_start == mem_start &&
-            config_can_access_flash(new_c, fstart, fsz) &&
-            config_can_access_heap(new_c, b.memory_start, b.app_break - b.memory_start) &&
+            config_can_access_flash(new_c, fstart, fsz) 
+            &&
+            config_can_access_heap(new_c, b.memory_start, b.app_break - b.memory_start) 
+            &&
             config_cant_access_at_all(new_c, 0, fstart) &&
             config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
-            config_cant_access_at_all(new_c, b.app_break, u32::MAX)
+            config_cant_access_at_all(new_c, b.app_break, u32::MAX - b.app_break)
         }, ()>[#res]
-        requires config_can_access_flash(old_c, fstart, fsz)
+        requires 
+            config_can_access_flash(old_c, fstart, fsz) &&
+            config_cant_access_at_all(old_c, 0, fstart) &&
+            config_cant_access_at_all(old_c, fstart + fsz, mem_start - (fstart + fsz)) &&
+            config_cant_access_at_all(old_c, kernel_break, u32::MAX - app_break) &&
+            app_break - mem_start <= u32::MAX / 2 + 1 &&
+            app_break - mem_start > 0
         ensures config: CortexMConfig[#new_c], !res => old_c == new_c
     )]
     #[flux_rs::trusted_impl] // fixpoint encoding
     fn update_app_memory_regions(
         &self,
-        _mem_start: FluxPtrU8,
+        mem_start: FluxPtrU8,
         app_memory_break: FluxPtrU8,
         kernel_memory_break: FluxPtrU8,
         flash_start: FluxPtrU8Mut,
@@ -1296,6 +1307,14 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             snd: region_size,
         } = config.get_region(HEAP_REGION1).location().ok_or(())?;
         let region_start = region_start_ptr.as_usize();
+
+        // if the region start and memory start don't match, something has gone terribly wrong
+        if mem_start.as_usize() != region_start {
+            return Err(())
+        }
+
+        // VTOCK todo: can we prove this?
+        assume(region_size >= 256 && region_size < u32::MAX as usize); // from allocate_app_memory_region
 
         let app_memory_break = app_memory_break.as_usize();
         let kernel_memory_break = kernel_memory_break.as_usize();
@@ -1323,7 +1342,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             return Err(());
         }
 
-        // Get the number of subregions enabled in each of the two MPU regions.
+        // // Get the number of subregions enabled in each of the two MPU regions.
         let num_enabled_subregions0 = min_usize(num_enabled_subregions, 8);
         let num_enabled_subregions1 = num_enabled_subregions.saturating_sub(8);
 
@@ -1355,13 +1374,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         config.region_set(HEAP_REGION2, region1);
         config.set_dirty(true);
 
-        let app_break = region_start
-            + (subregion_size * num_enabled_subregions0)
-            + (subregion_size * num_enabled_subregions1);
-        Ok(mpu::AllocatedAppBreaks {
-            memory_start: FluxPtr::from(region_start),
-            app_break: FluxPtr::from(app_break),
-        })
+        Ok(mpu::AllocatedAppBreaks::new(FluxPtr::from(region_start), FluxPtr::from(subregions_enabled_end)))
     }
 
     // TODO: reimplement dirty tracking

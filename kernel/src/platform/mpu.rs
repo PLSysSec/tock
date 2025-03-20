@@ -32,12 +32,32 @@ pub struct AllocatedAppBreaks {
     pub app_break: FluxPtrU8,
 }
 
+impl AllocatedAppBreaks {
+    #[flux_rs::sig(fn (FluxPtrU8[@memory_start], FluxPtrU8[@app_break]) -> AllocatedAppBreaks[memory_start, app_break])]
+    pub fn new(memory_start: FluxPtrU8, app_break: FluxPtrU8) -> Self {
+        Self {
+            memory_start,
+            app_break
+        }
+    }
+}
+
 #[flux_rs::refined_by(memory_start: int, app_break: int, memory_size: int)]
 pub struct AllocatedAppBreaksAndSize {
     #[field(AllocatedAppBreaks[memory_start, app_break])]
     pub breaks: AllocatedAppBreaks,
     #[field(usize[memory_size])]
     pub memory_size: usize,
+}
+
+impl AllocatedAppBreaksAndSize {
+    #[flux_rs::sig(fn (FluxPtrU8[@memory_start], FluxPtrU8[@app_break], memory_size: usize) -> AllocatedAppBreaksAndSize[memory_start, app_break, memory_size])]
+    pub fn new(memory_start: FluxPtrU8, app_break: FluxPtrU8, memory_size: usize) -> Self {
+        Self {
+            breaks: AllocatedAppBreaks::new(memory_start, app_break),
+            memory_size
+        }
+    }
 }
 
 pub enum AllocateAppMemoryError {
@@ -270,15 +290,18 @@ pub trait MPU {
             b.app_break <= b.memory_start + b.memory_size - kernelmsz &&
             b.app_break >= b.memory_start + appmsz &&
             <Self as MPU>::config_can_access_flash(new_c, fstart, fsz) &&
-            <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break) &&
+            <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break - b.memory_start) &&
             <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart) &&
             <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break, u32::MAX)
+            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break, u32::MAX - b.app_break)
         }, AllocateAppMemoryError>
         requires 
-            min_mem_sz < u32::MAX &&
-            fsz < u32::MAX &&
-            appmsz + kernelmsz < u32::MAX &&
+            min_mem_sz > 0 &&
+            min_mem_sz <= u32::MAX / 2 + 1 &&
+            fstart <= u32::MAX / 2 + 1 &&
+            fsz > 0 &&
+            fsz <= u32::MAX / 2 + 1 &&
+            appmsz + kernelmsz < u32::MAX && 
             <Self as MPU>::config_cant_access_at_all(old_c, 0, u32::MAX)
         ensures config: Self::MpuConfig[#new_c]
     )]
@@ -329,9 +352,15 @@ pub trait MPU {
             <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break - b.memory_start) &&
             <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart) &&
             <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break, u32::MAX)
+            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break, u32::MAX - b.app_break)
         }, ()>[#res]
-        requires <Self as MPU>::config_can_access_flash(old_c, fstart, fsz)
+        requires 
+            <Self as MPU>::config_can_access_flash(old_c, fstart, fsz) &&
+            <Self as MPU>::config_cant_access_at_all(old_c, 0, fstart) &&
+            <Self as MPU>::config_cant_access_at_all(old_c, fstart + fsz, mem_start - (fstart + fsz)) &&
+            <Self as MPU>::config_cant_access_at_all(old_c, kernel_break, u32::MAX - app_break) &&
+            app_break - mem_start <= u32::MAX / 2 + 1 &&
+            app_break - mem_start > 0
         ensures config: Self::MpuConfig[#new_c], !res => old_c == new_c
     )]
     fn update_app_memory_regions(
