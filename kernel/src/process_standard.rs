@@ -180,7 +180,7 @@ struct BreaksAndMPUConfig<C: 'static + Chip> {
     #[field({<<C as Chip>::MPU as MPU>::MpuConfig[mpu_config] | 
         app_break >= mem_start &&
         kernel_break <= mem_start + mem_len &&
-        <<C as Chip>::MPU as MPU>::config_can_access_heap(mpu_config, mem_start, app_break) &&
+        <<C as Chip>::MPU as MPU>::config_can_access_heap(mpu_config, mem_start, app_break - mem_start) &&
         <<C as Chip>::MPU as MPU>::config_can_access_flash(mpu_config, flash_start, flash_len) &&
         <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, 0, flash_start) &&
         <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, flash_start + flash_len, mem_start - (flash_start + flash_len)) &&

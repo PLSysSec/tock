@@ -1245,7 +1245,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             b.app_break >= app_break &&
             b.memory_start == mem_start &&
             config_can_access_flash(new_c, fstart, fsz) &&
-            config_can_access_heap(new_c, b.memory_start, b.app_break) &&
+            config_can_access_heap(new_c, b.memory_start, b.app_break - b.memory_start) &&
             config_cant_access_at_all(new_c, 0, fstart) &&
             config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
             config_cant_access_at_all(new_c, b.app_break, u32::MAX)

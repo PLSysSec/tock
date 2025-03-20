@@ -326,7 +326,7 @@ pub trait MPU {
             b.app_break >= app_break &&
             b.memory_start == mem_start &&
             <Self as MPU>::config_can_access_flash(new_c, fstart, fsz) &&
-            <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break) &&
+            <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break - b.memory_start) &&
             <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart) &&
             <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
             <Self as MPU>::config_cant_access_at_all(new_c, b.app_break, u32::MAX)
