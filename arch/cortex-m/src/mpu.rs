@@ -1266,18 +1266,19 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             b.memory_start == mem_start &&
             config_can_access_flash(new_c, fstart, fstart + fsz) &&
             config_can_access_heap(new_c, b.memory_start, b.app_break) &&
-            config_cant_access_at_all(old_c, 0, fstart - 1) &&
-            config_cant_access_at_all(old_c, fstart + fsz + 1, b.memory_start - 1) 
-            &&
+            config_cant_access_at_all(new_c, 0, fstart - 1) &&
+            config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) &&
             // VTock TODO: If new_app_break >= old_app_break then there's no problem
             // proving this. However, if the new_app_break < old_app_break there is a 
             // problem? not sure what it is
-            config_cant_access_at_all(old_c, b.app_break + 1, u32::MAX)
+            config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX)
         }, ()>[#res]
         requires 
+            fstart + fsz < mem_start &&
             app_break - mem_start <= u32::MAX / 2 + 1 &&
             app_break - mem_start > 0 &&
             config_can_access_flash(old_c, fstart, fstart + fsz) &&
+            config_can_access_heap(old_c, mem_start, old_app_break) &&
             config_cant_access_at_all(old_c, 0, fstart - 1) &&
             config_cant_access_at_all(old_c, fstart + fsz + 1, mem_start - 1) &&
             config_cant_access_at_all(old_c, old_app_break + 1, u32::MAX)
@@ -1353,6 +1354,8 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         // // Get the number of subregions enabled in each of the two MPU regions.
         let num_enabled_subregions0 = min_usize(num_enabled_subregions, 8);
         let num_enabled_subregions1 = num_enabled_subregions.saturating_sub(8);
+
+        assert(num_enabled_subregions0 + num_enabled_subregions1 == num_enabled_subregions);
 
         let region0 = CortexMRegion::new(
             FluxPtr::from(region_start),
