@@ -180,11 +180,11 @@ struct BreaksAndMPUConfig<C: 'static + Chip> {
     #[field({<<C as Chip>::MPU as MPU>::MpuConfig[mpu_config] | 
         app_break >= mem_start &&
         kernel_break <= mem_start + mem_len &&
-        <<C as Chip>::MPU as MPU>::config_can_access_heap(mpu_config, mem_start, app_break - mem_start) &&
-        <<C as Chip>::MPU as MPU>::config_can_access_flash(mpu_config, flash_start, flash_len) &&
-        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, 0, flash_start) &&
-        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, flash_start + flash_len, mem_start - (flash_start + flash_len)) &&
-        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, app_break, u32::MAX - app_break)
+        <<C as Chip>::MPU as MPU>::config_can_access_heap(mpu_config, mem_start, app_break) &&
+        <<C as Chip>::MPU as MPU>::config_can_access_flash(mpu_config, flash_start, flash_start + flash_len) &&
+        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, 0, flash_start - 1) &&
+        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, flash_start + flash_len + 1, mem_start - 1) &&
+        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, app_break + 1, u32::MAX)
     })]
     pub mpu_config: <<C as Chip>::MPU as MPU>::MpuConfig,
 
@@ -207,14 +207,8 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
                 new_bc.mem_start == bc.mem_start &&
                 new_bc.mem_len == bc.mem_len &&
                 new_bc.flash_start == bc.flash_start &&
-                new_bc.flash_len == bc.flash_len
+                new_bc.flash_len == bc.flash_len 
             }
-            // requires 
-                // <<C as Chip>::MPU as MPU>::config_can_access_heap(bc.mpu_config, bc.mem_start, bc.app_break - bc.mem_start) &&
-                // <<C as Chip>::MPU as MPU>::config_can_access_flash(bc.mpu_config, bc.flash_start, bc.flash_len) &&
-                // <<C as Chip>::MPU as MPU>::config_cant_access_at_all(bc.mpu_config, 0, bc.flash_start) &&
-                // <<C as Chip>::MPU as MPU>::config_cant_access_at_all(bc.mpu_config, bc.flash_start + bc.flash_len, bc.mem_start - (bc.flash_start + bc.flash_len)) &&
-                // <<C as Chip>::MPU as MPU>::config_cant_access_at_all(bc.mpu_config, bc.kernel_break, u32::MAX - bc.kernel_break)
     )]
     pub(crate) fn brk(
         &mut self,
@@ -224,6 +218,7 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
         // VTOCK BUG: original check is not good enough
         // 1. need to make sure break is not equal to mem_start
         // 2. need to make sure the new break is not too big
+        let x = 100;
         if new_break < self.breaks.allow_high_water_mark
             || new_break >= self.mem_end()
             || new_break <= self.mem_start()

@@ -142,17 +142,17 @@ flux_rs::defs! {
         subregions_enabled_exactly(value(rasr), first_subregion(rbar, rasr, astart), last_subregion(rbar, rasr, astart, asize))
     }
 
-    fn region_can_access(region: CortexMRegion, start: int, size: int, perms: mpu::Permissions) -> bool {
+    fn region_can_access(region: CortexMRegion, start: int, end: int, perms: mpu::Permissions) -> bool {
         // region set
         region.set &&
         // region's accesible block contains the start..end (exclusive) checked
         start >= region.astart &&
-        start + size < region.astart + region.asize &&
+        end <= region.astart + region.asize &&
         // and perms are correct
         region.perms == perms
     }
 
-    fn region_cant_access_at_all(region: CortexMRegion, start: int, size: int) -> bool {
+    fn region_cant_access_at_all(region: CortexMRegion, start: int, end: int) -> bool {
         // WHY is this different than !region_can_access:
         //  1. We don't want to talk about permissions at all here - it shouldn't be allocated at all
         //  2. region_can_access talks about everything from start..(start + size) being
@@ -160,37 +160,37 @@ flux_rs::defs! {
         //  start..(start + size) that is accessible via the current region we are looking at
         !region.set ||
         // NO slice of start..(start + size) is included in the region
-        // i.e. the start..(start + size) is entirely before the region start
-        (start < region.astart && start + size <= region.astart) ||
+        // i.e. the start..end is entirely before the region start
+        end < region.astart ||
         // or the start is entirely after region_start + region_size
-        start >= region.astart + region.asize
+        start > region.astart + region.asize
     }
 
-    fn config_can_access_flash(config: CortexMConfig, fstart: int, fsize: int) -> bool {
+    fn config_can_access_flash(config: CortexMConfig, fstart: int, fend: int) -> bool {
         // checks the flash is accessible with read and execute perms
-        region_can_access(map_get(config, 2), fstart, fsize, mpu::Permissions {r: true, w: false, x: true})
+        region_can_access(map_get(config, 2), fstart, fend, mpu::Permissions {r: true, w: false, x: true})
     }
 
-    fn can_access_heap_split(region0: CortexMRegion, region1: CortexMRegion, hstart: int, hsize: int) -> bool {
+    fn can_access_heap_split(region0: CortexMRegion, region1: CortexMRegion, hstart: int, hend: int) -> bool {
         region0.astart + region0.asize == region1.astart &&
         hstart >= region0.astart &&
-        hstart + hsize <= region1.astart + region1.asize &&
+        hend <= region1.astart + region1.asize &&
         region0.perms == mpu::Permissions {r: true, w: true, x: false} &&
         region1.perms == mpu::Permissions {r: true, w: true, x: false}
     }
 
-    fn config_can_access_heap(config: CortexMConfig, hstart: int, hsize: int) -> bool {
+    fn config_can_access_heap(config: CortexMConfig, hstart: int, hend: int) -> bool {
         // checks the heap is accessible with read and write perms
         // either you can access it through 0 or 1
-        region_can_access(map_get(config, 0), hstart, hsize, mpu::Permissions {r: true, w: true, x: false}) ||
-        region_can_access(map_get(config, 1), hstart, hsize, mpu::Permissions {r: true, w: true, x: false}) ||
+        region_can_access(map_get(config, 0), hstart, hend, mpu::Permissions {r: true, w: true, x: false}) ||
+        region_can_access(map_get(config, 1), hstart, hend, mpu::Permissions {r: true, w: true, x: false}) ||
         // or its accessible through the combination of 0 and 1
-        can_access_heap_split(map_get(config, 0), map_get(config, 1), hstart, hsize)
+        can_access_heap_split(map_get(config, 0), map_get(config, 1), hstart, hend)
     }
 
-    fn config_cant_access_at_all(config: CortexMConfig, start: int, size: int) -> bool {
+    fn config_cant_access_at_all(config: CortexMConfig, start: int, end: int) -> bool {
         forall i in 0..8 {
-            region_cant_access_at_all(map_get(config, i), start, size)
+            region_cant_access_at_all(map_get(config, i), start, end)
         }
     }
 }
@@ -785,7 +785,6 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
             }>
         requires minsz > 0 && minsz <= u32::MAX / 2 + 1 && size <= u32::MAX / 2 + 1 && start <= u32::MAX / 2 + 1
     )]
-    // #[flux_rs::trusted] // TODO: Hanging
     fn create_region(
         &self,
         region_num: usize,
@@ -910,7 +909,6 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
         if start + size > (unallocated_memory_start.as_usize()) + unallocated_memory_size {
             return None;
         }
-        assert(start + size <= (unallocated_memory_start.as_usize()) + unallocated_memory_size);
 
         if region_size > u32::MAX as usize {
             return None;
@@ -930,9 +928,9 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
 
 #[flux_rs::assoc(fn enabled(self: Self) -> bool {enable(self.ctrl)} )]
 #[flux_rs::assoc(fn configured_for(self: Self, config: CortexMConfig) -> bool {mpu_configured_for(self, config)} )]
-#[flux_rs::assoc(fn config_can_access_flash(c: CortexMConfig, fstart: int, fsize: int) -> bool { config_can_access_flash(c, fstart, fsize) })]
-#[flux_rs::assoc(fn config_can_access_heap(c: CortexMConfig, hstart: int, hsize: int) -> bool { config_can_access_heap(c, hstart, hsize) })]
-#[flux_rs::assoc(fn config_cant_access_at_all(c: CortexMConfig, start: int, size: int) -> bool { config_cant_access_at_all(c, start, size) } )]
+#[flux_rs::assoc(fn config_can_access_flash(c: CortexMConfig, fstart: int, fend: int) -> bool { config_can_access_flash(c, fstart, fend) })]
+#[flux_rs::assoc(fn config_can_access_heap(c: CortexMConfig, hstart: int, hend: int) -> bool { config_can_access_heap(c, hstart, hend) })]
+#[flux_rs::assoc(fn config_cant_access_at_all(c: CortexMConfig, start: int, end: int) -> bool { config_cant_access_at_all(c, start, end) } )]
 impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     type MpuConfig = CortexMConfig;
 
@@ -990,16 +988,17 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         config.set_dirty(true);
     }
 
-    // #[flux_rs::sig(fn(
-    //     _,
-    //     FluxPtrU8[@memstart],
-    //     usize[@memsz],
-    //     usize[@minsz],
-    //     mpu::Permissions[@perms],
-    //     config: &strg CortexMConfig[@old_c],
-    // ) -> Option<{p. Pair<mpu::Region, usize>[p] | config_post_allocate_region(old_c, new_c, p.snd, mpu_region_base(p.fst), mpu_region_sz(p.fst), perms)}>
-    //     ensures config: CortexMConfig[#new_c]
-    // )]
+    #[flux_rs::sig(fn(
+        _,
+        FluxPtrU8[@memstart],
+        usize[@memsz],
+        usize[@minsz],
+        mpu::Permissions[@perms],
+        config: &strg CortexMConfig[@old_c],
+    ) -> Option<mpu::Region>
+        requires minsz > 0 && minsz <= u32::MAX / 2 + 1 && memsz <= u32::MAX / 2 + 1 && memstart <= u32::MAX / 2 + 1
+        ensures config: CortexMConfig
+    )]
     fn allocate_region(
         &self,
         unallocated_memory_start: FluxPtrU8,
@@ -1060,7 +1059,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     #[flux_rs::sig(
         fn (
             &Self,
-            FluxPtrU8,
+            FluxPtrU8[@mem_start],
             usize,
             usize[@min_mem_sz],
             usize[@appmsz],
@@ -1071,16 +1070,22 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         ) -> Result<{b. mpu::AllocatedAppBreaksAndSize[b] |
             b.app_break <= b.memory_start + b.memory_size - kernelmsz &&
             b.app_break >= b.memory_start + appmsz &&
-            config_can_access_flash(new_c, fstart, fsz) &&
-            config_can_access_heap(new_c, b.memory_start, b.app_break - b.memory_start) &&
-            config_cant_access_at_all(new_c, 0, fstart) &&
-            config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
-            config_cant_access_at_all(new_c, b.app_break, u32::MAX - b.app_break)
+            config_can_access_flash(new_c, fstart, fstart + fsz) &&
+            config_can_access_heap(new_c, b.memory_start, b.app_break) &&
+            config_cant_access_at_all(new_c, 0, fstart - 1) &&
+            // VTOCK TODO: This condition will not verify.. WHY?
+            config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) &&
+            config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX)
         }, mpu::AllocateAppMemoryError>
         requires 
+            fstart + fsz < mem_start &&
             min_mem_sz > 0 &&
             min_mem_sz <= u32::MAX / 2 + 1 &&
-            fstart <= u32::MAX / 2 + 1 &&
+            appmsz > 0 &&
+            kernelmsz > 0 &&
+            appmsz + kernelmsz <= u32::MAX / 2 + 1 &&
+            fstart > 0 &&
+            fstart <= u32::MAX / 2 + 1 && 
             fsz > 0 &&
             fsz <= u32::MAX / 2 + 1 &&
             appmsz + kernelmsz < u32::MAX && 
@@ -1133,7 +1138,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         let mut memory_size_po2 = math::closest_power_of_two_usize(memory_size);
         let exponent = math::log_base_two_u32_usize(memory_size_po2);
 
-        // Check for compliance with the constraints of the MPU.
+        // // Check for compliance with the constraints of the MPU.
         if exponent < 9 {
             // Region sizes must be 256 bytes or larger to support subregions.
             // Since we are using two regions, and each must be at least 256
@@ -1146,7 +1151,6 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
 
         // Region size is the actual size the MPU region will be set to, and is
         // half of the total power of two size we are allocating to the app.
-
         let mut region_size = memory_size_po2 / 2;
 
         // The region should start as close as possible to the start of the
@@ -1169,9 +1173,9 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
 
         // Determine the number of subregions to enable.
         // Want `round_up(app_memory_size / subregion_size)`.
-        let mut num_enabled_subregions = initial_app_memory_size * 8 / region_size + 1;
+        let mut subregion_size = region_size / 8;
 
-        let subregion_size = region_size / 8;
+        let mut num_enabled_subregions = initial_app_memory_size.div_ceil(subregion_size);
 
         // Calculates the end address of the enabled subregions and the initial
         // kernel memory break.
@@ -1191,14 +1195,15 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         // big so there is plenty of space between app-owned and kernel-owned
         // memory.
         if subregions_enabled_end > kernel_memory_break {
-            // memory_size_po2 *= 2;
-            // region_size *= 2;
+            memory_size_po2 *= 2;
+            region_size *= 2;
 
-            // if region_start % region_size != 0 {
-            //     region_start += region_size - (region_start % region_size);
-            // }
+            if region_start % region_size != 0 {
+                region_start += region_size - (region_start % region_size);
+            }
 
-            num_enabled_subregions = initial_app_memory_size * 8 / region_size + 1;
+            subregion_size = region_size / 8;
+            num_enabled_subregions = initial_app_memory_size.div_ceil(subregion_size);
         }
 
         // Make sure the region fits in the unallocated memory.
@@ -1213,9 +1218,9 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         let num_enabled_subregions1 = num_enabled_subregions.saturating_sub(8);
 
         let region0 = CortexMRegion::new(
-            region_start.as_fluxptr(),
+            FluxPtr::from(region_start),
             num_enabled_subregions0 * subregion_size,
-            region_start.as_fluxptr(),
+            FluxPtr::from(region_start),
             region_size,
             HEAP_REGION1,
             Some((0, num_enabled_subregions0 - 1)),
@@ -1227,9 +1232,9 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             CortexMRegion::empty(1)
         } else {
             CortexMRegion::new(
-                (region_start + region_size).as_fluxptr(),
+                    FluxPtr::from(region_start + region_size),
                 num_enabled_subregions1 * subregion_size,
-                (region_start + region_size).as_fluxptr(),
+                FluxPtr::from(region_start + region_size),
                 region_size,
                 HEAP_REGION2,
                 Some((0, num_enabled_subregions1 - 1)),
@@ -1241,16 +1246,8 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         config.region_set(HEAP_REGION2, region1);
         config.set_dirty(true);
 
-        let app_break = region_start
-            + (subregion_size * num_enabled_subregions0)
-            + (subregion_size * num_enabled_subregions1);
-        Ok(mpu::AllocatedAppBreaksAndSize {
-            breaks: AllocatedAppBreaks {
-                memory_start: FluxPtr::from(region_start),
-                app_break: FluxPtr::from(app_break),
-            },
-            memory_size: memory_size_po2,
-        })
+        let app_break = region_start + subregion_size * num_enabled_subregions;
+        Ok(mpu::AllocatedAppBreaksAndSize::new(FluxPtr::from(region_start), FluxPtr::from(app_break), memory_size_po2))
     }
 
     #[flux_rs::sig(
@@ -1267,21 +1264,23 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             b.app_break <= kernel_break &&
             b.app_break >= app_break &&
             b.memory_start == mem_start &&
-            config_can_access_flash(new_c, fstart, fsz) 
+            config_can_access_flash(new_c, fstart, fstart + fsz) &&
+            config_can_access_heap(new_c, b.memory_start, b.app_break) &&
+            config_cant_access_at_all(old_c, 0, fstart - 1) &&
+            config_cant_access_at_all(old_c, fstart + fsz + 1, b.memory_start - 1) 
             &&
-            config_can_access_heap(new_c, b.memory_start, b.app_break - b.memory_start) 
-            &&
-            config_cant_access_at_all(new_c, 0, fstart) &&
-            config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
-            config_cant_access_at_all(new_c, b.app_break, u32::MAX - b.app_break)
+            // VTock TODO: If new_app_break >= old_app_break then there's no problem
+            // proving this. However, if the new_app_break < old_app_break there is a 
+            // problem? not sure what it is
+            config_cant_access_at_all(old_c, b.app_break + 1, u32::MAX)
         }, ()>[#res]
         requires 
-            config_can_access_flash(old_c, fstart, fsz) &&
-            config_cant_access_at_all(old_c, 0, fstart) &&
-            config_cant_access_at_all(old_c, fstart + fsz, mem_start - (fstart + fsz)) &&
-            config_cant_access_at_all(old_c, old_app_break, u32::MAX - old_app_break) &&
             app_break - mem_start <= u32::MAX / 2 + 1 &&
-            app_break - mem_start > 0
+            app_break - mem_start > 0 &&
+            config_can_access_flash(old_c, fstart, fstart + fsz) &&
+            config_cant_access_at_all(old_c, 0, fstart - 1) &&
+            config_cant_access_at_all(old_c, fstart + fsz + 1, mem_start - 1) &&
+            config_cant_access_at_all(old_c, old_app_break + 1, u32::MAX)
         ensures config: CortexMConfig[#new_c], !res => old_c == new_c
     )]
     #[flux_rs::trusted_impl] // fixpoint encoding
@@ -1310,7 +1309,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         let Pair {
             fst: region_start_ptr,
             snd: region_size,
-        } = config.get_region(HEAP_REGION1).location().ok_or(())?;
+        } = config.get_region(HEAP_REGION1).location().ok_or(())?; // VTOCK TODO: This is absolutely not right... 
         let region_start = region_start_ptr.as_usize();
 
         // if the region start and memory start don't match, something has gone terribly wrong
@@ -1319,7 +1318,10 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         }
 
         // VTOCK todo: can we prove this?
-        assume(region_size >= 256 && region_size < u32::MAX as usize); // from allocate_app_memory_region
+        // from allocate_app_memory_region
+        assume(region_size >= 256 && region_size < u32::MAX as usize); 
+        assume(region_size % 8 == 0);
+        assume(region_start + region_size * 2 >= app_memory_break.as_usize());
 
         let app_memory_break = app_memory_break.as_usize();
         let kernel_memory_break = kernel_memory_break.as_usize();
@@ -1338,6 +1340,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         // Determine the number of subregions to enable.
         // Want `round_up(app_memory_size / subregion_size)`.
         let num_enabled_subregions = app_memory_size.div_ceil(subregion_size);
+        assert(num_enabled_subregions <= 16);
 
         let subregions_enabled_end = region_start + subregion_size * num_enabled_subregions;
 
@@ -1352,9 +1355,9 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         let num_enabled_subregions1 = num_enabled_subregions.saturating_sub(8);
 
         let region0 = CortexMRegion::new(
-            region_start.as_fluxptr(),
+            FluxPtr::from(region_start),
             num_enabled_subregions0 * subregion_size,
-            region_start.as_fluxptr(),
+            FluxPtr::from(region_start),
             region_size,
             HEAP_REGION1,
             Some((0, num_enabled_subregions0 - 1)),
@@ -1365,9 +1368,9 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             CortexMRegion::empty(HEAP_REGION2)
         } else {
             CortexMRegion::new(
-                (region_start + region_size).as_fluxptr(),
+                FluxPtr::from(region_start + region_size),
                 num_enabled_subregions1 * subregion_size,
-                (region_start + region_size).as_fluxptr(),
+                FluxPtr::from(region_start + region_size),
                 region_size,
                 HEAP_REGION2,
                 Some((0, num_enabled_subregions1 - 1)),

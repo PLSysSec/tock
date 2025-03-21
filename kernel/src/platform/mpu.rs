@@ -133,9 +133,9 @@ impl Display for MpuConfigDefault {
 // VTOCK-TODO: remove default associated refinements
 #[flux_rs::assoc(fn enabled(self: Self) -> bool {false} )]
 #[flux_rs::assoc(fn configured_for(self: Self, config: Self::MpuConfig) -> bool)]
-#[flux_rs::assoc(fn config_can_access_flash(c: Self::MpuConfig, fstart: int, fsize: int) -> bool)]
-#[flux_rs::assoc(fn config_can_access_heap(c: Self::MpuConfig, hstart: int, hsize: int) -> bool)]
-#[flux_rs::assoc(fn config_cant_access_at_all(c: Self::MpuConfig, start: int, size: int) -> bool)]
+#[flux_rs::assoc(fn config_can_access_flash(c: Self::MpuConfig, fstart: int, fend: int) -> bool)]
+#[flux_rs::assoc(fn config_can_access_heap(c: Self::MpuConfig, hstart: int, hend: int) -> bool)]
+#[flux_rs::assoc(fn config_cant_access_at_all(c: Self::MpuConfig, start: int, end: int) -> bool)]
 pub trait MPU {
     /// MPU-specific state that defines a particular configuration for the MPU.
     /// That is, this should contain all of the required state such that the
@@ -211,6 +211,16 @@ pub trait MPU {
     ///
     /// Returns the start and size of the allocated MPU region. If it is
     /// infeasible to allocate the MPU region, returns None.
+    #[flux_rs::sig(fn(
+        _,
+        FluxPtrU8[@memstart],
+        usize[@memsz],
+        usize[@minsz],
+        Permissions[@perms],
+        &mut Self::MpuConfig,
+    ) -> Option<Region>
+        requires minsz > 0 && minsz <= u32::MAX / 2 + 1 && memsz <= u32::MAX / 2 + 1 && memstart <= u32::MAX / 2 + 1
+    )]
     fn allocate_region(
         &self,
         unallocated_memory_start: FluxPtrU8Mut,
@@ -278,7 +288,7 @@ pub trait MPU {
     #[flux_rs::sig(
         fn (
             &Self,
-            FluxPtrU8,
+            FluxPtrU8[@mem_start],
             usize,
             usize[@min_mem_sz],
             usize[@appmsz],
@@ -289,16 +299,21 @@ pub trait MPU {
         ) -> Result<{b. AllocatedAppBreaksAndSize[b] | 
             b.app_break <= b.memory_start + b.memory_size - kernelmsz &&
             b.app_break >= b.memory_start + appmsz &&
-            <Self as MPU>::config_can_access_flash(new_c, fstart, fsz) &&
-            <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break - b.memory_start) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break, u32::MAX - b.app_break)
+            <Self as MPU>::config_can_access_flash(new_c, fstart, fstart + fsz) &&
+            <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break) &&
+            <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart - 1) &&
+            <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) &&
+            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX)
         }, AllocateAppMemoryError>
         requires 
+            fstart + fsz < mem_start &&
             min_mem_sz > 0 &&
             min_mem_sz <= u32::MAX / 2 + 1 &&
-            fstart <= u32::MAX / 2 + 1 &&
+            appmsz > 0 &&
+            kernelmsz > 0 &&
+            appmsz + kernelmsz <= u32::MAX / 2 + 1 &&
+            fstart > 0 &&
+            fstart <= u32::MAX / 2 + 1 && 
             fsz > 0 &&
             fsz <= u32::MAX / 2 + 1 &&
             appmsz + kernelmsz < u32::MAX && 
@@ -349,19 +364,19 @@ pub trait MPU {
             b.app_break <= kernel_break &&
             b.app_break >= app_break &&
             b.memory_start == mem_start &&
-            <Self as MPU>::config_can_access_flash(new_c, fstart, fsz) &&
-            <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break - b.memory_start) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz, b.memory_start - (fstart + fsz)) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break, u32::MAX - b.app_break)
+            <Self as MPU>::config_can_access_flash(new_c, fstart, fstart + fsz) &&
+            <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break) &&
+            <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart - 1) &&
+            <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) &&
+            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX)
         }, ()>[#res]
         requires 
-            <Self as MPU>::config_can_access_flash(old_c, fstart, fsz) &&
-            <Self as MPU>::config_cant_access_at_all(old_c, 0, fstart) &&
-            <Self as MPU>::config_cant_access_at_all(old_c, fstart + fsz, mem_start - (fstart + fsz)) &&
-            <Self as MPU>::config_cant_access_at_all(old_c, old_app_break, u32::MAX - old_app_break) &&
             app_break - mem_start <= u32::MAX / 2 + 1 &&
-            app_break - mem_start > 0
+            app_break - mem_start > 0 &&
+            <Self as MPU>::config_can_access_flash(old_c, fstart, fstart + fsz) &&
+            <Self as MPU>::config_cant_access_at_all(old_c, 0, fstart - 1) &&
+            <Self as MPU>::config_cant_access_at_all(old_c, fstart + fsz + 1, mem_start - 1) &&
+            <Self as MPU>::config_cant_access_at_all(old_c, old_app_break + 1, u32::MAX)
         ensures config: Self::MpuConfig[#new_c], !res => old_c == new_c
     )]
     fn update_app_memory_regions(
