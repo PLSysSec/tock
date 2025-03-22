@@ -181,9 +181,8 @@ flux_rs::defs! {
 
     fn config_can_access_heap(config: CortexMConfig, hstart: int, hend: int) -> bool {
         // checks the heap is accessible with read and write perms
-        // either you can access it through 0 or 1
+        // either you can access it through 0
         region_can_access(map_get(config, 0), hstart, hend, mpu::Permissions {r: true, w: true, x: false}) ||
-        region_can_access(map_get(config, 1), hstart, hend, mpu::Permissions {r: true, w: true, x: false}) ||
         // or its accessible through the combination of 0 and 1
         can_access_heap_split(map_get(config, 0), map_get(config, 1), hstart, hend)
     }
@@ -1278,16 +1277,22 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             config_can_access_flash(new_c, fstart, fstart + fsz) &&
             config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             config_cant_access_at_all(new_c, 0, fstart - 1) &&
-            config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) &&
+            config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) 
             // VTock TODO: If new_app_break >= old_app_break then there's no problem
             // proving this. However, if the new_app_break < old_app_break there is a 
             // problem? not sure what it is
+            // 
+            // I think the issue here is that we basically need to invalidate the space 
+            // between the new app break and the old app break
+            &&
             config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX)
         }, ()>[#res]
         requires 
             fstart + fsz < mem_start &&
             app_break - mem_start <= u32::MAX / 2 + 1 &&
-            app_break - mem_start > 0 &&
+            app_break > mem_start &&
+            old_app_break > mem_start &&
+            kernel_break >= old_app_break &&
             config_can_access_flash(old_c, fstart, fstart + fsz) &&
             config_can_access_heap(old_c, mem_start, old_app_break) &&
             config_cant_access_at_all(old_c, 0, fstart - 1) &&
@@ -1325,7 +1330,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             accesible_size: _,
             region_start: region_start_ptr,
             region_size,
-        } = config.get_region(HEAP_REGION1).location().ok_or(())?; // VTOCK TODO: This is absolutely not right... 
+        } = config.get_region(HEAP_REGION1).location().ok_or(())?; 
         let region_start = region_start_ptr.as_usize();
 
         // if the region start and memory start don't match, something has gone terribly wrong
@@ -1337,7 +1342,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         // from allocate_app_memory_region
         assume(region_size >= 256 && region_size < u32::MAX as usize); 
         assume(region_size % 8 == 0);
-        assume(region_start + region_size * 2 >= app_memory_break.as_usize());
+        assume(region_start + region_size * 2 >= kernel_memory_break.as_usize());
 
         let app_memory_break = app_memory_break.as_usize();
         let kernel_memory_break = kernel_memory_break.as_usize();
@@ -1369,8 +1374,6 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         // // Get the number of subregions enabled in each of the two MPU regions.
         let num_enabled_subregions0 = min_usize(num_enabled_subregions, 8);
         let num_enabled_subregions1 = num_enabled_subregions.saturating_sub(8);
-
-        assert(num_enabled_subregions0 + num_enabled_subregions1 == num_enabled_subregions);
 
         let region0 = CortexMRegion::new(
             FluxPtr::from(region_start),
