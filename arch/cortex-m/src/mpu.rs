@@ -1085,7 +1085,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             config_cant_access_at_all(new_c, 0, fstart - 1) &&
             // VTOCK TODO: This condition will not verify.. WHY?
             config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) &&
-            config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX)
+            config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX) 
         }, mpu::AllocateAppMemoryError>
         requires 
             fstart + fsz < mem_start &&
@@ -1277,27 +1277,21 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             config_can_access_flash(new_c, fstart, fstart + fsz) &&
             config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             config_cant_access_at_all(new_c, 0, fstart - 1) &&
-            config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) 
-            // VTock TODO: If new_app_break >= old_app_break then there's no problem
-            // proving this. However, if the new_app_break < old_app_break there is a 
-            // problem? not sure what it is
-            // 
-            // I think the issue here is that we basically need to invalidate the space 
-            // between the new app break and the old app break
-            &&
+            config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) &&
             config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX)
         }, ()>[#res]
         requires 
             fstart + fsz < mem_start &&
             app_break - mem_start <= u32::MAX / 2 + 1 &&
             app_break > mem_start &&
-            old_app_break > mem_start &&
-            kernel_break >= old_app_break &&
             config_can_access_flash(old_c, fstart, fstart + fsz) &&
             config_can_access_heap(old_c, mem_start, old_app_break) &&
             config_cant_access_at_all(old_c, 0, fstart - 1) &&
             config_cant_access_at_all(old_c, fstart + fsz + 1, mem_start - 1) &&
-            config_cant_access_at_all(old_c, old_app_break + 1, u32::MAX)
+            config_cant_access_at_all(old_c, old_app_break + 1, u32::MAX) &&
+            forall i in 2..8 {
+                region_cant_access_at_all(map_get(old_c, i), mem_start, u32::MAX)
+            }
         ensures config: CortexMConfig[#new_c], !res => old_c == new_c
     )]
     #[flux_rs::trusted_impl] // fixpoint encoding

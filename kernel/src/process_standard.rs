@@ -218,7 +218,6 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
         // VTOCK BUG: original check is not good enough
         // 1. need to make sure break is not equal to mem_start
         // 2. need to make sure the new break is not too big
-        let x = 100;
         if new_break < self.breaks.allow_high_water_mark
             || new_break >= self.mem_end()
             || new_break <= self.mem_start()
