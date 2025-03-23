@@ -192,6 +192,12 @@ flux_rs::defs! {
             region_cant_access_at_all(map_get(config, i), start, end)
         }
     }
+
+    fn ipc_cant_access_heap(config: CortexMConfig, start: int, end: int) -> bool {
+        forall i in 3..8 {
+            region_cant_access_at_all(map_get(config, i), start, end)
+        }
+    }
 }
 
 // VTOCK_TODO: better solution for hardware register spooky-action-at-a-distance
@@ -941,6 +947,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
 #[flux_rs::assoc(fn config_can_access_flash(c: CortexMConfig, fstart: int, fend: int) -> bool { config_can_access_flash(c, fstart, fend) })]
 #[flux_rs::assoc(fn config_can_access_heap(c: CortexMConfig, hstart: int, hend: int) -> bool { config_can_access_heap(c, hstart, hend) })]
 #[flux_rs::assoc(fn config_cant_access_at_all(c: CortexMConfig, start: int, end: int) -> bool { config_cant_access_at_all(c, start, end) } )]
+#[flux_rs::assoc(fn ipc_cant_access_heap(c: CortexMConfig, start: int, end: int) -> bool { ipc_cant_access_heap(c, start, end) } )]
 impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     type MpuConfig = CortexMConfig;
 
@@ -1292,15 +1299,13 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             config_cant_access_at_all(old_c, 0, fstart - 1) &&
             config_cant_access_at_all(old_c, fstart + fsz + 1, mem_start - 1) &&
             config_cant_access_at_all(old_c, old_app_break + 1, u32::MAX) &&
-            forall i in 2..8 {
-                // VTOCK TODO: 
-                // I understand that there is a possibility that some IPC region might 
-                // have access to mem_start - old_app_break. Therefore, if we shrink the app break,
-                // the config may still have access to the old memory. It would make sense to me if we 
-                // had to say region_cant_access_at_all(..., mem_start, old_app_break). But somehow, even 
-                // u32::MAX - 1 doesn't work as the end address here... 
-                region_cant_access_at_all(map_get(old_c, i), mem_start, u32::MAX)
-            }
+            // VTOCK TODO: 
+            // I understand that there is a possibility that some IPC region might 
+            // have access to mem_start - old_app_break. Therefore, if we shrink the app break,
+            // the config may still have access to the old memory. It would make sense to me if we 
+            // had to say region_cant_access_at_all(..., mem_start, old_app_break). But somehow, even 
+            // u32::MAX - 1 doesn't work as the end address here... 
+            ipc_cant_access_heap(old_c, mem_start, u32::MAX)
         ensures config: CortexMConfig[#new_c], !res => old_c == new_c
     )]
     #[flux_rs::trusted_impl] // fixpoint encoding
