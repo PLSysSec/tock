@@ -193,9 +193,10 @@ flux_rs::defs! {
         }
     }
 
-    fn ipc_cant_access_heap(config: CortexMConfig, start: int, end: int) -> bool {
+    fn ipc_cant_access_process_mem(config: CortexMConfig, fstart: int, fend: int, hstart: int, hend: int) -> bool {
         forall i in 3..8 {
-            region_cant_access_at_all(map_get(config, i), start, end)
+            region_cant_access_at_all(map_get(config, i), fstart, fend) &&
+            region_cant_access_at_all(map_get(config, i), hstart, hend)
         }
     }
 }
@@ -947,7 +948,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
 #[flux_rs::assoc(fn config_can_access_flash(c: CortexMConfig, fstart: int, fend: int) -> bool { config_can_access_flash(c, fstart, fend) })]
 #[flux_rs::assoc(fn config_can_access_heap(c: CortexMConfig, hstart: int, hend: int) -> bool { config_can_access_heap(c, hstart, hend) })]
 #[flux_rs::assoc(fn config_cant_access_at_all(c: CortexMConfig, start: int, end: int) -> bool { config_cant_access_at_all(c, start, end) } )]
-#[flux_rs::assoc(fn ipc_cant_access_heap(c: CortexMConfig, start: int, end: int) -> bool { ipc_cant_access_heap(c, start, end) } )]
+#[flux_rs::assoc(fn ipc_cant_access_process_mem(c: CortexMConfig, fstart: int, fend: int, hstart: int, hend: int) -> bool { ipc_cant_access_process_mem(c, fstart, fend, hstart, hend) } )]
 impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     type MpuConfig = CortexMConfig;
 
@@ -1288,7 +1289,8 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             config_cant_access_at_all(new_c, 0, fstart - 1) &&
             config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) &&
-            config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX)
+            config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX) &&
+            ipc_cant_access_process_mem(new_c, fstart, fstart + fsz, b.memory_start, u32::MAX)
         }, ()>[#res]
         requires 
             fstart + fsz < mem_start &&
@@ -1305,7 +1307,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             // the config may still have access to the old memory. It would make sense to me if we 
             // had to say region_cant_access_at_all(..., mem_start, old_app_break). But somehow, even 
             // u32::MAX - 1 doesn't work as the end address here... 
-            ipc_cant_access_heap(old_c, mem_start, u32::MAX)
+            ipc_cant_access_process_mem(old_c, fstart, fstart + fsz, mem_start, u32::MAX)
         ensures config: CortexMConfig[#new_c], !res => old_c == new_c
     )]
     #[flux_rs::trusted_impl] // fixpoint encoding

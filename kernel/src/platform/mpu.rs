@@ -136,7 +136,7 @@ impl Display for MpuConfigDefault {
 #[flux_rs::assoc(fn config_can_access_flash(c: Self::MpuConfig, fstart: int, fend: int) -> bool)]
 #[flux_rs::assoc(fn config_can_access_heap(c: Self::MpuConfig, hstart: int, hend: int) -> bool)]
 #[flux_rs::assoc(fn config_cant_access_at_all(c: Self::MpuConfig, start: int, end: int) -> bool)]
-#[flux_rs::assoc(fn ipc_cant_access_heap(c: Self::MpuConfig, start: int, end: int) -> bool)]
+#[flux_rs::assoc(fn ipc_cant_access_process_mem(c: Self::MpuConfig, fstart: int, fend: int, hstart: int, hend: int) -> bool)]
 pub trait MPU {
     /// MPU-specific state that defines a particular configuration for the MPU.
     /// That is, this should contain all of the required state such that the
@@ -369,7 +369,8 @@ pub trait MPU {
             <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart - 1) &&
             <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX)
+            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX) &&
+            <Self as MPU>::ipc_cant_access_process_mem(new_c, fstart, fstart + fsz, b.memory_start, u32::MAX)
         }, ()>[#res]
         requires 
             fstart + fsz < mem_start &&
@@ -379,7 +380,7 @@ pub trait MPU {
             <Self as MPU>::config_cant_access_at_all(old_c, 0, fstart - 1) &&
             <Self as MPU>::config_cant_access_at_all(old_c, fstart + fsz + 1, mem_start - 1) &&
             <Self as MPU>::config_cant_access_at_all(old_c, old_app_break + 1, u32::MAX) &&
-            <Self as MPU>::ipc_cant_access_heap(old_c, mem_start, u32::MAX)
+            <Self as MPU>::ipc_cant_access_process_mem(old_c, fstart, fstart + fsz, mem_start, u32::MAX)
         ensures config: Self::MpuConfig[#new_c], !res => old_c == new_c
     )]
     fn update_app_memory_regions(

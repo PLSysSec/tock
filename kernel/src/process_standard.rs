@@ -171,6 +171,7 @@ impl ProcessBreaks {
     mpu_config: <<C as Chip>::MPU as MPU>::MpuConfig
 )]
 #[flux_rs::invariant(mem_start + mem_len <= usize::MAX)]
+#[flux_rs::invariant(flash_start + flash_len < mem_start)]
 #[flux_rs::invariant(kernel_break >= app_break)]
 #[flux_rs::invariant(kernel_break < mem_start + mem_len)]
 #[flux_rs::invariant(app_break >= allow_high_water_mark)]
@@ -184,7 +185,8 @@ struct BreaksAndMPUConfig<C: 'static + Chip> {
         <<C as Chip>::MPU as MPU>::config_can_access_flash(mpu_config, flash_start, flash_start + flash_len) &&
         <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, 0, flash_start - 1) &&
         <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, flash_start + flash_len + 1, mem_start - 1) &&
-        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, app_break + 1, u32::MAX)
+        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, app_break + 1, u32::MAX) &&
+        <<C as Chip>::MPU as MPU>::ipc_cant_access_process_mem(mpu_config, flash_start, flash_start + flash_len, mem_start, u32::MAX)
     })]
     pub mpu_config: <<C as Chip>::MPU as MPU>::MpuConfig,
 
