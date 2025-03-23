@@ -1083,7 +1083,6 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             config_can_access_flash(new_c, fstart, fstart + fsz) &&
             config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             config_cant_access_at_all(new_c, 0, fstart - 1) &&
-            // VTOCK TODO: This condition will not verify.. WHY?
             config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) &&
             config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX) 
         }, mpu::AllocateAppMemoryError>
@@ -1256,6 +1255,10 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         config.region_set(HEAP_REGION2, region1);
         config.set_dirty(true);
 
+        // VTOCK TODO: Without this assume proving the gap between flash end and mem start is not possible
+        // because flux believes that the region start computed could be >= u32::MAX. We should ideally be 
+        // able to constrain the addresses passed to this function to something within reason...
+        assume(region_start + memory_size_po2 < u32::MAX as usize);
         let app_break = region_start + subregion_size * num_enabled_subregions;
         Ok(mpu::AllocatedAppBreaksAndSize::new(FluxPtr::from(region_start), FluxPtr::from(app_break), memory_size_po2))
     }
@@ -1290,6 +1293,12 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             config_cant_access_at_all(old_c, fstart + fsz + 1, mem_start - 1) &&
             config_cant_access_at_all(old_c, old_app_break + 1, u32::MAX) &&
             forall i in 2..8 {
+                // VTOCK TODO: 
+                // I understand that there is a possibility that some IPC region might 
+                // have access to mem_start - old_app_break. Therefore, if we shrink the app break,
+                // the config may still have access to the old memory. It would make sense to me if we 
+                // had to say region_cant_access_at_all(..., mem_start, old_app_break). But somehow, even 
+                // u32::MAX - 1 doesn't work as the end address here... 
                 region_cant_access_at_all(map_get(old_c, i), mem_start, u32::MAX)
             }
         ensures config: CortexMConfig[#new_c], !res => old_c == new_c
