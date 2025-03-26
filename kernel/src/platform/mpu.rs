@@ -304,7 +304,8 @@ pub trait MPU {
             <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart - 1) &&
             <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX)
+            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX) &&
+            <Self as MPU>::ipc_cant_access_process_mem(new_c, fstart, fstart + fsz, mem_start, u32::MAX)
         }, AllocateAppMemoryError>
         requires 
             fstart + fsz < mem_start &&

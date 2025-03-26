@@ -2173,8 +2173,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             self.memory_len, //we want exactly as much as we had before restart
             min_process_memory_size,
             initial_kernel_memory_size,
-            self.flash.as_fluxptr(),
-            self.flash.len(),
+            self.flash_start(),
+            self.flash_size(),
             &mut breaks_and_mpu_config.mpu_config,
         );
         let breaks_and_size = match app_mpu_mem {
@@ -2217,6 +2217,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             app_break: app_brk,
             allow_high_water_mark: app_mpu_mem_start,
         };
+        assert(breaks.mem_start <= breaks.app_break);
         let new_breaks_and_mpu_config = BreaksAndMPUConfig {
             breaks,
             mpu_regions: breaks_and_mpu_config.mpu_regions,
