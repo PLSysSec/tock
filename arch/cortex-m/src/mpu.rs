@@ -1093,7 +1093,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             config_cant_access_at_all(new_c, 0, fstart - 1) &&
             config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) &&
             config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX) &&
-            ipc_cant_access_process_mem(new_c, flash_start, flash_start + flash_len, mem_start, u32::MAX)
+            ipc_cant_access_process_mem(new_c, fstart, fstart + fsz, mem_start, u32::MAX)
         }, mpu::AllocateAppMemoryError>
         requires 
             fstart + fsz < mem_start &&
