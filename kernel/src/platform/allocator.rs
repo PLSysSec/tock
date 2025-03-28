@@ -66,7 +66,8 @@ pub struct AppAccessibleRegion<T: DescribeRegion> {
 
 pub struct AppAccessibleMemory<M: MPUVerified> {
     pub(crate) regions: [Option<AppAccessibleRegion<M::Region>>; MPUVerified::NUM_REGIONS],
-    pub(crate) app_region_idx: Option<usize>,
+    pub(crate) app_heap_idx: Option<usize>,
+    pub(crate) app_flash_idx: Option<usize>,
     pub(crate) mpu: M,
 }
 
@@ -83,7 +84,8 @@ impl<M: MPUVerified> AppAccessibleMemory<M> {
     pub fn new(mpu: M) -> Self {
         Self {
             regions: [const { None }; NUM_REGIONS],
-            app_region_idx: None,
+            app_heap_idx: None,
+            app_flash_idx: None,
             mpu,
         }
     }
@@ -92,14 +94,15 @@ impl<M: MPUVerified> AppAccessibleMemory<M> {
         for b in self.regions.iter_mut() {
             *b = None;
         }
-        self.app_region_idx = None;
+        self.app_heap_idx = None;
+        self.app_flash_idx = None;
     }
 
     pub fn remove_memory_region(&mut self, region: <M as MPUVerified>::Region) -> Result<(), ()> {
         todo!()
     }
 
-    pub fn allocate_new_region(
+    pub fn allocate_ipc_region(
         &mut self,
         unallocated_memory_start: FluxPtrU8Mut,
         unallocated_memory_size: usize,
@@ -122,16 +125,28 @@ impl<M: MPUVerified> AppAccessibleMemory<M> {
         Ok(())
     }
 
-    fn allocate_app_memory(
+    fn add_flash_region(&mut self, flash_start: FluxPtrU8, flash_size: usize) -> Result<(), ()> {
+        let app_flash_idx = self.next_available_idx().ok_or(())?;
+        let region = self
+            .mpu
+            .new_region(flash_start, flash_size, flash_size)
+            .ok_or(())?;
+        self.regions[app_flash_idx] = Some(AppAccessibleRegion {
+            region,
+            permissions: BlockPermissions::ReadExecuteOnly,
+        });
+        self.app_flash_idx = Some(app_flash_idx);
+        Ok(())
+    }
+
+    fn add_heap_region(
         &mut self,
         unallocated_memory_start: FluxPtrU8Mut,
         unallocated_memory_size: usize,
         min_memory_size: usize,
         initial_app_memory_size: usize,
         initial_kernel_memory_size: usize,
-        flash_start: FluxPtrU8Mut,
-        flash_size: usize,
-    ) -> Result<(), crate::platform::allocator::AllocateAppMemoryError> {
+    ) -> Result<(), ()> {
         let region_size = cmp::min(
             min_memory_size,
             initial_app_memory_size + initial_kernel_memory_size,
@@ -143,7 +158,7 @@ impl<M: MPUVerified> AppAccessibleMemory<M> {
                 unallocated_memory_size,
                 region_size,
             )
-            .ok_or(crate::platform::allocator::AllocateAppMemoryError::HeapError)?;
+            .ok_or(())?;
         let region_start = region.accessible_start();
         let app_break = region_start.as_usize() + region.accessible_size();
 
@@ -158,24 +173,47 @@ impl<M: MPUVerified> AppAccessibleMemory<M> {
                     unallocated_memory_size,
                     total_size,
                 )
-                .ok_or(crate::platform::allocator::AllocateAppMemoryError::HeapError)?;
+                .ok_or(())?;
         }
-        let app_region_idx = self
+        let app_heap_idx = self
             .next_available_idx()
             .ok_or(AllocateAppMemoryError::HeapError)?;
-        self.regions[app_region_idx] = Some(AppAccessibleRegion {
+        self.regions[app_heap_idx] = Some(AppAccessibleRegion {
             region,
             permissions: BlockPermissions::ReadWriteOnly,
         });
+        self.app_heap_idx = Some(app_heap_idx);
         Ok(())
     }
 
-    fn update_app_memory(
+    pub fn allocate_app_memory(
+        &mut self,
+        unallocated_memory_start: FluxPtrU8Mut,
+        unallocated_memory_size: usize,
+        min_memory_size: usize,
+        initial_app_memory_size: usize,
+        initial_kernel_memory_size: usize,
+        flash_start: FluxPtrU8Mut,
+        flash_size: usize,
+    ) -> Result<(), crate::platform::allocator::AllocateAppMemoryError> {
+        self.add_flash_region(flash_start, flash_size)
+            .map_err(AllocateAppMemoryError::FlashError)?;
+        self.add_heap_region(
+            unallocated_memory_start,
+            unallocated_memory_size,
+            min_memory_size,
+            initial_app_memory_size,
+            initial_kernel_memory_size,
+        )
+        .map_err(AllocateAppMemoryError::HeapError)
+    }
+
+    pub fn update_app_memory(
         &mut self,
         app_memory_break: FluxPtrU8Mut,
         kernel_memory_break: FluxPtrU8Mut,
     ) -> Result<(), ()> {
-        let idx = self.app_region_idx.ok_or(())?;
+        let idx = self.app_heap_idx.ok_or(())?;
         let current_region = self.regions[idx].as_ref().ok_or(())?;
         let memory_start = current_region.region.accessible_start();
         let total_size = current_region.region.region_size();
