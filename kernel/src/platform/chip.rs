@@ -8,7 +8,6 @@ use crate::platform::mpu;
 use crate::syscall;
 use core::fmt::Write;
 
-use super::allocator;
 /// Interface for individual MCUs.
 ///
 /// The trait defines chip-specific properties of Tock's operation. These
@@ -20,7 +19,6 @@ use super::allocator;
 pub trait Chip {
     /// The particular Memory Protection Unit (MPU) for this chip.
     type MPU: mpu::MPU;
-    type MPUVerified: allocator::MPUVerified;
 
     /// The implementation of the interface between userspace and the kernel for
     /// this specific chip. Likely this is architecture specific, but individual
@@ -41,8 +39,6 @@ pub trait Chip {
 
     /// Returns a reference to the implementation for the MPU on this chip.
     fn mpu(&self) -> &mut Self::MPU;
-
-    fn verified_mpu(&self) -> &mut Self::MPUVerified;
 
     /// Returns a reference to the implementation for the interface between
     /// userspace and kernelspace.

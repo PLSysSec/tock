@@ -18,10 +18,11 @@ use flux_support::*;
 
 use crate::collections::queue::Queue;
 use crate::collections::ring_buffer::RingBuffer;
-use crate::config;
+use crate::{allocator, config};
 use crate::debug;
 use crate::errorcode::ErrorCode;
 use crate::kernel::Kernel;
+use crate::allocator::AppAccessibleMemory;
 use crate::platform::chip::Chip;
 use crate::platform::mpu::{self, MPU};
 use crate::process::BinaryVersion;
@@ -106,281 +107,281 @@ struct GrantPointerEntry {
 // VTOCK-TODO: break up this struct when we have a better solution for interior mutability
 // VTOCK-TODO: is it ok for app_break == kernel_break?
 // kernel_memory_break > app_break && app_break <= high_water_mark
-#[flux_rs::refined_by(kernel_break: int, app_break: int, allow_high_water_mark: int, mem_start: int, mem_len: int, flash_start: int, flash_len: int)]
-#[derive(Clone, Copy)]
-struct ProcessBreaks {
-    /// Pointer to the end of the allocated (and MPU protected) grant region.
-    #[field({FluxPtrU8Mut[kernel_break] | kernel_break >= app_break && kernel_break < mem_start + mem_len})]
-    pub kernel_memory_break: FluxPtrU8Mut,
-    /// Pointer to the end of process RAM that has been sbrk'd to the process.
-    #[field(FluxPtrU8Mut[app_break])]
-    pub app_break: FluxPtrU8Mut,
-    /// Pointer to high water mark for process buffers shared through `allow`
-    #[field({FluxPtrU8Mut[allow_high_water_mark] | app_break >= allow_high_water_mark && allow_high_water_mark >= mem_start})]
-    pub allow_high_water_mark: FluxPtrU8Mut,
-    // start of process heap (where stack ends)
-    #[field(FluxPtrU8[mem_start])]
-    pub mem_start: FluxPtrU8,
-    // length of process memory block
-    #[field(usize[mem_len])]
-    pub mem_len: usize,
-    /// Process flash segment. This is the region of nonvolatile flash that
-    /// the process occupies.
-    flash: &'static [u8],
-    #[field(FlashGhostState[flash_start, flash_len])]
-    _flash_ghost: FlashGhostState,
-}
+// #[flux_rs::refined_by(kernel_break: int, app_break: int, allow_high_water_mark: int, mem_start: int, mem_len: int, flash_start: int, flash_len: int)]
+// #[derive(Clone, Copy)]
+// struct ProcessBreaks {
+//     /// Pointer to the end of the allocated (and MPU protected) grant region.
+//     #[field({FluxPtrU8Mut[kernel_break] | kernel_break >= app_break && kernel_break < mem_start + mem_len})]
+//     pub kernel_memory_break: FluxPtrU8Mut,
+//     /// Pointer to the end of process RAM that has been sbrk'd to the process.
+//     #[field(FluxPtrU8Mut[app_break])]
+//     pub app_break: FluxPtrU8Mut,
+//     /// Pointer to high water mark for process buffers shared through `allow`
+//     #[field({FluxPtrU8Mut[allow_high_water_mark] | app_break >= allow_high_water_mark && allow_high_water_mark >= mem_start})]
+//     pub allow_high_water_mark: FluxPtrU8Mut,
+//     // start of process heap (where stack ends)
+//     #[field(FluxPtrU8[mem_start])]
+//     pub mem_start: FluxPtrU8,
+//     // length of process memory block
+//     #[field(usize[mem_len])]
+//     pub mem_len: usize,
+//     /// Process flash segment. This is the region of nonvolatile flash that
+//     /// the process occupies.
+//     flash: &'static [u8],
+//     #[field(FlashGhostState[flash_start, flash_len])]
+//     _flash_ghost: FlashGhostState,
+// }
 
-impl ProcessBreaks {
-    #[flux_rs::sig(
-        fn (self: &strg Self[@pb], FluxPtrU8Mut[@new_break]) 
-            requires pb.kernel_break >= new_break && new_break >= pb.allow_high_water_mark
-            ensures self: Self[{app_break: new_break, ..pb}]
-    )]
-    pub(crate) fn set_app_break(&mut self, new_break: FluxPtrU8Mut) {
-        self.app_break = new_break;
-    }
+// impl ProcessBreaks {
+//     #[flux_rs::sig(
+//         fn (self: &strg Self[@pb], FluxPtrU8Mut[@new_break]) 
+//             requires pb.kernel_break >= new_break && new_break >= pb.allow_high_water_mark
+//             ensures self: Self[{app_break: new_break, ..pb}]
+//     )]
+//     pub(crate) fn set_app_break(&mut self, new_break: FluxPtrU8Mut) {
+//         self.app_break = new_break;
+//     }
 
-    #[flux_rs::sig(
-        fn (self: &strg Self[@pb], FluxPtrU8Mut[@new_hwm]) 
-            requires pb.app_break >= new_hwm && new_hwm >= pb.mem_start
-            ensures self: Self[{allow_high_water_mark: new_hwm, ..pb}]
-    )]
-    pub(crate) fn set_high_water_mark(&mut self, new_high_water_mark: FluxPtrU8Mut) {
-        self.allow_high_water_mark = new_high_water_mark;
-    }
+//     #[flux_rs::sig(
+//         fn (self: &strg Self[@pb], FluxPtrU8Mut[@new_hwm]) 
+//             requires pb.app_break >= new_hwm && new_hwm >= pb.mem_start
+//             ensures self: Self[{allow_high_water_mark: new_hwm, ..pb}]
+//     )]
+//     pub(crate) fn set_high_water_mark(&mut self, new_high_water_mark: FluxPtrU8Mut) {
+//         self.allow_high_water_mark = new_high_water_mark;
+//     }
 
-    #[flux_rs::sig(
-        fn (self: &strg Self[@pb], FluxPtrU8Mut[@new_break]) 
-            requires new_break >= pb.app_break && new_break <= pb.kernel_break
-            ensures self: Self[{ kernel_break: new_break, ..pb }]
-    )]
-    pub(crate) fn set_kernel_break(&mut self, new_kernel_break: FluxPtrU8Mut) {
-        self.kernel_memory_break = new_kernel_break;
-    }
-}
+//     #[flux_rs::sig(
+//         fn (self: &strg Self[@pb], FluxPtrU8Mut[@new_break]) 
+//             requires new_break >= pb.app_break && new_break <= pb.kernel_break
+//             ensures self: Self[{ kernel_break: new_break, ..pb }]
+//     )]
+//     pub(crate) fn set_kernel_break(&mut self, new_kernel_break: FluxPtrU8Mut) {
+//         self.kernel_memory_break = new_kernel_break;
+//     }
+// }
 
-#[flux_rs::refined_by(
-    kernel_break: int,
-    app_break: int,
-    allow_high_water_mark: int,
-    mem_start: int,
-    mem_len: int,
-    flash_start: int, 
-    flash_len: int,
-    mpu_config: <<C as Chip>::MPU as MPU>::MpuConfig
-)]
-#[flux_rs::invariant(mem_start + mem_len <= usize::MAX)]
-#[flux_rs::invariant(flash_start + flash_len < mem_start)]
-#[flux_rs::invariant(kernel_break >= app_break)]
-#[flux_rs::invariant(kernel_break < mem_start + mem_len)]
-#[flux_rs::invariant(app_break >= allow_high_water_mark)]
-#[flux_rs::invariant(allow_high_water_mark >= mem_start)]
-struct BreaksAndMPUConfig<C: 'static + Chip> {
-    /// Configuration data for the MPU
-    #[field({<<C as Chip>::MPU as MPU>::MpuConfig[mpu_config] | 
-        app_break >= mem_start &&
-        kernel_break <= mem_start + mem_len &&
-        <<C as Chip>::MPU as MPU>::config_can_access_heap(mpu_config, mem_start, app_break) &&
-        <<C as Chip>::MPU as MPU>::config_can_access_flash(mpu_config, flash_start, flash_start + flash_len) &&
-        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, 0, flash_start - 1) &&
-        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, flash_start + flash_len + 1, mem_start - 1) &&
-        <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, app_break + 1, u32::MAX) &&
-        <<C as Chip>::MPU as MPU>::ipc_cant_access_process_mem(mpu_config, flash_start, flash_start + flash_len, mem_start, u32::MAX)
-    })]
-    pub mpu_config: <<C as Chip>::MPU as MPU>::MpuConfig,
+// #[flux_rs::refined_by(
+//     kernel_break: int,
+//     app_break: int,
+//     allow_high_water_mark: int,
+//     mem_start: int,
+//     mem_len: int,
+//     flash_start: int, 
+//     flash_len: int,
+//     mpu_config: <<C as Chip>::MPU as MPU>::MpuConfig
+// )]
+// #[flux_rs::invariant(mem_start + mem_len <= usize::MAX)]
+// #[flux_rs::invariant(flash_start + flash_len < mem_start)]
+// #[flux_rs::invariant(kernel_break >= app_break)]
+// #[flux_rs::invariant(kernel_break < mem_start + mem_len)]
+// #[flux_rs::invariant(app_break >= allow_high_water_mark)]
+// #[flux_rs::invariant(allow_high_water_mark >= mem_start)]
+// struct BreaksAndMPUConfig<C: 'static + Chip> {
+//     /// Configuration data for the MPU
+//     #[field({<<C as Chip>::MPU as MPU>::MpuConfig[mpu_config] | 
+//         app_break >= mem_start &&
+//         kernel_break <= mem_start + mem_len &&
+//         <<C as Chip>::MPU as MPU>::config_can_access_heap(mpu_config, mem_start, app_break) &&
+//         <<C as Chip>::MPU as MPU>::config_can_access_flash(mpu_config, flash_start, flash_start + flash_len) &&
+//         <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, 0, flash_start - 1) &&
+//         <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, flash_start + flash_len + 1, mem_start - 1) &&
+//         <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, app_break + 1, u32::MAX) &&
+//         <<C as Chip>::MPU as MPU>::ipc_cant_access_process_mem(mpu_config, flash_start, flash_start + flash_len, mem_start, u32::MAX)
+//     })]
+//     pub mpu_config: <<C as Chip>::MPU as MPU>::MpuConfig,
 
-    // MPU regions are saved as a pointer-size pair.
-    mpu_regions: [Cell<Option<mpu::Region>>; 6], // VTOCK TODO: Need to get rid of these cells
+//     // MPU regions are saved as a pointer-size pair.
+//     mpu_regions: [Cell<Option<mpu::Region>>; 6], // VTOCK TODO: Need to get rid of these cells
 
-    /// Pointers that demarcate kernel-managed regions and userspace-managed regions.
-    #[field(ProcessBreaks[kernel_break, app_break, allow_high_water_mark, mem_start, mem_len, flash_start, flash_len])]
-    breaks: ProcessBreaks,
-}
+//     /// Pointers that demarcate kernel-managed regions and userspace-managed regions.
+//     #[field(ProcessBreaks[kernel_break, app_break, allow_high_water_mark, mem_start, mem_len, flash_start, flash_len])]
+//     breaks: ProcessBreaks,
+// }
 
-impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
-    #[flux_rs::sig(
-        fn (
-            self: &strg Self[@bc],
-            FluxPtrU8Mut[@new_break],
-            &mut <C as Chip>::MPU
-        ) -> Result<FluxPtrU8Mut[bc.app_break], Error>[#res]
-            ensures self: Self {new_bc: 
-                new_bc.mem_start == bc.mem_start &&
-                new_bc.mem_len == bc.mem_len &&
-                new_bc.flash_start == bc.flash_start &&
-                new_bc.flash_len == bc.flash_len 
-            }
-    )]
-    pub(crate) fn brk(
-        &mut self,
-        new_break: FluxPtrU8Mut,
-        mpu: &mut <C as Chip>::MPU,
-    ) -> Result<FluxPtrU8Mut, Error> {
-        // VTOCK BUG: original check is not good enough
-        // 1. need to make sure break is not equal to mem_start
-        // 2. need to make sure the new break is not too big
-        if new_break < self.breaks.allow_high_water_mark
-            || new_break >= self.mem_end()
-            || new_break <= self.mem_start()
-            || new_break
-                .wrapping_sub(self.mem_start().as_usize())
-                .as_usize()
-                > (u32::MAX / 2 + 1) as usize
-        {
-            Err(Error::AddressOutOfBounds)
-        } else if new_break > self.breaks.kernel_memory_break {
-            Err(Error::OutOfMemory)
-        } else if let Ok(mpu_breaks) = mpu.update_app_memory_regions(
-            self.mem_start(),
-            self.breaks.app_break,
-            new_break,
-            self.breaks.kernel_memory_break,
-            self.flash_start(),
-            self.flash_size(),
-            &mut self.mpu_config,
-        ) {
-            let old_break = self.breaks.app_break;
-            self.breaks.set_app_break(mpu_breaks.app_break);
-            mpu.configure_mpu(&self.mpu_config);
-            Ok(old_break)
-        } else {
-            // MPU could not allocate a region without overlapping kernel memory
-            Err(Error::OutOfMemory)
-        }
-    }
+// impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
+//     #[flux_rs::sig(
+//         fn (
+//             self: &strg Self[@bc],
+//             FluxPtrU8Mut[@new_break],
+//             &mut <C as Chip>::MPU
+//         ) -> Result<FluxPtrU8Mut[bc.app_break], Error>[#res]
+//             ensures self: Self {new_bc: 
+//                 new_bc.mem_start == bc.mem_start &&
+//                 new_bc.mem_len == bc.mem_len &&
+//                 new_bc.flash_start == bc.flash_start &&
+//                 new_bc.flash_len == bc.flash_len 
+//             }
+//     )]
+//     pub(crate) fn brk(
+//         &mut self,
+//         new_break: FluxPtrU8Mut,
+//         mpu: &mut <C as Chip>::MPU,
+//     ) -> Result<FluxPtrU8Mut, Error> {
+//         // VTOCK BUG: original check is not good enough
+//         // 1. need to make sure break is not equal to mem_start
+//         // 2. need to make sure the new break is not too big
+//         if new_break < self.breaks.allow_high_water_mark
+//             || new_break >= self.mem_end()
+//             || new_break <= self.mem_start()
+//             || new_break
+//                 .wrapping_sub(self.mem_start().as_usize())
+//                 .as_usize()
+//                 > (u32::MAX / 2 + 1) as usize
+//         {
+//             Err(Error::AddressOutOfBounds)
+//         } else if new_break > self.breaks.kernel_memory_break {
+//             Err(Error::OutOfMemory)
+//         } else if let Ok(mpu_breaks) = mpu.update_app_memory_regions(
+//             self.mem_start(),
+//             self.breaks.app_break,
+//             new_break,
+//             self.breaks.kernel_memory_break,
+//             self.flash_start(),
+//             self.flash_size(),
+//             &mut self.mpu_config,
+//         ) {
+//             let old_break = self.breaks.app_break;
+//             self.breaks.set_app_break(mpu_breaks.app_break);
+//             mpu.configure_mpu_region(&self.mpu_config);
+//             Ok(old_break)
+//         } else {
+//             // MPU could not allocate a region without overlapping kernel memory
+//             Err(Error::OutOfMemory)
+//         }
+//     }
 
-    #[flux_rs::sig(fn (&Self[@pb]) -> FluxPtrU8[pb.mem_start + pb.mem_len])]
-    fn mem_end(&self) -> FluxPtrU8 {
-        self.breaks.mem_start.wrapping_add(self.breaks.mem_len)
-    }
+//     #[flux_rs::sig(fn (&Self[@pb]) -> FluxPtrU8[pb.mem_start + pb.mem_len])]
+//     fn mem_end(&self) -> FluxPtrU8 {
+//         self.breaks.mem_start.wrapping_add(self.breaks.mem_len)
+//     }
 
-    #[flux_rs::sig(fn (&Self[@pb]) -> FluxPtrU8[pb.mem_start])]
-    fn mem_start(&self) -> FluxPtrU8 {
-        self.breaks.mem_start
-    }
+//     #[flux_rs::sig(fn (&Self[@pb]) -> FluxPtrU8[pb.mem_start])]
+//     fn mem_start(&self) -> FluxPtrU8 {
+//         self.breaks.mem_start
+//     }
 
-    #[flux_rs::trusted]
-    #[flux_rs::sig(fn (&Self[@pb]) -> FluxPtrU8[pb.flash_start])]
-    fn flash_start(&self) -> FluxPtrU8 {
-        self.breaks.flash.as_fluxptr()
-    }
+//     #[flux_rs::trusted]
+//     #[flux_rs::sig(fn (&Self[@pb]) -> FluxPtrU8[pb.flash_start])]
+//     fn flash_start(&self) -> FluxPtrU8 {
+//         self.breaks.flash.as_fluxptr()
+//     }
 
-    #[flux_rs::trusted]
-    #[flux_rs::sig(fn (&Self[@pb]) -> usize[pb.flash_len])]
-    fn flash_size(&self) -> usize {
-        self.breaks.flash.len()
-    }
+//     #[flux_rs::trusted]
+//     #[flux_rs::sig(fn (&Self[@pb]) -> usize[pb.flash_len])]
+//     fn flash_size(&self) -> usize {
+//         self.breaks.flash.len()
+//     }
 
-    #[flux_rs::sig(
-        fn (self: &strg Self[@bc], FluxPtrU8Mut[@buf_start], usize[@size]) -> Result<(), ()>[#res]
-            ensures self: Self {new_bc: 
-                new_bc.mem_start == bc.mem_start &&
-                new_bc.mem_len == bc.mem_len &&
-                new_bc.flash_start == bc.flash_start &&
-                new_bc.flash_len == bc.flash_len 
-            }
-    )]
-    pub(crate) fn build_readwrite_process_buffer(
-        &mut self,
-        buf_start_addr: FluxPtrU8Mut,
-        size: usize,
-    ) -> Result<(), ()> {
-        // Check that buffer is in app owned memory
-        let buf_end_addr = buf_start_addr.wrapping_add(size);
-        if self.in_app_owned_memory(buf_start_addr, buf_end_addr) {
-            // TODO: Check for buffer aliasing here
-            // Valid buffer, we need to adjust the app's watermark
-            // note: `in_app_owned_memory` ensures this offset does not wrap
-            let new_water_mark = max_ptr(self.breaks.allow_high_water_mark, buf_end_addr);
+//     #[flux_rs::sig(
+//         fn (self: &strg Self[@bc], FluxPtrU8Mut[@buf_start], usize[@size]) -> Result<(), ()>[#res]
+//             ensures self: Self {new_bc: 
+//                 new_bc.mem_start == bc.mem_start &&
+//                 new_bc.mem_len == bc.mem_len &&
+//                 new_bc.flash_start == bc.flash_start &&
+//                 new_bc.flash_len == bc.flash_len 
+//             }
+//     )]
+//     pub(crate) fn build_readwrite_process_buffer(
+//         &mut self,
+//         buf_start_addr: FluxPtrU8Mut,
+//         size: usize,
+//     ) -> Result<(), ()> {
+//         // Check that buffer is in app owned memory
+//         let buf_end_addr = buf_start_addr.wrapping_add(size);
+//         if self.in_app_owned_memory(buf_start_addr, buf_end_addr) {
+//             // TODO: Check for buffer aliasing here
+//             // Valid buffer, we need to adjust the app's watermark
+//             // note: `in_app_owned_memory` ensures this offset does not wrap
+//             let new_water_mark = max_ptr(self.breaks.allow_high_water_mark, buf_end_addr);
 
-            self.breaks.set_high_water_mark(new_water_mark);
-            Ok(())
-        } else {
-            Err(())
-        }
-    }
+//             self.breaks.set_high_water_mark(new_water_mark);
+//             Ok(())
+//         } else {
+//             Err(())
+//         }
+//     }
 
-    #[flux_rs::sig(
-        fn (self: &strg Self[@old_bc], usize, usize) -> Option<NonNull<u8>>[#opt] 
-            ensures self: Self {bc: 
-                (opt => bc.kernel_break >= bc.app_break) &&
-                (!opt => bc.kernel_break == old_bc.kernel_break) &&
-                bc.mem_start == old_bc.mem_start &&
-                bc.mem_len == old_bc.mem_len &&
-                bc.flash_start == old_bc.flash_start &&
-                bc.flash_len == old_bc.flash_len
-            }
-    )]
-    pub(crate) fn allocate_in_grant_region_internal(
-        &mut self,
-        size: usize,
-        align: usize,
-    ) -> Option<NonNull<u8>> {
-        // First, compute the candidate new pointer. Note that at this point
-        // we have not yet checked whether there is space for this
-        // allocation or that it meets alignment requirements.
-        let new_break_unaligned = self.breaks.kernel_memory_break.wrapping_sub(size);
+//     #[flux_rs::sig(
+//         fn (self: &strg Self[@old_bc], usize, usize) -> Option<NonNull<u8>>[#opt] 
+//             ensures self: Self {bc: 
+//                 (opt => bc.kernel_break >= bc.app_break) &&
+//                 (!opt => bc.kernel_break == old_bc.kernel_break) &&
+//                 bc.mem_start == old_bc.mem_start &&
+//                 bc.mem_len == old_bc.mem_len &&
+//                 bc.flash_start == old_bc.flash_start &&
+//                 bc.flash_len == old_bc.flash_len
+//             }
+//     )]
+//     pub(crate) fn allocate_in_grant_region_internal(
+//         &mut self,
+//         size: usize,
+//         align: usize,
+//     ) -> Option<NonNull<u8>> {
+//         // First, compute the candidate new pointer. Note that at this point
+//         // we have not yet checked whether there is space for this
+//         // allocation or that it meets alignment requirements.
+//         let new_break_unaligned = self.breaks.kernel_memory_break.wrapping_sub(size);
 
-        // Our minimum alignment requirement is two bytes, so that the
-        // lowest bit of the address will always be zero and we can use it
-        // as a flag. It doesn't hurt to increase the alignment (except for
-        // potentially a wasted byte) so we make sure `align` is at least
-        // two.
-        let align = max_usize(align, 2);
+//         // Our minimum alignment requirement is two bytes, so that the
+//         // lowest bit of the address will always be zero and we can use it
+//         // as a flag. It doesn't hurt to increase the alignment (except for
+//         // potentially a wasted byte) so we make sure `align` is at least
+//         // two.
+//         let align = max_usize(align, 2);
 
-        // The alignment must be a power of two, 2^a. The expression
-        // `!(align - 1)` then returns a mask with leading ones, followed by
-        // `a` trailing zeros.
-        let alignment_mask = !(align - 1);
-        let new_break = (new_break_unaligned.as_usize() & alignment_mask).as_fluxptr();
+//         // The alignment must be a power of two, 2^a. The expression
+//         // `!(align - 1)` then returns a mask with leading ones, followed by
+//         // `a` trailing zeros.
+//         let alignment_mask = !(align - 1);
+//         let new_break = (new_break_unaligned.as_usize() & alignment_mask).as_fluxptr();
 
-        // Verify there is space for this allocation
-        if new_break < self.breaks.app_break {
-            None
-            // Verify it didn't wrap around
-        } else if new_break > self.breaks.kernel_memory_break {
-            None
-            // Verify this is compatible with the MPU.
-        } else {
-            // Allocation is valid.
-            // The app break is precisely the end of the process
-            // accessible memory so we don't need to ask the MPU
-            // anything
+//         // Verify there is space for this allocation
+//         if new_break < self.breaks.app_break {
+//             None
+//             // Verify it didn't wrap around
+//         } else if new_break > self.breaks.kernel_memory_break {
+//             None
+//             // Verify this is compatible with the MPU.
+//         } else {
+//             // Allocation is valid.
+//             // The app break is precisely the end of the process
+//             // accessible memory so we don't need to ask the MPU
+//             // anything
 
-            // We always allocate down, so we must lower the
-            // kernel_memory_break.
-            self.breaks.set_kernel_break(new_break);
+//             // We always allocate down, so we must lower the
+//             // kernel_memory_break.
+//             self.breaks.set_kernel_break(new_break);
 
-            // We need `grant_ptr` as a mutable pointer.
-            let grant_ptr = new_break;
+//             // We need `grant_ptr` as a mutable pointer.
+//             let grant_ptr = new_break;
 
-            // ### Safety
-            //
-            // Here we are guaranteeing that `grant_ptr` is not null. We can
-            // ensure this because we just created `grant_ptr` based on the
-            // process's allocated memory, and we know it cannot be null.
-            unsafe { Some(NonNull::new_unchecked(grant_ptr.unsafe_as_ptr())) }
-        }
-    }
+//             // ### Safety
+//             //
+//             // Here we are guaranteeing that `grant_ptr` is not null. We can
+//             // ensure this because we just created `grant_ptr` based on the
+//             // process's allocated memory, and we know it cannot be null.
+//             unsafe { Some(NonNull::new_unchecked(grant_ptr.unsafe_as_ptr())) }
+//         }
+//     }
 
-    #[flux_rs::sig(
-        fn(
-            &Self[@c],
-            FluxPtr[@buf_start],
-            FluxPtr[@buf_end],
-        ) -> bool[buf_end >= buf_start && buf_start >= c.mem_start && buf_end <= c.app_break]
-    )]
-    pub(crate) fn in_app_owned_memory(
-        &self,
-        buf_start_addr: FluxPtr,
-        buf_end_addr: FluxPtr,
-    ) -> bool {
-        buf_end_addr >= buf_start_addr
-            && buf_start_addr >= self.breaks.mem_start
-            && buf_end_addr <= self.breaks.app_break
-    }
-}
+//     #[flux_rs::sig(
+//         fn(
+//             &Self[@c],
+//             FluxPtr[@buf_start],
+//             FluxPtr[@buf_end],
+//         ) -> bool[buf_end >= buf_start && buf_start >= c.mem_start && buf_end <= c.app_break]
+//     )]
+//     pub(crate) fn in_app_owned_memory(
+//         &self,
+//         buf_start_addr: FluxPtr,
+//         buf_end_addr: FluxPtr,
+//     ) -> bool {
+//         buf_end_addr >= buf_start_addr
+//             && buf_start_addr >= self.breaks.mem_start
+//             && buf_end_addr <= self.breaks.app_break
+//     }
+// }
 
 #[derive(Clone, Copy)]
 #[flux_rs::refined_by(start: int, len: int)]
@@ -398,7 +399,7 @@ impl FlashGhostState {
 /// A type for userspace processes in Tock.
 #[flux_rs::refined_by(mem_start: int, mem_len: int, flash_start: int, flash_len: int)]
 #[flux_rs::invariant(mem_start + mem_len <= usize::MAX)]
-pub struct ProcessStandard<'a, C: 'static + Chip> {
+pub struct ProcessStandard<'a, C: 'static + Chip, const NUM_IPC_REGIONS: usize> {
     /// Identifier of this process and the index of the process in the process
     /// table.
     process_id: Cell<ProcessId>,
@@ -457,14 +458,14 @@ pub struct ProcessStandard<'a, C: 'static + Chip> {
 
     // breaks and corresponding configuration
     // refinement says that these are the same
-    #[field(MapCell<BreaksAndMPUConfig<C>{bc: 
-        bc.mem_start == mem_start &&
-        bc.mem_len == mem_len &&
-        bc.flash_start == flash_start &&
-        bc.flash_len == flash_len
-    }>)]
-    breaks_and_config: MapCell<BreaksAndMPUConfig<C>>,
-    // app_accesible_memory: MapCell<AppAccessibleMemory<<<C as Chip>::MPUVerified as MPUVerified>::Region, NUM_REGIONS>>,
+    // #[field(MapCell<BreaksAndMPUConfig<C>{bc: 
+    //     bc.mem_start == mem_start &&
+    //     bc.mem_len == mem_len &&
+    //     bc.flash_start == flash_start &&
+    //     bc.flash_len == flash_len
+    // }>)]
+    // breaks_and_config: MapCell<BreaksAndMPUConfig<C>>,
+    app_accesible_memory: MapCell<AppAccessibleMemory<<C as Chip>::MPU, NUM_IPC_REGIONS>>,
 
     /// Reference to the slice of `GrantPointerEntry`s stored in the process's
     /// memory reserved for the kernel. These driver numbers are zero and
@@ -535,7 +536,7 @@ pub struct ProcessStandard<'a, C: 'static + Chip> {
     debug: MapCell<ProcessStandardDebug>,
 }
 
-impl<C: Chip> Process for ProcessStandard<'_, C> {
+impl<C: Chip, const NUM_IPC_REGIONS: usize> Process for ProcessStandard<'_, C, NUM_IPC_REGIONS> {
     fn processid(&self) -> ProcessId {
         self.process_id.get()
     }
@@ -835,8 +836,8 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
     }
 
     fn setup_mpu(&self) {
-        self.breaks_and_config.map(|breaks_and_config| {
-            self.chip.mpu().configure_mpu(&breaks_and_config.mpu_config);
+        self.app_accesible_memory.map(|app_mem| {
+            app_mem.configure_mpu();
         });
     }
 
@@ -846,51 +847,61 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         unallocated_memory_start: FluxPtrU8Mut,
         unallocated_memory_size: usize,
         min_region_size: usize,
-    ) -> Option<mpu::Region> {
-        self.breaks_and_config.and_then(|breaks_and_config| {
-            let new_region = self.chip.mpu().allocate_region(
+    ) -> Option<()> {
+        self.app_accesible_memory.and_then(|app_mem| {
+            app_mem.allocate_ipc_region(
                 unallocated_memory_start,
                 unallocated_memory_size,
                 min_region_size,
-                mpu::Permissions::ReadWriteOnly,
-                &mut breaks_and_config.mpu_config,
-            )?;
-
-            // VTOCK TODO: Oh boy - seems like they're iterating over the old configuration?
-            for region in breaks_and_config.mpu_regions.iter() {
-                if region.get().is_none() {
-                    region.set(Some(new_region));
-                    return Some(new_region);
-                }
-            }
-
-            // Not enough room in Process struct to store the MPU region.
-            None
+                allocator::RegionPermissions::ReadWriteOnly,
+            ).ok()
         })
+        // self.breaks_and_config.and_then(|breaks_and_config| {
+        //     let new_region = self.chip.mpu().allocate_region(
+        //         unallocated_memory_start,
+        //         unallocated_memory_size,
+        //         min_region_size,
+        //         allocator::RegionPermissions::ReadWriteOnly,
+        //         &mut breaks_and_config.mpu_config,
+        //     )?;
+
+        //     // VTOCK TODO: Oh boy - seems like they're iterating over the old configuration?
+        //     for region in breaks_and_config.mpu_regions.iter() {
+        //         if region.get().is_none() {
+        //             region.set(Some(new_region));
+        //             return Some(new_region);
+        //         }
+        //     }
+
+        //     // Not enough room in Process struct to store the MPU region.
+        //     None
+        // })
     }
 
     #[flux_rs::trusted] // VTOCK TODO: This is problematic and deals with IPC
     fn remove_mpu_region(&self, region: mpu::Region) -> Result<(), ErrorCode> {
-        self.breaks_and_config
-            .map_or(Err(ErrorCode::INVAL), |breaks_and_config| {
-                // Find the existing mpu region that we are removing; it needs to match exactly.
-                if let Some(internal_region) = breaks_and_config
-                    .mpu_regions
-                    .iter()
-                    .find(|r| r.get().map_or(false, |r| r == region))
-                {
-                    self.chip
-                        .mpu()
-                        .remove_memory_region(region, &mut breaks_and_config.mpu_config)
-                        .or(Err(ErrorCode::FAIL))?;
+        todo!()
+        // self.app_accesible_memory
+        // breaks_and_config
+        //     .map_or(Err(ErrorCode::INVAL), |breaks_and_config| {
+        //         // Find the existing mpu region that we are removing; it needs to match exactly.
+        //         if let Some(internal_region) = breaks_and_config
+        //             .mpu_regions
+        //             .iter()
+        //             .find(|r| r.get().map_or(false, |r| r == region))
+        //         {
+        //             self.chip
+        //                 .mpu()
+        //                 .remove_memory_region(region, &mut breaks_and_config.mpu_config)
+        //                 .or(Err(ErrorCode::FAIL))?;
 
-                    // Remove this region from the tracking cache of mpu_regions
-                    internal_region.set(None);
-                    Ok(())
-                } else {
-                    Err(ErrorCode::INVAL)
-                }
-            })
+        //             // Remove this region from the tracking cache of mpu_regions
+        //             internal_region.set(None);
+        //             Ok(())
+        //         } else {
+        //             Err(ErrorCode::INVAL)
+        //         }
+        //     })
     }
 
     fn sbrk(&self, increment: isize) -> Result<FluxPtrU8Mut, Error> {
@@ -908,11 +919,12 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         if !self.is_running() {
             return Err(Error::InactiveApp);
         }
-
-        self.breaks_and_config
-            .map_or(Err(Error::KernelError), |breaks_and_config| {
-                breaks_and_config.brk(new_break, self.chip.mpu())
-            })
+        self.app_accesible_memory.map_or(Err(Error::KernelError), |app_mem| {
+            // TODO: need to store the kernel break
+            let kernel_break = FluxPtr::from(0);
+            app_mem.update_app_memory(new_break, kernel_break)?;
+            app_mem.app_break().ok_or(Error::KernelError)
+        })k
     }
 
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -1558,8 +1570,8 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         });
 
         // Display the current state of the MPU for this process.
-        self.breaks_and_config.map(|breaks_and_config| {
-            let _ = writer.write_fmt(format_args!("{}", breaks_and_config.mpu_config));
+        self.app_accesible_memory.map(|app_memory| {
+            let _ = writer.write_fmt(format_args!("{}", app_memory));
         });
 
         // Print a helpful message on how to re-compile a process to view the
@@ -1622,13 +1634,13 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
     }
 }
 
-impl<C: 'static + Chip> ProcessStandard<'_, C> {
+impl<C: 'static + Chip, const NUM_IPC_REGIONS: usize> ProcessStandard<'_, C, NUM_IPC_REGIONS> {
     // Memory offset for upcall ring buffer (10 element length).
     const CALLBACK_LEN: usize = 10;
     const CALLBACKS_OFFSET: usize = mem::size_of::<Task>() * Self::CALLBACK_LEN;
 
     // Memory offset to make room for this process's metadata.
-    const PROCESS_STRUCT_OFFSET: usize = mem::size_of::<ProcessStandard<C>>();
+    const PROCESS_STRUCT_OFFSET: usize = mem::size_of::<ProcessStandard<C, NUM_IPC_REGIONS>>();
 
     /// Create a `ProcessStandard` object based on the found `ProcessBinary`.
     #[flux_rs::sig(
@@ -1655,11 +1667,14 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let process_name = pb.header.get_package_name();
         let process_ram_requested_size = pb.header.get_minimum_app_ram_size() as usize;
 
-        // Initialize MPU region configuration.
-        let mut mpu_config = match chip.mpu().new_config() {
-            Some(mpu_config) => mpu_config,
-            None => return Err((ProcessLoadError::MpuConfigurationError, remaining_memory)),
-        };
+        // Initialize app accessible memory via allocator
+        // let mut mpu_config = match chip.mpu().new_config() {
+        //     Some(mpu_config) => mpu_config,
+        //     None => return Err((ProcessLoadError::MpuConfigurationError, remaining_memory)),
+        // };
+
+        // TODO: FIX THIS - wtf
+        let app_accessible_memory = AppAccessibleMemory::new(());
 
         // Determine how much space we need in the application's memory space
         // just for kernel and grant state. We need to make sure we allocate
@@ -1772,7 +1787,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // - the kernel-owned allocation growing downward starting at the end
         //   of this allocation, `initial_kernel_memory_size` bytes long.
         //
-        let breaks_and_size = match chip.mpu().allocate_app_memory_regions(
+        let breaks_and_size = match app_accessible_memory.allocate_app_memory(
             remaining_memory.as_fluxptr(),
             remaining_memory.len(),
             min_total_memory_size,
@@ -1780,10 +1795,9 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             initial_kernel_memory_size,
             pb.flash.as_fluxptr(),
             pb.flash.len(),
-            &mut mpu_config,
         ) {
-            Ok(bnsz) => bnsz,
-            Err(mpu::AllocateAppMemoryError::FlashError) => {
+            Ok(bsz) => bsz,
+            Err(allocator::AllocateAppMemoryError::FlashError) => {
                 if config::CONFIG.debug_load_processes {
                     debug!(
                             "[!] flash={:#010X}-{:#010X} process={:?} - couldn't allocate MPU region for flash",
@@ -1794,7 +1808,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
                 }
                 return Err((ProcessLoadError::MpuInvalidFlashLength, remaining_memory));
             }
-            Err(mpu::AllocateAppMemoryError::HeapError) => {
+            Err(allocator::AllocateAppMemoryError::HeapError) => {
                 // Failed to load process. Insufficient memory.
                 if config::CONFIG.debug_load_processes {
                     debug!(
@@ -2144,10 +2158,13 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // process if this invariant is violated. We avoid allocating
         // a new MPU configuration, as this may eventually exhaust the
         // number of available MPU configurations.
-        let mut breaks_and_mpu_config = self.breaks_and_config.take().ok_or(ErrorCode::FAIL)?;
-        self.chip
-            .mpu()
-            .reset_config(&mut breaks_and_mpu_config.mpu_config);
+
+        // let mut breaks_and_mpu_config = self.breaks_and_config.take().ok_or(ErrorCode::FAIL)?;
+        // self.chip
+        //     .mpu()
+        //     .reset_config(&mut breaks_and_mpu_config.mpu_config);
+        let mut app_accessible_memory = self.app_accesible_memory.take().ok_or(ErrorCode::FAIL)?;
+        app_accessible_memory.reset();
 
         // RAM and Flash
 
@@ -2168,7 +2185,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             grant_ptrs_offset + Self::CALLBACKS_OFFSET + Self::PROCESS_STRUCT_OFFSET;
 
         // allocate mpu regions for app flash and ram
-        let app_mpu_mem = self.chip.mpu().allocate_app_memory_regions(
+
+        let app_mem= app_accessible_memory.allocate_app_memory(
             self.mem_start(),
             self.memory_len,
             self.memory_len, //we want exactly as much as we had before restart
@@ -2176,14 +2194,13 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             initial_kernel_memory_size,
             self.flash_start(),
             self.flash_size(),
-            &mut breaks_and_mpu_config.mpu_config,
         );
-        let breaks_and_size = match app_mpu_mem {
+        let breaks_and_size = match app_mem {
             Ok(breaks_and_size) => breaks_and_size,
-            Err(mpu::AllocateAppMemoryError::FlashError) => {
+            Err(allocator::AllocateAppMemoryError::FlashError) => {
                 return Err(ErrorCode::FAIL);
             }
-            Err(mpu::AllocateAppMemoryError::HeapError) => {
+            Err(allocator::AllocateAppMemoryError::HeapError) => {
                 // We couldn't configure the MPU for the process. This shouldn't
                 // happen since we were able to start the process before, but at
                 // this point it is better to leave the app faulted and not
