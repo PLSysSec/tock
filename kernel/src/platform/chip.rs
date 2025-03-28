@@ -8,8 +8,7 @@ use crate::platform::mpu;
 use crate::syscall;
 use core::fmt::Write;
 
-use super::allocator::{self, DescribeRegion};
-
+use super::allocator;
 /// Interface for individual MCUs.
 ///
 /// The trait defines chip-specific properties of Tock's operation. These

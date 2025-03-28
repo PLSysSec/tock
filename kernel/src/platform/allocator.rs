@@ -1,4 +1,4 @@
-use core::fmt::Display;
+use core::{cmp, fmt::Display};
 
 use flux_support::{FluxPtrU8, FluxPtrU8Mut};
 
@@ -64,12 +64,13 @@ pub struct AppAccessibleRegion<T: DescribeRegion> {
     pub permissions: BlockPermissions,
 }
 
-pub struct AppAccessibleMemory<T: DescribeRegion, const NUM_REGIONS: usize> {
-    pub(crate) regions: [Option<AppAccessibleRegion<T>>; NUM_REGIONS],
+pub struct AppAccessibleMemory<M: MPUVerified> {
+    pub(crate) regions: [Option<AppAccessibleRegion<M::Region>>; MPUVerified::NUM_REGIONS],
     pub(crate) app_region_idx: Option<usize>,
+    pub(crate) mpu: M,
 }
 
-impl<T: DescribeRegion, const NUM_REGIONS: usize> AppAccessibleMemory<T, NUM_REGIONS> {
+impl<M: MPUVerified> AppAccessibleMemory<M> {
     pub fn next_available_idx(&self) -> Option<usize> {
         for (i, region) in self.regions.iter().enumerate() {
             if region.is_none() {
@@ -79,31 +80,50 @@ impl<T: DescribeRegion, const NUM_REGIONS: usize> AppAccessibleMemory<T, NUM_REG
         None
     }
 
+    pub fn new(mpu: M) -> Self {
+        Self {
+            regions: [const { None }; NUM_REGIONS],
+            app_region_idx: None,
+            mpu,
+        }
+    }
+
     pub fn reset(&mut self) {
         for b in self.regions.iter_mut() {
             *b = None;
         }
         self.app_region_idx = None;
     }
-}
 
-pub(crate) trait ProcessMemoryAllocator<M: MPUVerified, const NUM_REGIONS: usize> {
-    fn new(&self) -> AppAccessibleMemory<<M as MPUVerified>::T, NUM_REGIONS>;
+    pub fn remove_memory_region(&mut self, region: <M as MPUVerified>::Region) -> Result<(), ()> {
+        todo!()
+    }
 
-    fn reset(&mut self);
-
-    fn allocate_new_block(
+    pub fn allocate_new_region(
         &mut self,
         unallocated_memory_start: FluxPtrU8Mut,
         unallocated_memory_size: usize,
         min_region_size: usize,
-        permissions: BlockPermissions,
-    ) -> Result<(), ()>;
-
-    fn remove_memory_region(&mut self, region: <M as MPUVerified>::T) -> Result<(), ()>;
+        permissions: crate::platform::allocator::BlockPermissions,
+    ) -> Result<(), ()> {
+        let region_idx = self.next_available_idx().ok_or(())?;
+        let region = self
+            .mpu
+            .new_region(
+                unallocated_memory_start,
+                unallocated_memory_size,
+                min_region_size,
+            )
+            .ok_or(())?;
+        self.regions[region_idx] = Some(crate::platform::allocator::AppAccessibleRegion {
+            region,
+            permissions,
+        });
+        Ok(())
+    }
 
     fn allocate_app_memory(
-        &self,
+        &mut self,
         unallocated_memory_start: FluxPtrU8Mut,
         unallocated_memory_size: usize,
         min_memory_size: usize,
@@ -111,13 +131,77 @@ pub(crate) trait ProcessMemoryAllocator<M: MPUVerified, const NUM_REGIONS: usize
         initial_kernel_memory_size: usize,
         flash_start: FluxPtrU8Mut,
         flash_size: usize,
-    ) -> Result<AppAccessibleRegion<<M as MPUVerified>::T>, AllocateAppMemoryError>;
+    ) -> Result<(), crate::platform::allocator::AllocateAppMemoryError> {
+        let region_size = cmp::min(
+            min_memory_size,
+            initial_app_memory_size + initial_kernel_memory_size,
+        );
+        let mut region = self
+            .mpu
+            .new_region(
+                unallocated_memory_start,
+                unallocated_memory_size,
+                region_size,
+            )
+            .ok_or(crate::platform::allocator::AllocateAppMemoryError::HeapError)?;
+        let region_start = region.accessible_start();
+        let app_break = region_start.as_usize() + region.accessible_size();
+
+        let mut total_size = region.region_size();
+        let kernel_break = region_start.as_usize() + total_size - initial_kernel_memory_size;
+        if app_break > kernel_break {
+            total_size *= 2;
+            region = self
+                .mpu
+                .new_region(
+                    unallocated_memory_start,
+                    unallocated_memory_size,
+                    total_size,
+                )
+                .ok_or(crate::platform::allocator::AllocateAppMemoryError::HeapError)?;
+        }
+        let app_region_idx = self
+            .next_available_idx()
+            .ok_or(AllocateAppMemoryError::HeapError)?;
+        self.regions[app_region_idx] = Some(AppAccessibleRegion {
+            region,
+            permissions: BlockPermissions::ReadWriteOnly,
+        });
+        Ok(())
+    }
 
     fn update_app_memory(
         &mut self,
         app_memory_break: FluxPtrU8Mut,
         kernel_memory_break: FluxPtrU8Mut,
-    ) -> Result<(), ()>;
+    ) -> Result<(), ()> {
+        let idx = self.app_region_idx.ok_or(())?;
+        let current_region = self.regions[idx].as_ref().ok_or(())?;
+        let memory_start = current_region.region.accessible_start();
+        let total_size = current_region.region.region_size();
+        let memory_end = memory_start.as_usize() + total_size;
+        if app_memory_break.as_usize() > kernel_memory_break.as_usize()
+            || app_memory_break.as_usize() <= memory_start.as_usize()
+            || app_memory_break.as_usize() > memory_end
+        {
+            return Err(());
+        }
+        let new_region_size = app_memory_break.as_usize() - memory_start.as_usize();
+        // TODO: Make sure that this preserves the region size we ask for
+        let new_region = self
+            .mpu
+            .new_region(memory_start, total_size, new_region_size)
+            .ok_or(())?;
+        let new_app_break = new_region.accessible_start().as_usize() + new_region.accessible_size();
+        if new_app_break > kernel_memory_break.as_usize() {
+            return Err(());
+        }
+        self.regions[idx] = Some(crate::platform::allocator::AppAccessibleRegion {
+            region: new_region,
+            permissions: BlockPermissions::ReadWriteOnly,
+        });
+        Ok(())
+    }
 }
 
 pub(crate) trait DescribeRegion {
@@ -141,7 +225,7 @@ pub(crate) trait MPUVerified {
     /// created, and `Display` so that the `panic!()` output can display the
     /// current state to help with debugging.
     // type MpuConfig: Display;
-    type T: DescribeRegion;
+    type Region: DescribeRegion;
     const NUM_REGIONS: usize;
 
     /// Enables the MPU for userspace apps.
@@ -169,7 +253,7 @@ pub(crate) trait MPUVerified {
         available_start: FluxPtrU8,
         available_size: usize,
         region_size: usize,
-    ) -> Option<Self::T>;
+    ) -> Option<Self::Region>;
 
     /// Configures the MPU with the provided region configuration.
     ///
@@ -180,5 +264,5 @@ pub(crate) trait MPUVerified {
     /// # Arguments
     ///
     /// - `config`: MPU region configuration
-    fn configure_mpu(&mut self, config: &Self::T);
+    fn configure_mpu(&mut self, config: &Self::Region);
 }
