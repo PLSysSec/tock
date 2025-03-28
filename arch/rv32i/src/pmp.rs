@@ -3,9 +3,9 @@
 // Copyright Tock Contributors 2022.
 
 use core::cell::Cell;
+use core::fmt;
 use core::num::NonZeroUsize;
 use core::ops::Range;
-use core::{cmp, fmt};
 
 use crate::csr;
 use flux_support::*;
@@ -207,24 +207,20 @@ impl TORRegionSpec {
 ///
 /// Matching the RISC-V spec this checks `pmpaddr[i-i] <= y < pmpaddr[i]` for TOR
 /// ranges.
-fn region_overlaps(
-    region: &(TORUserPMPCFG, *const u8, *const u8),
-    other_start: *const u8,
-    other_size: usize,
-) -> bool {
+fn region_overlaps(region: &PMPUserRegion, other: &PMPUserRegion) -> bool {
     // PMP TOR regions are not inclusive on the high end, that is
     //     pmpaddr[i-i] <= y < pmpaddr[i].
     //
     // This happens to coincide with the definition of the Rust half-open Range
     // type, which provides a convenient `.contains()` method:
     let region_range = Range {
-        start: region.1 as usize,
-        end: region.2 as usize,
+        start: region.start as usize,
+        end: region.end as usize,
     };
 
     let other_range = Range {
-        start: other_start as usize,
-        end: other_start as usize + other_size,
+        start: other.start as usize,
+        end: other.end as usize,
     };
 
     // For a range A to overlap with a range B, either B's first or B's last
@@ -445,10 +441,7 @@ pub trait TORUserPMP<const MAX_REGIONS: usize> {
     /// To disable a region, set its configuration to [`TORUserPMPCFG::OFF`]. In
     /// this case, the start and end addresses are ignored and can be set to
     /// arbitrary values.
-    fn configure_pmp(
-        &self,
-        regions: &[(TORUserPMPCFG, *const u8, *const u8); MAX_REGIONS],
-    ) -> Result<(), ()>;
+    fn configure_pmp(&self, regions: &[PMPUserRegion]) -> Result<(), ()>;
 
     /// Enable the user-mode memory protection.
     ///
@@ -539,6 +532,10 @@ impl mpu::RegionDescriptor for PMPUserRegion {
             start: core::ptr::null(),
             end: core::ptr::null(),
         }
+    }
+
+    fn overlaps(&self, other: &Self) -> bool {
+        region_overlaps(self, other)
     }
 }
 
@@ -725,21 +722,6 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
             }
         }
 
-        // Finally, check that this new region does not overlap with any
-        // existing configured userspace region:
-        // for region in config.regions.iter() {
-        //     if region.0 != TORUserPMPCFG::OFF && region_overlaps(region, start as *const u8, size) {
-        //         return None;
-        //     }
-        // }
-
-        // All checks passed, store region allocation and mark config as dirty:
-        // config.regions[region_num] = (
-        //     permissions.into(),
-        //     start as *const u8,
-        //     (start + size) as *const u8,
-        // );
-        // config.is_dirty.set(true);
         Some(PMPUserRegion::new(
             region_num,
             permissions.into(),
@@ -918,22 +900,18 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
     //     })
     // }
 
-    fn configure_mpu_region(&mut self, region: &PMPUserRegion) {
-        todo!()
+    fn configure_mpu(&mut self, config: &[Self::Region]) {
+        // if !self.last_configured_for.contains(&config.id) || config.is_dirty.get() {
+        self.pmp.configure_pmp(config).unwrap();
+        // config.is_dirty.set(false);
+        // self.last_configured_for.set(config.id);
+        // }
     }
-
-    // fn configure_mpu(&mut self, config: &Self::MpuConfig) {
-    //     if !self.last_configured_for.contains(&config.id) || config.is_dirty.get() {
-    //         self.pmp.configure_pmp(&config.regions).unwrap();
-    //         config.is_dirty.set(false);
-    //         self.last_configured_for.set(config.id);
-    //     }
-    // }
 }
 
 #[cfg(test)]
 pub mod test {
-    use super::{TORUserPMP, TORUserPMPCFG};
+    use super::{PMPUserRegion, TORUserPMP, TORUserPMPCFG};
 
     struct MockTORUserPMP;
     impl<const MPU_REGIONS: usize> TORUserPMP<MPU_REGIONS> for MockTORUserPMP {
@@ -948,10 +926,7 @@ pub mod test {
             MPU_REGIONS
         }
 
-        fn configure_pmp(
-            &self,
-            _regions: &[(TORUserPMPCFG, *const u8, *const u8); MPU_REGIONS],
-        ) -> Result<(), ()> {
+        fn configure_pmp(&self, _regions: &[PMPUserRegion]) -> Result<(), ()> {
             Ok(())
         }
 
@@ -1179,7 +1154,7 @@ pub mod test {
 }
 
 pub mod simple {
-    use super::{pmpcfg_octet, TORUserPMP, TORUserPMPCFG};
+    use super::{pmpcfg_octet, PMPUserRegion, TORUserPMP, TORUserPMPCFG};
     use crate::csr;
     use core::fmt;
     use kernel::utilities::registers::{FieldValue, LocalRegisterCopy};
@@ -1278,10 +1253,7 @@ pub mod simple {
         // `u32::from_be_bytes` and then cast to usize, as it manages to compile
         // on 64-bit systems as well. However, this implementation will not work
         // on RV64I systems, due to the changed pmpcfgX CSR layout.
-        fn configure_pmp(
-            &self,
-            regions: &[(TORUserPMPCFG, *const u8, *const u8); MPU_REGIONS],
-        ) -> Result<(), ()> {
+        fn configure_pmp(&self, regions: &[PMPUserRegion]) -> Result<(), ()> {
             // Could use `iter_array_chunks` once that's stable.
             let mut regions_iter = regions.iter();
             let mut i = 0;
@@ -1296,27 +1268,33 @@ pub mod simple {
                     csr::CSR.pmpconfig_set(
                         i / 2,
                         u32::from_be_bytes([
-                            odd_region.0.get(),
+                            odd_region.tor.get(),
                             TORUserPMPCFG::OFF.get(),
-                            even_region.0.get(),
+                            even_region.tor.get(),
                             TORUserPMPCFG::OFF.get(),
                         ]) as usize,
                     );
 
                     // Now, set the addresses of the respective regions, if they
                     // are enabled, respectively:
-                    if even_region.0 != TORUserPMPCFG::OFF {
-                        csr::CSR
-                            .pmpaddr_set(i * 2 + 0, (even_region.1 as usize).overflowing_shr(2).0);
-                        csr::CSR
-                            .pmpaddr_set(i * 2 + 1, (even_region.2 as usize).overflowing_shr(2).0);
+                    if even_region.tor != TORUserPMPCFG::OFF {
+                        csr::CSR.pmpaddr_set(
+                            i * 2 + 0,
+                            (even_region.start as usize).overflowing_shr(2).0,
+                        );
+                        csr::CSR.pmpaddr_set(
+                            i * 2 + 1,
+                            (even_region.end as usize).overflowing_shr(2).0,
+                        );
                     }
 
-                    if odd_region.0 != TORUserPMPCFG::OFF {
+                    if odd_region.tor != TORUserPMPCFG::OFF {
+                        csr::CSR.pmpaddr_set(
+                            i * 2 + 2,
+                            (odd_region.start as usize).overflowing_shr(2).0,
+                        );
                         csr::CSR
-                            .pmpaddr_set(i * 2 + 2, (odd_region.1 as usize).overflowing_shr(2).0);
-                        csr::CSR
-                            .pmpaddr_set(i * 2 + 3, (odd_region.2 as usize).overflowing_shr(2).0);
+                            .pmpaddr_set(i * 2 + 3, (odd_region.end as usize).overflowing_shr(2).0);
                     }
 
                     i += 2;
@@ -1331,18 +1309,22 @@ pub mod simple {
                             u32::from_be_bytes([
                                 0,
                                 0,
-                                even_region.0.get(),
+                                even_region.tor.get(),
                                 TORUserPMPCFG::OFF.get(),
                             ]) as usize,
                         ),
                     );
 
                     // Set the addresses if the region is enabled:
-                    if even_region.0 != TORUserPMPCFG::OFF {
-                        csr::CSR
-                            .pmpaddr_set(i * 2 + 0, (even_region.1 as usize).overflowing_shr(2).0);
-                        csr::CSR
-                            .pmpaddr_set(i * 2 + 1, (even_region.2 as usize).overflowing_shr(2).0);
+                    if even_region.tor != TORUserPMPCFG::OFF {
+                        csr::CSR.pmpaddr_set(
+                            i * 2 + 0,
+                            (even_region.start as usize).overflowing_shr(2).0,
+                        );
+                        csr::CSR.pmpaddr_set(
+                            i * 2 + 1,
+                            (even_region.end as usize).overflowing_shr(2).0,
+                        );
                     }
 
                     i += 1;
@@ -1371,7 +1353,9 @@ pub mod simple {
 }
 
 pub mod kernel_protection {
-    use super::{pmpcfg_octet, NAPOTRegionSpec, TORRegionSpec, TORUserPMP, TORUserPMPCFG};
+    use super::{
+        pmpcfg_octet, NAPOTRegionSpec, PMPUserRegion, TORRegionSpec, TORUserPMP, TORUserPMPCFG,
+    };
     use crate::csr;
     use core::fmt;
     use kernel::utilities::registers::{FieldValue, LocalRegisterCopy};
@@ -1642,10 +1626,7 @@ pub mod kernel_protection {
         // `u32::from_be_bytes` and then cast to usize, as it manages to compile
         // on 64-bit systems as well. However, this implementation will not work
         // on RV64I systems, due to the changed pmpcfgX CSR layout.
-        fn configure_pmp(
-            &self,
-            regions: &[(TORUserPMPCFG, *const u8, *const u8); MPU_REGIONS],
-        ) -> Result<(), ()> {
+        fn configure_pmp(&self, regions: &[PMPUserRegion]) -> Result<(), ()> {
             // Could use `iter_array_chunks` once that's stable.
             let mut regions_iter = regions.iter();
             let mut i = 0;
@@ -1660,27 +1641,33 @@ pub mod kernel_protection {
                     csr::CSR.pmpconfig_set(
                         i / 2,
                         u32::from_be_bytes([
-                            odd_region.0.get(),
+                            odd_region.tor.get(),
                             TORUserPMPCFG::OFF.get(),
-                            even_region.0.get(),
+                            even_region.tor.get(),
                             TORUserPMPCFG::OFF.get(),
                         ]) as usize,
                     );
 
                     // Now, set the addresses of the respective regions, if they
                     // are enabled, respectively:
-                    if even_region.0 != TORUserPMPCFG::OFF {
-                        csr::CSR
-                            .pmpaddr_set(i * 2 + 0, (even_region.1 as usize).overflowing_shr(2).0);
-                        csr::CSR
-                            .pmpaddr_set(i * 2 + 1, (even_region.2 as usize).overflowing_shr(2).0);
+                    if even_region.tor != TORUserPMPCFG::OFF {
+                        csr::CSR.pmpaddr_set(
+                            i * 2 + 0,
+                            (even_region.start as usize).overflowing_shr(2).0,
+                        );
+                        csr::CSR.pmpaddr_set(
+                            i * 2 + 1,
+                            (even_region.start as usize).overflowing_shr(2).0,
+                        );
                     }
 
-                    if odd_region.0 != TORUserPMPCFG::OFF {
+                    if odd_region.tor != TORUserPMPCFG::OFF {
+                        csr::CSR.pmpaddr_set(
+                            i * 2 + 2,
+                            (odd_region.start as usize).overflowing_shr(2).0,
+                        );
                         csr::CSR
-                            .pmpaddr_set(i * 2 + 2, (odd_region.1 as usize).overflowing_shr(2).0);
-                        csr::CSR
-                            .pmpaddr_set(i * 2 + 3, (odd_region.2 as usize).overflowing_shr(2).0);
+                            .pmpaddr_set(i * 2 + 3, (odd_region.end as usize).overflowing_shr(2).0);
                     }
 
                     i += 2;
@@ -1694,18 +1681,22 @@ pub mod kernel_protection {
                             u32::from_be_bytes([
                                 0,
                                 0,
-                                even_region.0.get(),
+                                even_region.tor.get(),
                                 TORUserPMPCFG::OFF.get(),
                             ]) as usize,
                         ),
                     );
 
                     // Set the addresses if the region is enabled:
-                    if even_region.0 != TORUserPMPCFG::OFF {
-                        csr::CSR
-                            .pmpaddr_set(i * 2 + 0, (even_region.1 as usize).overflowing_shr(2).0);
-                        csr::CSR
-                            .pmpaddr_set(i * 2 + 1, (even_region.2 as usize).overflowing_shr(2).0);
+                    if even_region.tor != TORUserPMPCFG::OFF {
+                        csr::CSR.pmpaddr_set(
+                            i * 2 + 0,
+                            (even_region.start as usize).overflowing_shr(2).0,
+                        );
+                        csr::CSR.pmpaddr_set(
+                            i * 2 + 1,
+                            (even_region.end as usize).overflowing_shr(2).0,
+                        );
                     }
 
                     i += 1;
@@ -1738,7 +1729,9 @@ pub mod kernel_protection {
 }
 
 pub mod kernel_protection_mml_epmp {
-    use super::{pmpcfg_octet, NAPOTRegionSpec, TORRegionSpec, TORUserPMP, TORUserPMPCFG};
+    use super::{
+        pmpcfg_octet, NAPOTRegionSpec, PMPUserRegion, TORRegionSpec, TORUserPMP, TORUserPMPCFG,
+    };
     use crate::csr;
     use core::cell::Cell;
     use core::fmt;
@@ -2015,10 +2008,7 @@ pub mod kernel_protection_mml_epmp {
         // `u32::from_be_bytes` and then cast to usize, as it manages to compile
         // on 64-bit systems as well. However, this implementation will not work
         // on RV64I systems, due to the changed pmpcfgX CSR layout.
-        fn configure_pmp(
-            &self,
-            regions: &[(TORUserPMPCFG, *const u8, *const u8); MPU_REGIONS],
-        ) -> Result<(), ()> {
+        fn configure_pmp(&self, regions: &[PMPUserRegion]) -> Result<(), ()> {
             // Configure all of the regions' addresses and store their pmpcfg octets
             // in our shadow storage. If the user PMP is already enabled, we further
             // apply this configuration (set the pmpcfgX CSRs) by running
@@ -2034,7 +2024,7 @@ pub mod kernel_protection_mml_epmp {
                 // return an error. We don't make any promises about the ePMP state
                 // if the configuration files, but it is still being activated with
                 // `enable_user_pmp`:
-                if region.0.get()
+                if region.tor.get()
                     == <TORUserPMPCFG as From<mpu::Permissions>>::from(
                         mpu::Permissions::ReadWriteExecute,
                     )
@@ -2045,19 +2035,19 @@ pub mod kernel_protection_mml_epmp {
 
                 // Set the CSR addresses for this region (if its not OFF, in which
                 // case the hardware-configured addresses are irrelevant):
-                if region.0 != TORUserPMPCFG::OFF {
+                if region.tor != TORUserPMPCFG::OFF {
                     csr::CSR.pmpaddr_set(
                         (i + Self::TOR_REGIONS_OFFSET) * 2 + 0,
-                        (region.1 as usize).overflowing_shr(2).0,
+                        (region.start as usize).overflowing_shr(2).0,
                     );
                     csr::CSR.pmpaddr_set(
                         (i + Self::TOR_REGIONS_OFFSET) * 2 + 1,
-                        (region.2 as usize).overflowing_shr(2).0,
+                        (region.end as usize).overflowing_shr(2).0,
                     );
                 }
 
                 // Store the region's pmpcfg octet:
-                shadow_user_pmpcfg.set(region.0);
+                shadow_user_pmpcfg.set(region.tor);
             }
 
             // If the PMP is currently active, apply the changes to the CSRs:

@@ -4,7 +4,7 @@ use flux_support::{max_ptr, max_usize, FluxPtrU8, FluxPtrU8Mut};
 
 use crate::{
     platform::mpu::{self, RegionDescriptor},
-    process::Error,
+    process::Error, utilities::math,
 };
 
 pub(crate) enum AllocateAppMemoryError {
@@ -77,17 +77,13 @@ const FLASH_REGION_NUMBER: usize = 1;
 
 pub(crate) struct AppMemoryAllocator<M: mpu::MPU> {
     pub breaks: Option<AppBreaks>,
-    pub ipc_regions: [M::Region; 6], // IDK why this is 6 but that's what is in the kernel
-    pub app_ram_region: M::Region,
-    pub app_flash_region: M::Region,
+    pub regions: [M::Region; 8], // IDK why this is 8 but that's what is in the kernel - definitely cheating for IPC lol
 }
 
 impl<M: mpu::MPU> Display for AppMemoryAllocator<M> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "\r\n MPU")?;
-        write!(f, "{}", self.app_ram_region)?;
-        write!(f, "{}", self.app_flash_region)?;
-        for region in self.ipc_regions.iter() {
+        for region in self.regions.iter() {
             write!(f, "{}", region)?;
         }
         write!(f, "\r\n")
@@ -97,25 +93,18 @@ impl<M: mpu::MPU> Display for AppMemoryAllocator<M> {
 impl<M: mpu::MPU> AppMemoryAllocator<M> {
     #[flux_rs::trusted]
     pub(crate) fn new() -> Self {
-        let mut ipc_regions = [<M as mpu::MPU>::Region::default(0); 6];
-        for (i, r) in ipc_regions.iter_mut().enumerate() {
-            *r = <M as mpu::MPU>::Region::default(i + 2);
-        }
+        let regions = core::array::from_fn(|i| <M as mpu::MPU>::Region::default(i));
         Self {
             breaks: None,
-            ipc_regions,
-            app_ram_region: <M as mpu::MPU>::Region::default(RAM_REGION_NUMBER),
-            app_flash_region: <M as mpu::MPU>::Region::default(FLASH_REGION_NUMBER),
+            regions,
         }
     }
 
     #[flux_rs::trusted]
     pub(crate) fn reset(&mut self) {
-        for (i, r) in self.ipc_regions.iter_mut().enumerate() {
-            *r = <M as mpu::MPU>::Region::default(i + 2)
+        for (i, r) in self.regions.iter_mut().enumerate() {
+            *r = <M as mpu::MPU>::Region::default(i)
         }
-        self.app_ram_region = <M as mpu::MPU>::Region::default(RAM_REGION_NUMBER);
-        self.app_flash_region = <M as mpu::MPU>::Region::default(FLASH_REGION_NUMBER);
     }
 
     pub(crate) fn kernel_break(&self) -> Option<FluxPtrU8> {
@@ -225,30 +214,33 @@ impl<M: mpu::MPU> AppMemoryAllocator<M> {
         }
     }
 
-    pub(crate) fn remove_memory_region(
-        &mut self,
-        _region: <M as mpu::MPU>::Region,
-    ) -> Result<(), ()> {
-        todo!()
-    }
+    // pub(crate) fn remove_memory_region(
+    //     &mut self,
+    //     _region: <M as mpu::MPU>::Region,
+    // ) -> Result<(), ()> {
+    //     todo!()
+    // }
 
     pub(crate) fn configure_mpu(&mut self, mpu: &mut M) {
-        // configure app regions
-        mpu.configure_mpu_region(&self.app_flash_region);
-        mpu.configure_mpu_region(&self.app_ram_region);
-        // configure IPC regions
-        for ipc_region in self.ipc_regions.iter() {
-            mpu.configure_mpu_region(ipc_region);
-        }
+        mpu.configure_mpu(&self.regions);
     }
 
     fn next_available_ipc_idx(&self) -> Option<usize> {
-        for (i, region) in self.ipc_regions.iter().enumerate() {
-            if !region.is_set() {
+        for (i, region) in self.regions.iter().enumerate() {
+            if i != FLASH_REGION_NUMBER && i != RAM_REGION_NUMBER && !region.is_set() {
                 return Some(i);
             }
         }
         None
+    }
+
+    fn any_overlaps(&self, region: &<M as mpu::MPU>::Region) -> bool {
+        for existing_region in self.regions.iter() {
+            if region.overlaps(existing_region) {
+                return true;
+            }
+        }
+        return false;
     }
 
     #[flux_rs::trusted]
@@ -270,7 +262,13 @@ impl<M: mpu::MPU> AppMemoryAllocator<M> {
                 permissions,
             )
             .ok_or(())?;
-        self.ipc_regions[region_idx] = region;
+
+        // make sure new region doesn't overlap
+        if self.any_overlaps(&region) {
+            return Err(())
+        }
+
+        self.regions[region_idx] = region;
         let start = region.accessible_start().ok_or(())?;
         let size = region.accessible_size().ok_or(())?;
         Ok(mpu::Region::new(start, size))
@@ -292,7 +290,12 @@ impl<M: mpu::MPU> AppMemoryAllocator<M> {
             )
             .ok_or(())?;
 
-        self.app_flash_region = region;
+        // make sure new region doesn't overlap
+        if self.any_overlaps(&region) {
+            return Err(())
+        }
+
+        self.regions[FLASH_REGION_NUMBER] = region;
         Ok(())
     }
 
@@ -308,64 +311,62 @@ impl<M: mpu::MPU> AppMemoryAllocator<M> {
         flash_size: usize,
         mpu: &M,
     ) -> Result<AppBreaks, AllocateAppMemoryError> {
+
+        let flash_region = self.regions[FLASH_REGION_NUMBER];
+        let ram_region = self.regions[RAM_REGION_NUMBER];
+
+        if flash_region.is_set() || ram_region.is_set() {
+            // Don't reallocate a process that is already set up
+            return Err(AllocateAppMemoryError::HeapError)
+        }
+
         self.add_flash_region(flash_start, flash_size, mpu)
             .map_err(|_| AllocateAppMemoryError::FlashError)?;
-        let region_size = cmp::min(
+
+        let ideal_region_size = cmp::min(
             min_memory_size,
-            initial_app_memory_size + initial_kernel_memory_size,
+            initial_app_memory_size 
         );
-        let mut region = mpu
+        let region = mpu
             .new_region(
                 RAM_REGION_NUMBER,
                 unallocated_memory_start,
                 unallocated_memory_size,
-                region_size,
+                ideal_region_size,
                 mpu::Permissions::ReadWriteOnly,
             )
             .ok_or(AllocateAppMemoryError::HeapError)?;
-        let region_start = region
-            .accessible_start()
-            .ok_or(AllocateAppMemoryError::HeapError)?;
-        let app_break = region_start.as_usize()
-            + region
-                .accessible_size()
-                .ok_or(AllocateAppMemoryError::HeapError)?;
 
-        let mut total_size = region
-            .region_size()
-            .ok_or(AllocateAppMemoryError::HeapError)?;
-        let kernel_break = region_start.as_usize() + total_size - initial_kernel_memory_size;
-        if app_break > kernel_break {
-            total_size *= 2;
-            region = mpu
-                .new_region(
-                    RAM_REGION_NUMBER,
-                    unallocated_memory_start,
-                    unallocated_memory_size,
-                    total_size,
-                    mpu::Permissions::ReadWriteOnly,
-                )
-                .ok_or(AllocateAppMemoryError::HeapError)?;
-        }
-        self.app_ram_region = region;
         let memory_start = region
             .accessible_start()
             .ok_or(AllocateAppMemoryError::HeapError)?;
-        let app_break = memory_start.wrapping_add(
-            region
-                .accessible_size()
-                .ok_or(AllocateAppMemoryError::HeapError)?,
-        );
-        let memory_size = region
-            .region_size()
-            .ok_or(AllocateAppMemoryError::HeapError)?;
+        let app_memory_size = region.accessible_size().ok_or(AllocateAppMemoryError::HeapError)?;
+        let app_break = memory_start.wrapping_add(app_memory_size);
+
+        // compute the total block size: 
+        // make it a power of two to add some space between the app and the kernel regions of memory
+        let total_block_size = math::closest_power_of_two_usize(app_memory_size + initial_kernel_memory_size);
+
+        // make sure we can actually fit everything into te RAM pool
+        if memory_start.wrapping_add(total_block_size) > unallocated_memory_start.wrapping_add(unallocated_memory_size) {
+            // We don't have enough memory left in the RAM pool to 
+            // give this process memory
+            return Err(AllocateAppMemoryError::HeapError)
+        }
+
+        // make sure new region doesn't overlap
+        if self.any_overlaps(&region) {
+            return Err(AllocateAppMemoryError::HeapError)
+        }
+
+        self.regions[RAM_REGION_NUMBER] = region;
         let kernel_break = memory_start
-            .wrapping_add(memory_size)
+            .wrapping_add(total_block_size)
             .wrapping_sub(initial_kernel_memory_size);
         let high_water_mark = memory_start;
         let breaks = AppBreaks {
             memory_start,
-            memory_size,
+            memory_size: total_block_size,
             app_break,
             high_water_mark,
             kernel_break,
@@ -414,7 +415,7 @@ impl<M: mpu::MPU> AppMemoryAllocator<M> {
             return Err(Error::OutOfMemory);
         }
         current_breaks.app_break = FluxPtrU8::from(new_app_break);
-        self.app_ram_region = new_region;
+        self.regions[RAM_REGION_NUMBER] = new_region;
         Ok(*current_breaks)
     }
 }

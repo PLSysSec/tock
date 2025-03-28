@@ -82,6 +82,7 @@ pub trait RegionDescriptor {
     fn region_size(&self) -> Option<usize>;
     fn is_set(&self) -> bool;
     fn default(region_num: usize) -> Self;
+    fn overlaps(&self, other: &Self) -> bool;
 }
 
 impl RegionDescriptor for MpuRegionDefault {
@@ -106,9 +107,11 @@ impl RegionDescriptor for MpuRegionDefault {
             size: None,
         }
     }
+    fn overlaps(&self, _other: &Self) -> bool {
+        false
+    }
 }
 
-// #[flux_rs::assoc(fn enabled(self: Self) -> bool {false} )]
 // #[flux_rs::assoc(fn configured_for(self: Self, config: Self::MpuConfig) -> bool)]
 // #[flux_rs::assoc(fn config_can_access_flash(c: Self::MpuConfig, fstart: int, fend: int) -> bool)]
 // #[flux_rs::assoc(fn config_can_access_heap(c: Self::MpuConfig, hstart: int, hend: int) -> bool)]
@@ -119,6 +122,8 @@ impl RegionDescriptor for MpuRegionDefault {
 ///
 /// This trait is implements generic MPU functionality that is common across different
 /// MPU implementations.
+#[flux_rs::assoc(fn enabled(self: Self) -> bool)]
+#[flux_rs::assoc(fn disabled(self: Self) -> bool)]
 pub trait MPU {
     /// MPU-specific state that defines a region for the MPU.
     /// That is, this should contain all of the required state such that the
@@ -138,7 +143,7 @@ pub trait MPU {
     ///
     /// This function must enable the permission restrictions on the various
     /// regions protected by the MPU.
-    // #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{r: <Self as MPU>::enabled(r)})]
+    #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{r: <Self as MPU>::enabled(r)})]
     fn enable_app_mpu(&mut self);
 
     /// Disables the MPU for userspace apps.
@@ -149,6 +154,7 @@ pub trait MPU {
     /// platforms the MPU rules apply to privileged code as well, and therefore
     /// some of the MPU configuration must be disabled for the kernel to effectively
     /// manage processes.
+    #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{r: <Self as MPU>::disabled(r)})]
     fn disable_app_mpu(&mut self);
 
     /// Returns the maximum number of regions supported by the MPU.
@@ -178,22 +184,26 @@ pub trait MPU {
     /// # Arguments
     ///
     /// - `region`: MPU region to be configured
-    fn configure_mpu_region(&mut self, region: &Self::Region);
+    fn configure_mpu(&mut self, regions: &[Self::Region]);
 }
 
 // /// Implement default MPU trait for unit.
+#[flux_rs::assoc(fn enabled(self: Self) -> bool { true })]
+#[flux_rs::assoc(fn disabled(self: Self) -> bool { true })]
 impl MPU for () {
     type Region = MpuRegionDefault;
 
+    #[flux_rs::sig(fn (self: &strg Self) ensures self: Self)]
     fn enable_app_mpu(&mut self) {}
 
+    #[flux_rs::sig(fn (self: &strg Self) ensures self: Self)]
     fn disable_app_mpu(&mut self) {}
 
     fn number_total_regions(&self) -> usize {
         0
     }
 
-    fn configure_mpu_region(&mut self, _config: &Self::Region) {}
+    fn configure_mpu(&mut self, _config: &[Self::Region]) {}
 
     fn new_region(
         &self,
