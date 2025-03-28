@@ -8,7 +8,57 @@ use core::fmt::{self, Display};
 #[allow(clippy::wildcard_imports)]
 use flux_support::*;
 
-use crate::allocator::RegionPermissions;
+#[derive(Copy, Clone, Debug)]
+#[flux_rs::refined_by(r: bool, w: bool, x: bool)]
+pub enum Permissions {
+    #[flux::variant(Permissions[true, true, true])]
+    ReadWriteExecute,
+    #[flux::variant(Permissions[true, true, false])]
+    ReadWriteOnly,
+    #[flux::variant(Permissions[true, false, true])]
+    ReadExecuteOnly,
+    #[flux::variant(Permissions[true, false, false])]
+    ReadOnly,
+    #[flux::variant(Permissions[false, false, true])]
+    ExecuteOnly,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq)]
+#[flux_rs::refined_by(ptr: int, sz: int)]
+pub struct Region {
+    /// The memory address where the region starts.
+    ///
+    /// For maximum compatibility, we use a u8 pointer, however, note that many
+    /// memory protection units have very strict alignment requirements for the
+    /// memory regions protected by the MPU.
+    #[flux_rs::field(FluxPtrU8Mut[ptr])]
+    start_address: FluxPtrU8Mut,
+
+    /// The number of bytes of memory in the MPU region.
+    #[flux_rs::field(usize[sz])]
+    size: usize,
+}
+
+impl Region {
+    /// Create a new MPU region with a given starting point and length in bytes.
+    #[flux_rs::sig(fn (FluxPtrU8Mut[@start], usize[@size]) -> Region[start, size])]
+    pub fn new(start_address: FluxPtrU8Mut, size: usize) -> Region {
+        Region {
+            start_address,
+            size,
+        }
+    }
+
+    /// Getter: retrieve the address of the start of the MPU region.
+    pub fn start_address(&self) -> FluxPtrU8Mut {
+        self.start_address
+    }
+
+    /// Getter: retrieve the length of the region in bytes.
+    pub fn size(&self) -> usize {
+        self.size
+    }
+}
 
 /// Null type for the default type of the `MpuConfig` type in an implementation
 /// of the `MPU` trait. This custom type allows us to implement `Display` with
@@ -25,21 +75,13 @@ impl Display for MpuRegionDefault {
     }
 }
 
-impl Default for MpuRegionDefault {
-    fn default() -> Self {
-        Self {
-            start: None,
-            size: None,
-        }
-    }
-}
-
 pub trait RegionDescriptor {
     fn accessible_start(&self) -> Option<FluxPtrU8>;
     fn region_start(&self) -> Option<FluxPtrU8>;
     fn accessible_size(&self) -> Option<usize>;
     fn region_size(&self) -> Option<usize>;
     fn is_set(&self) -> bool;
+    fn default(region_num: usize) -> Self;
 }
 
 impl RegionDescriptor for MpuRegionDefault {
@@ -57,6 +99,12 @@ impl RegionDescriptor for MpuRegionDefault {
     }
     fn is_set(&self) -> bool {
         self.start.is_some()
+    }
+    fn default(_num: usize) -> Self {
+        Self {
+            start: None,
+            size: None,
+        }
     }
 }
 
@@ -84,11 +132,7 @@ pub trait MPU {
     /// It is `Default` so we can create empty state when the process is
     /// created, and `Display` so that the `panic!()` output can display the
     /// current state to help with debugging.
-    type Region: RegionDescriptor + Default + Display + Copy;
-    ///
-    /// Defines the number of regions associated with the particular MPU.
-    /// Note that this is architecture dependent.
-    const NUM_REGIONS: usize;
+    type Region: RegionDescriptor + Display + Copy;
 
     /// Enables the MPU for userspace apps.
     ///
@@ -108,9 +152,7 @@ pub trait MPU {
     fn disable_app_mpu(&mut self);
 
     /// Returns the maximum number of regions supported by the MPU.
-    fn number_total_regions(&self) -> usize {
-        Self::NUM_REGIONS
-    }
+    fn number_total_regions(&self) -> usize;
 
     ///
     /// Deals with the alignment, size, and other constraints of the specific
@@ -120,10 +162,11 @@ pub trait MPU {
     /// constraints
     fn new_region(
         &self,
+        region_number: usize,
         available_start: FluxPtrU8,
         available_size: usize,
         region_size: usize,
-        permissions: RegionPermissions,
+        permissions: Permissions,
     ) -> Option<Self::Region>;
 
     /// Configures the MPU with the provided region configuration.
@@ -141,24 +184,24 @@ pub trait MPU {
 // /// Implement default MPU trait for unit.
 impl MPU for () {
     type Region = MpuRegionDefault;
-    const NUM_REGIONS: usize = 0;
 
     fn enable_app_mpu(&mut self) {}
 
     fn disable_app_mpu(&mut self) {}
 
     fn number_total_regions(&self) -> usize {
-        Self::NUM_REGIONS
+        0
     }
 
     fn configure_mpu_region(&mut self, _config: &Self::Region) {}
 
     fn new_region(
         &self,
+        _region_number: usize,
         available_start: FluxPtrU8,
         available_size: usize,
         region_size: usize,
-        _permissions: RegionPermissions,
+        _permissions: Permissions,
     ) -> Option<Self::Region> {
         if region_size <= available_size {
             Some(MpuRegionDefault {
