@@ -23,7 +23,7 @@ use crate::debug;
 use crate::errorcode::ErrorCode;
 use crate::kernel::Kernel;
 use crate::platform::chip::Chip;
-use crate::platform::mpu::{self, MPU};
+use crate::platform::mpu::{self, AllocateAppMemoryError, MPU};
 use crate::process::BinaryVersion;
 use crate::process::ProcessBinary;
 use crate::process::{Error, FunctionCall, FunctionCallSource, Process, Task};
@@ -176,7 +176,7 @@ impl ProcessBreaks {
 #[flux_rs::invariant(kernel_break < mem_start + mem_len)]
 #[flux_rs::invariant(app_break >= allow_high_water_mark)]
 #[flux_rs::invariant(allow_high_water_mark >= mem_start)]
-struct BreaksAndMPUConfig<C: 'static + Chip> {
+struct BreaksAndMPUConfig<T: DescribeRegion, C: 'static + Chip<T>> {
     /// Configuration data for the MPU
     #[field({<<C as Chip>::MPU as MPU>::MpuConfig[mpu_config] | 
         app_break >= mem_start &&
@@ -188,7 +188,7 @@ struct BreaksAndMPUConfig<C: 'static + Chip> {
         <<C as Chip>::MPU as MPU>::config_cant_access_at_all(mpu_config, app_break + 1, u32::MAX) &&
         <<C as Chip>::MPU as MPU>::ipc_cant_access_process_mem(mpu_config, flash_start, flash_start + flash_len, mem_start, u32::MAX)
     })]
-    pub mpu_config: <<C as Chip>::MPU as MPU>::MpuConfig,
+    pub mpu_config: <<C as Chip<T>>::MPU as MPU>::MpuConfig,
 
     // MPU regions are saved as a pointer-size pair.
     mpu_regions: [Cell<Option<mpu::Region>>; 6], // VTOCK TODO: Need to get rid of these cells
@@ -198,7 +198,7 @@ struct BreaksAndMPUConfig<C: 'static + Chip> {
     breaks: ProcessBreaks,
 }
 
-impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
+impl<T: DescribeRegion, C: 'static + Chip<T>> BreaksAndMPUConfig<T, C> {
     #[flux_rs::sig(
         fn (
             self: &strg Self[@bc],
@@ -398,7 +398,7 @@ impl FlashGhostState {
 /// A type for userspace processes in Tock.
 #[flux_rs::refined_by(mem_start: int, mem_len: int, flash_start: int, flash_len: int)]
 #[flux_rs::invariant(mem_start + mem_len <= usize::MAX)]
-pub struct ProcessStandard<'a, C: 'static + Chip> {
+pub struct ProcessStandard<'a, C: 'static + Chip, const NUM_REGIONS: usize> {
     /// Identifier of this process and the index of the process in the process
     /// table.
     process_id: Cell<ProcessId>,
@@ -449,21 +449,22 @@ pub struct ProcessStandard<'a, C: 'static + Chip> {
     /// not a slice due to Rust aliasing rules. If we were to store a slice,
     /// then any time another slice to the same memory or an ProcessBuffer is
     /// used in the kernel would be undefined behavior.
-    #[field({FluxPtrU8Mut[mem_start] | mem_start + mem_len <= usize::MAX})]
-    memory_start: FluxPtrU8Mut,
-    /// Number of bytes of memory allocated to this process.
-    #[field(usize[mem_len])]
-    memory_len: usize,
+    // #[field({FluxPtrU8Mut[mem_start] | mem_start + mem_len <= usize::MAX})]
+    // memory_start: FluxPtrU8Mut,
+    // /// Number of bytes of memory allocated to this process.
+    // #[field(usize[mem_len])]
+    // memory_len: usize,
 
-    // breaks and corresponding configuration
-    // refinement says that these are the same
-    #[field(MapCell<BreaksAndMPUConfig<C>{bc: 
-        bc.mem_start == mem_start &&
-        bc.mem_len == mem_len &&
-        bc.flash_start == flash_start &&
-        bc.flash_len == flash_len
-    }>)]
-    breaks_and_config: MapCell<BreaksAndMPUConfig<C>>,
+    // // breaks and corresponding configuration
+    // // refinement says that these are the same
+    // #[field(MapCell<BreaksAndMPUConfig<C>{bc: 
+    //     bc.mem_start == mem_start &&
+    //     bc.mem_len == mem_len &&
+    //     bc.flash_start == flash_start &&
+    //     bc.flash_len == flash_len
+    // }>)]
+    // breaks_and_config: MapCell<BreaksAndMPUConfig<C>>,
+    app_accesible_memory: MapCell<AppAccessibleMemory<T, NUM_REGIONS>>,
 
     /// Reference to the slice of `GrantPointerEntry`s stored in the process's
     /// memory reserved for the kernel. These driver numbers are zero and
@@ -534,7 +535,7 @@ pub struct ProcessStandard<'a, C: 'static + Chip> {
     debug: MapCell<ProcessStandardDebug>,
 }
 
-impl<C: Chip> Process for ProcessStandard<'_, C> {
+impl<C: Chip, const NUM_REGIONS: usize> Process for ProcessStandard<'_, C, NUM_REGIONS> {
     fn processid(&self) -> ProcessId {
         self.process_id.get()
     }
@@ -1621,13 +1622,13 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
     }
 }
 
-impl<C: 'static + Chip> ProcessStandard<'_, C> {
+impl<C: 'static + Chip, const NUM_REGIONS: usize> ProcessStandard<'_, C, NUM_REGIONS> {
     // Memory offset for upcall ring buffer (10 element length).
     const CALLBACK_LEN: usize = 10;
     const CALLBACKS_OFFSET: usize = mem::size_of::<Task>() * Self::CALLBACK_LEN;
 
     // Memory offset to make room for this process's metadata.
-    const PROCESS_STRUCT_OFFSET: usize = mem::size_of::<ProcessStandard<C>>();
+    const PROCESS_STRUCT_OFFSET: usize = mem::size_of::<ProcessStandard<C, NUM_REGIONS>>();
 
     /// Create a `ProcessStandard` object based on the found `ProcessBinary`.
     #[flux_rs::sig(
@@ -1975,8 +1976,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // Create the Process struct in the app grant region.
         // Note that this requires every field be explicitly initialized, as
         // we are just transforming a pointer into a structure.
-        let process: &mut ProcessStandard<C> = &mut *(process_struct_memory_location.unsafe_as_ptr()
-            as *mut ProcessStandard<'static, C>);
+        let process: &mut ProcessStandard<C, NUM_REGIONS> = &mut *(process_struct_memory_location.unsafe_as_ptr()
+            as *mut ProcessStandard<'static, C, NUM_REGIONS>);
 
         // Ask the kernel for a unique identifier for this process that is being
         // created.
@@ -2410,4 +2411,100 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             Ok(breaks_and_config.breaks.app_break)
         })
     }
+}
+
+
+use crate::platform::allocator::{AppAccessibleMemory, BlockPermissions, DescribeRegion, MPUVerified, ProcessMemoryAllocator};
+impl<'a, C: 'static + Chip, const NUM_REGIONS: usize> ProcessMemoryAllocator<C::MPUVerified, NUM_REGIONS> for ProcessStandard<'a, C, NUM_REGIONS> {
+    fn reset(&mut self) {
+        self.app_accesible_memory.map(|bc| {
+            bc.reset();
+        });
+    }
+
+    fn allocate_new_block(
+        &mut self,
+        unallocated_memory_start: FluxPtrU8Mut,
+        unallocated_memory_size: usize,
+        min_region_size: usize,
+        permissions: crate::platform::allocator::BlockPermissions,
+    ) -> Result<(), ()> {
+        self.app_accesible_memory.map_or(Err(()), |am| {
+            let region_idx = am.next_available_idx().ok_or(())?;
+            let region = self.chip.verified_mpu().new_region(unallocated_memory_start, unallocated_memory_size, min_region_size).ok_or(())?;
+            am.regions[region_idx] = Some(crate::platform::allocator::AppAccessibleRegion {
+                region,
+                permissions
+            });
+            Ok(())
+        })
+    }
+
+    fn remove_memory_region(&mut self, region: T) -> Result<(), ()> {
+        todo!()
+    }
+
+    fn allocate_app_memory(
+        &self,
+        unallocated_memory_start: FluxPtrU8Mut,
+        unallocated_memory_size: usize,
+        min_memory_size: usize,
+        initial_app_memory_size: usize,
+        initial_kernel_memory_size: usize,
+        flash_start: FluxPtrU8Mut,
+        flash_size: usize,
+    ) -> Result<crate::platform::allocator::AppAccessibleRegion<<<C as Chip>::MPUVerified as MPUVerified>::T>, crate::platform::allocator::AllocateAppMemoryError> {
+        let region_size = cmp::min(min_memory_size, initial_app_memory_size + initial_kernel_memory_size);
+        let mut region = self.chip.verified_mpu()
+            .new_region(unallocated_memory_start, unallocated_memory_size, region_size)
+            .ok_or(crate::platform::allocator::AllocateAppMemoryError::HeapError)?;
+        let region_start = region.accessible_start();
+        let app_break = region_start.as_usize() + region.accessible_size();
+
+        let mut total_size = region.region_size();
+        let kernel_break = region_start.as_usize() + total_size - initial_kernel_memory_size;
+        if app_break > kernel_break {
+            total_size *= 2;
+            region = self.chip.verified_mpu()
+                .new_region(unallocated_memory_start, unallocated_memory_size, total_size)
+                .ok_or(crate::platform::allocator::AllocateAppMemoryError::HeapError)?;
+        }
+        Ok(region)
+    }
+
+    fn update_app_memory(
+        &mut self,
+        app_memory_break: FluxPtrU8Mut,
+        kernel_memory_break: FluxPtrU8Mut,
+    ) -> Result<(), ()> {
+        self.app_accesible_memory.map_or(Err(()), |am| {
+            let idx = am.app_region_idx.ok_or(())?;
+            let current_region = am.regions[idx].as_ref().ok_or(())?;
+            let memory_start = current_region.region.accessible_start();
+            let total_size = current_region.region.region_size();
+            let memory_end = memory_start.as_usize() + total_size;
+            if app_memory_break.as_usize() > kernel_memory_break.as_usize() || 
+                app_memory_break.as_usize() <= memory_start.as_usize() || 
+                app_memory_break.as_usize() >  memory_end  
+            {
+                return Err(())
+            } 
+            let new_region_size = app_memory_break.as_usize() - memory_start.as_usize();
+            // TODO: Make sure that this preserves the region size we ask for
+            let new_region = self.chip.verified_mpu().new_region(memory_start, total_size, new_region_size).ok_or(())?;
+            let new_app_break = new_region.accessible_start().as_usize() + new_region.accessible_size();
+            if new_app_break > kernel_memory_break.as_usize() {
+                return Err(())
+            }
+            am.regions[idx] = Some(crate::platform::allocator::AppAccessibleRegion {
+                region: new_region,
+                permissions: BlockPermissions::ReadWriteOnly
+            });
+            Ok(())
+        })
+    }
+ 
+    fn new(&self) -> crate::platform::allocator::AppAccessibleMemory<T, NUM_REGIONS> {
+        todo!()
+    }    
 }

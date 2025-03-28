@@ -363,7 +363,7 @@ register_bitfields![u32,
 pub struct MPU<const MIN_REGION_SIZE: usize> {
     /// MMIO reference to MPU registers.
     #[field(MpuRegisters[ctrl, rnr, rbar, rasr, regions, attrs])]
-    registers: MpuRegisters,
+    pub registers: MpuRegisters,
     /// Monotonically increasing counter for allocated regions, used
     /// to assign unique IDs to `CortexMConfig` instances.
     #[field({Cell<NonZeroUsize> | MIN_REGION_SIZE > 0 && MIN_REGION_SIZE < 2147483648})]
@@ -416,7 +416,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                 map_store(mpu.regions, no, addr.value),
                 map_store(mpu.attrs, no, attrs.value)]
     )]
-    fn commit_region(&mut self, region: &CortexMRegion) {
+    pub fn commit_region(&mut self, region: &CortexMRegion) {
         self.registers.rbar.write(region.base_address());
         self.registers.rasr.write(region.attributes());
     }

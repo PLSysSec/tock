@@ -14,6 +14,7 @@ use core::fmt::Write;
 #[cfg(all(target_arch = "arm", target_os = "none"))]
 use core::arch::global_asm;
 
+mod allocator;
 #[flux_rs::ignore]
 pub mod dcb;
 #[flux_rs::ignore]

@@ -408,6 +408,20 @@ pub trait MPU {
     fn configure_mpu(&mut self, config: &Self::MpuConfig);
 }
 
+pub trait MPUVerified {
+    type MpuConfig: Display;
+    const NUM_REGIONS: usize;
+
+    fn enable_app_mpu(&mut self);
+
+    fn disable_app_mpu(&mut self);
+
+    fn number_total_regions(&self) -> usize;
+
+    fn configure_mpu(&mut self, config: &Self::MpuConfig);
+}
+
+
 // /// Implement default MPU trait for unit.
 // impl MPU for () {
 //     type MpuConfig = MpuConfigDefault;

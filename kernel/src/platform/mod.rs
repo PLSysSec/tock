@@ -5,6 +5,7 @@
 //! Traits for implementing various layers and components in Tock.
 //!
 //! Implementations of these traits are used by the core kernel.
+pub mod allocator;
 pub mod chip;
 pub mod mpu;
 pub mod scheduler_timer;
