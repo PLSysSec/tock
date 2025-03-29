@@ -34,12 +34,29 @@ impl From<usize> for FluxPtr {
     }
 }
 
+impl From<NonNull<u8>> for FluxPtr {
+    #[flux_rs::sig(fn (value: NonNull<u8>) -> FluxPtr[value])]
+    #[flux_rs::trusted]
+    fn from(value: NonNull<u8>) -> Self {
+        FluxPtr {
+            inner: value.as_ptr(),
+        }
+    }
+}
+
 #[flux_rs::trusted]
 impl From<*mut u8> for FluxPtr {
     fn from(value: *mut u8) -> Self {
         FluxPtr {
             inner: value as *mut u8,
         }
+    }
+}
+
+#[flux_rs::trusted]
+impl From<FluxPtr> for NonNull<u8> {
+    fn from(value: FluxPtr) -> NonNull<u8> {
+        unsafe { NonNull::new_unchecked(value.inner) }
     }
 }
 
