@@ -988,7 +988,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         } else {
             let _ = self
                 .breaks_and_config
-                .map_or(Err(ErrorCode::INVAL), |breaks_and_config| {
+                .map_or(Err(ErrorCode::FAIL), |breaks_and_config| {
                     Ok(breaks_and_config.build_readwrite_process_buffer(buf_start_addr, size))
                 })
                 .map_err(|_| ErrorCode::INVAL)?;
