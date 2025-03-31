@@ -60,13 +60,42 @@ impl Region {
     }
 }
 
+#[derive(Clone, Copy)]
+#[flux_rs::opaque]
+#[flux_rs::refined_by(start: int, size: int)]
+struct RegionDefaultGhost {}
+
+impl RegionDefaultGhost {
+    #[flux_rs::trusted]
+    #[flux_rs::sig(fn () -> Self)]
+    fn unset() -> Self {
+        Self {}
+    }
+
+    #[flux_rs::trusted]
+    #[flux_rs::sig(fn (start: FluxPtrU8, size: usize) -> Self[start, size])]
+    fn set(_start: FluxPtrU8, _size: usize) -> Self {
+        Self {}
+    }
+}
+
 /// Null type for the default type of the `MpuConfig` type in an implementation
 /// of the `MPU` trait. This custom type allows us to implement `Display` with
 /// an empty implementation to meet the constraint on `type MpuConfig`.
 #[derive(Clone, Copy)]
+#[flux_rs::refined_by(set: bool, rnum: int, start: int, size: int)]
 pub struct MpuRegionDefault {
+    #[field(Option<{p. FluxPtrU8[p] | p == start}>[set])]
     start: Option<FluxPtrU8>,
+
+    #[field(Option<{sz. usize[sz] | sz == size}>[set])]
     size: Option<usize>,
+
+    #[field(usize[rnum])]
+    region_number: usize,
+
+    #[field(RegionDefaultGhost[start, size])]
+    _ghost: RegionDefaultGhost
 }
 
 impl Display for MpuRegionDefault {
@@ -75,47 +104,88 @@ impl Display for MpuRegionDefault {
     }
 }
 
+#[flux_rs::assoc(fn astart(self: Self) -> int)]
+#[flux_rs::assoc(fn asize(self: Self) -> int)]
+#[flux_rs::assoc(fn rstart(self: Self) -> int)]
+#[flux_rs::assoc(fn rsize(self: Self) -> int)]
+#[flux_rs::assoc(fn rnum(self: Self) -> int)]
+#[flux_rs::assoc(fn is_set(self: Self) -> bool)]
 pub trait RegionDescriptor {
-    fn accessible_start(&self) -> Option<FluxPtrU8>;
-    fn region_start(&self) -> Option<FluxPtrU8>;
-    fn accessible_size(&self) -> Option<usize>;
-    fn region_size(&self) -> Option<usize>;
-    fn is_set(&self) -> bool;
+    #[flux_rs::sig(fn (region_num: usize) -> Self {s: !<Self as RegionDescriptor>::is_set(s) })]
     fn default(region_num: usize) -> Self;
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<{p. FluxPtrU8[p] | p == <Self as RegionDescriptor>::astart(r)}>)]
+    fn accessible_start(&self) -> Option<FluxPtrU8>;
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<{p. FluxPtrU8[p] | p == <Self as RegionDescriptor>::rstart(r)}>)]
+    fn region_start(&self) -> Option<FluxPtrU8>;
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<{sz. usize[sz] | sz == <Self as RegionDescriptor>::asize(r)}>)]
+    fn accessible_size(&self) -> Option<usize>;
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<{sz. usize[sz] | sz == <Self as RegionDescriptor>::rsize(r)}>)]
+    fn region_size(&self) -> Option<usize>;
+
+    #[flux_rs::sig(fn (&Self[@r]) -> bool[<Self as RegionDescriptor>::is_set(r)])]
+    fn is_set(&self) -> bool;
+
+    #[flux_rs::sig(fn (&Self[@r]) -> usize[<Self as RegionDescriptor>::rnum(r)])]
+    fn region_num(&self) -> usize;
+
     fn overlaps(&self, other: &Self) -> bool;
 }
 
+#[flux_rs::assoc(fn astart(self: Self) -> int { self.start })]
+#[flux_rs::assoc(fn asize(self: Self) -> int { self.size })]
+#[flux_rs::assoc(fn rstart(self: Self) -> int { self.start })]
+#[flux_rs::assoc(fn rsize(self: Self) -> int { self.size })]
+#[flux_rs::assoc(fn rnum(self: Self) -> int { self.rnum })]
+#[flux_rs::assoc(fn is_set(self: Self) -> bool { self.set })]
 impl RegionDescriptor for MpuRegionDefault {
-    fn accessible_start(&self) -> Option<FluxPtrU8> {
-        self.start
-    }
-    fn region_start(&self) -> Option<FluxPtrU8> {
-        self.start
-    }
-    fn accessible_size(&self) -> Option<usize> {
-        self.size
-    }
-    fn region_size(&self) -> Option<usize> {
-        self.size
-    }
-    fn is_set(&self) -> bool {
-        self.start.is_some()
-    }
-    fn default(_num: usize) -> Self {
+    #[flux_rs::sig(fn (region_num: usize) -> Self {s: !s.set})]
+    fn default(num: usize) -> Self {
         Self {
             start: None,
             size: None,
+            _ghost: RegionDefaultGhost::unset(),
+            region_number: num,
         }
     }
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<{p. FluxPtrU8[p] | p == r.start }>)]
+    fn accessible_start(&self) -> Option<FluxPtrU8> {
+        self.start
+    }
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<{p. FluxPtrU8[p] | p == r.start }>)]
+    fn region_start(&self) -> Option<FluxPtrU8> {
+        self.start
+    }
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<{sz. usize[sz] | sz == r.size }>)]
+    fn accessible_size(&self) -> Option<usize> {
+        self.size
+    }
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<{sz. usize[sz] | sz == r.size }>)]
+    fn region_size(&self) -> Option<usize> {
+        self.size
+    }
+
+    #[flux_rs::sig(fn (&Self[@r]) -> usize[r.rnum])]
+    fn region_num(&self) -> usize {
+        self.region_number 
+    }
+
+    #[flux_rs::sig(fn (&Self[@r]) -> bool[r.set])]
+    fn is_set(&self) -> bool {
+        self.start.is_some()
+    }
+
     fn overlaps(&self, _other: &Self) -> bool {
         false
     }
 }
-
-// #[flux_rs::assoc(fn configured_for(self: Self, config: Self::MpuConfig) -> bool)]
-// #[flux_rs::assoc(fn config_can_access_flash(c: Self::MpuConfig, fstart: int, fend: int) -> bool)]
-// #[flux_rs::assoc(fn config_can_access_heap(c: Self::MpuConfig, hstart: int, hend: int) -> bool)]
-// #[flux_rs::assoc(fn config_cant_access_at_all(c: Self::MpuConfig, start: int, end: int) -> bool)]
 
 /// The generic trait that particular memory protection unit implementations
 /// need to implement.
@@ -166,6 +236,31 @@ pub trait MPU {
     ///
     /// Returns None if the MPU cannot allocate a region with the passed
     /// constraints
+    #[flux_rs::sig(
+        fn (
+            self: &Self,
+            region_number: usize, 
+            available_start: FluxPtrU8, 
+            available_size: usize, 
+            region_size: usize, 
+            permissions: Permissions,
+        ) -> Option<{r. Self::Region[r] | 
+            // region is set
+            <Self::Region as RegionDescriptor>::is_set(r) &&
+            // region is within available start generally
+            <Self::Region as RegionDescriptor>::astart(r) >= available_start &&
+            // if the region size is the same as the available size then the start is exact
+            (available_size == region_size =>  <Self::Region as RegionDescriptor>::astart(r) == available_start) &&
+            // region accessible size is equal to the size asked for
+            <Self::Region as RegionDescriptor>::asize(r) == region_size &&
+            // region fits into space 
+            <Self::Region as RegionDescriptor>::astart(r) + <Self::Region as RegionDescriptor>::asize(r) <= available_start + available_size &&
+            // accessible start is ok
+            <Self::Region as RegionDescriptor>::astart(r) >= <Self::Region as RegionDescriptor>::rstart(r) &&
+            // accessible region is within bounds
+            <Self::Region as RegionDescriptor>::astart(r) + <Self::Region as RegionDescriptor>::asize(r) <= <Self::Region as RegionDescriptor>::rstart(r) + <Self::Region as RegionDescriptor>::rsize(r)
+        }>
+    )]
     fn new_region(
         &self,
         region_number: usize,
@@ -205,9 +300,34 @@ impl MPU for () {
 
     fn configure_mpu(&mut self, _config: &[Self::Region]) {}
 
+    #[flux_rs::sig(
+        fn (
+            self: &Self,
+            region_number: usize, 
+            available_start: FluxPtrU8, 
+            available_size: usize, 
+            region_size: usize, 
+            permissions: Permissions,
+        ) -> Option<{r. Self::Region[r] | 
+            // region is set
+            <Self::Region as RegionDescriptor>::is_set(r) &&
+            // region number is set
+            <Self::Region as RegionDescriptor>::rnum(r) == region_number &&
+            // region is within available start
+            <Self::Region as RegionDescriptor>::astart(r) >= available_start &&
+            // region accessible size is equal to the size asked for
+            <Self::Region as RegionDescriptor>::asize(r) == region_size &&
+            // region fits into space 
+            <Self::Region as RegionDescriptor>::astart(r) + <Self::Region as RegionDescriptor>::asize(r) <= available_start + available_size &&
+            // accessible start is ok
+            <Self::Region as RegionDescriptor>::astart(r) >= <Self::Region as RegionDescriptor>::rstart(r) &&
+            // accessible region is within bounds
+            <Self::Region as RegionDescriptor>::astart(r) + <Self::Region as RegionDescriptor>::asize(r) <= <Self::Region as RegionDescriptor>::rstart(r) + <Self::Region as RegionDescriptor>::rsize(r)
+        }>
+    )]
     fn new_region(
         &self,
-        _region_number: usize,
+        region_number: usize,
         available_start: FluxPtrU8,
         available_size: usize,
         region_size: usize,
@@ -217,6 +337,8 @@ impl MPU for () {
             Some(MpuRegionDefault {
                 start: Some(available_start),
                 size: Some(region_size),
+                region_number,
+                _ghost: RegionDefaultGhost::set(available_start, region_size)
             })
         } else {
             None

@@ -541,26 +541,53 @@ impl PartialEq<mpu::Region> for CortexMRegion {
     }
 }
 
+#[flux_rs::assoc(fn astart(self: Self) -> int { self.astart })]
+#[flux_rs::assoc(fn asize(self: Self) -> int { self.asize })]
+#[flux_rs::assoc(fn rstart(self: Self) -> int { self.rstart })]
+#[flux_rs::assoc(fn rsize(self: Self) -> int { self.rsize })]
+#[flux_rs::assoc(fn rnum(self: Self) -> int { self.region_no })]
+#[flux_rs::assoc(fn is_set(self: Self) -> bool { self.set })]
 impl mpu::RegionDescriptor for CortexMRegion {
+    #[flux_rs::sig(fn (region_num: usize) -> Self {s: !s.set})]
+    fn default(region_num: usize) -> Self {
+        // TODO: Do better with precondition
+        if region_num < 8 {
+            Self::empty(region_num)
+        } else {
+            panic!()
+        }
+    }
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<{p. FluxPtrU8[p] | p == r.astart}>)]
     fn accessible_start(&self) -> Option<FluxPtrU8> {
        Some(self.location?.accessible_start)
     }
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<{p. FluxPtrU8[p] | p == r.rstart}>)]
     fn region_start(&self) -> Option<FluxPtrU8> {
        Some(self.location?.region_start)
     }
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<{sz. usize[sz] | sz == r.asize}>)]
     fn accessible_size(&self) -> Option<usize> {
        Some(self.location?.accessible_size)
     }
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<{sz. usize[sz] | sz == r.rsize}>)]
     fn region_size(&self) -> Option<usize> {
        Some(self.location?.region_size)
     }
+
+    #[flux_rs::sig(fn (&Self[@r]) -> usize[r.region_no])]
+    fn region_num(&self) -> usize {
+        self.region_number
+    }
+
+    #[flux_rs::sig(fn (&Self[@r]) -> bool[r.set])]
     fn is_set(&self) -> bool {
         self.location.is_some()
     }
-    #[flux_rs::trusted]
-    fn default(region_num: usize) -> Self {
-        Self::empty(region_num)
-    }
+
     fn overlaps(&self, other: &CortexMRegion) -> bool {
         self.region_overlaps(other)
     }

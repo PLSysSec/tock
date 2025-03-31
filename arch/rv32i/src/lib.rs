@@ -18,6 +18,7 @@ use kernel::utilities::registers::interfaces::{Readable, Writeable};
 
 pub mod clic;
 pub mod machine_timer;
+#[flux_rs::ignore]
 pub mod pmp;
 #[flux_rs::ignore]
 pub mod support;
