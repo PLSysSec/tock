@@ -290,7 +290,7 @@ pub trait MPU {
         fn (
             &Self,
             FluxPtrU8[@mem_start],
-            usize,
+            usize[@memsz],
             usize[@min_mem_sz],
             usize[@appmsz],
             usize[@kernelmsz],
@@ -302,6 +302,7 @@ pub trait MPU {
             b.app_break >= b.memory_start + appmsz &&
             b.memory_start + b.memory_size <= u32::MAX &&
             b.memory_start >= mem_start &&
+            b.memory_start + kernelmsz < b.memory_start + b.memory_size &&
             <Self as MPU>::config_can_access_flash(new_c, fstart, fstart + fsz) &&
             <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart - 1) &&
@@ -311,16 +312,8 @@ pub trait MPU {
             // <Self as MPU>::ipc_cant_access_process_mem(new_c, fstart, fstart + fsz, mem_start, u32::MAX)
         }, AllocateAppMemoryError>
         requires 
-            fstart + fsz < mem_start &&
-            min_mem_sz > 0 &&
-            min_mem_sz <= u32::MAX / 2 + 1 &&
-            appmsz > 0 &&
-            kernelmsz > 0 &&
-            appmsz + kernelmsz <= u32::MAX / 2 + 1 &&
-            fstart > 0 &&
-            fstart <= u32::MAX / 2 + 1 && 
-            fsz > 0 &&
-            fsz <= u32::MAX / 2 + 1 &&
+            (fstart + fsz <= mem_start || mem_start + memsz <= fstart) 
+            &&
             <Self as MPU>::config_cant_access_at_all(old_c, 0, u32::MAX)
         ensures config: Self::MpuConfig[#new_c]
     )]
@@ -377,7 +370,7 @@ pub trait MPU {
             // <Self as MPU>::ipc_cant_access_process_mem(new_c, fstart, fstart + fsz, b.memory_start, u32::MAX)
         }, ()>[#res]
         requires 
-            fstart + fsz < mem_start &&
+            (fstart + fsz <= mem_start || mem_start + kernel_break <= fstart) &&
             app_break - mem_start <= u32::MAX / 2 + 1 &&
             app_break > mem_start &&
             <Self as MPU>::config_can_access_flash(old_c, fstart, fstart + fsz) &&

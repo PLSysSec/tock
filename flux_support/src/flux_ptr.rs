@@ -16,6 +16,8 @@ use core::todo;
 use core::unimplemented;
 use flux_rs::{refined_by, sig};
 
+use crate::Pair;
+
 #[flux_rs::opaque]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[refined_by(ptr: int)]
@@ -66,6 +68,7 @@ impl From<FluxPtr> for u32 {
         ptr.as_u32()
     }
 }
+
 // convert FluxPtr to *const u8
 #[flux_rs::trusted]
 impl From<FluxPtr> for u8 {
@@ -123,13 +126,16 @@ impl FluxPtr {
         unimplemented!()
     }
 
+    #[flux_rs::trusted]
     #[sig(fn(self: Self[@n]) -> usize[n])]
     pub fn as_usize(self) -> usize {
-        unimplemented!()
+        self.inner as usize
     }
 
+    #[flux_rs::trusted]
+    #[sig(fn(self: Self[@n]) -> u32[n])]
     pub fn as_u32(self) -> u32 {
-        unimplemented!()
+        self.inner as u32
     }
 
     #[sig(fn() -> Self[0])]
@@ -149,17 +155,26 @@ impl FluxPtr {
     }
 
     /// # Safety
-    pub const unsafe fn offset(self, _count: isize) -> Self {
-        unimplemented!()
+    #[flux_rs::trusted]
+    #[flux_rs::sig(fn (Self[@s], { isize[@count] | count < s }) -> Self[s - count])]
+    pub const unsafe fn offset(self, count: isize) -> Self {
+        Self {
+            inner: self.inner.offset(count),
+        }
     }
 
     /// # Safety
-    pub const unsafe fn add(self, _count: usize) -> Self {
-        unimplemented!()
+    #[flux_rs::trusted]
+    #[flux_rs::sig(fn (Self[@s], { usize[@count] | s + count <= usize::MAX }) -> Self[s - count])]
+    pub const unsafe fn add(self, count: usize) -> Self {
+        Self {
+            inner: self.inner.add(count),
+        }
     }
 
+    #[flux_rs::trusted]
     pub fn unsafe_as_ptr(self) -> *mut u8 {
-        unimplemented!()
+        self.inner
     }
 }
 
@@ -198,38 +213,76 @@ pub trait FluxPtrExt {
 
 impl<T> FluxPtrExt for &[T] {
     fn as_fluxptr(&self) -> FluxPtr {
-        unimplemented!()
+        FluxPtr::from(self.as_ptr() as *mut u8)
     }
 }
 
 impl<T> FluxPtrExt for &mut [T] {
     fn as_fluxptr(&self) -> FluxPtr {
-        unimplemented!()
+        FluxPtr::from(self.as_ptr() as *mut u8)
     }
 }
 
 impl<T> FluxPtrExt for NonNull<T> {
     fn as_fluxptr(&self) -> FluxPtr {
-        unimplemented!()
+        FluxPtr::from(self.as_ptr() as *mut u8)
     }
 }
 
 impl FluxPtrExt for usize {
     fn as_fluxptr(&self) -> FluxPtr {
-        unimplemented!()
+        FluxPtr::from(*self)
     }
 }
 
 impl Deref for FluxPtr {
     type Target = u8;
 
+    #[flux_rs::trusted]
     fn deref(&self) -> &Self::Target {
-        unimplemented!()
+        unsafe { &*self.inner }
     }
 }
 
 impl DerefMut for FluxPtr {
+    #[flux_rs::trusted]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unimplemented!()
+        unsafe { &mut *self.inner }
     }
+}
+
+flux_rs::defs! {
+    fn no_overlap(fst: SlicesToRaw, snd: SlicesToRaw) -> bool {
+        fst.start + fst.len <= snd.start || snd.start + snd.len <= fst.start
+    }
+}
+
+#[flux_rs::refined_by(start: int, len: int)]
+pub struct SlicesToRaw {
+    #[field(FluxPtr[start])]
+    pub start: FluxPtr,
+    #[field(usize[len])]
+    pub len: usize,
+}
+
+// TRUSTED: From Rust aliasing rules
+#[flux_rs::trusted]
+#[flux_rs::sig(fn (&[u8][@l1], &mut [u8][@l2]) -> Pair<SlicesToRaw, SlicesToRaw>{p: no_overlap(p.fst, p.snd) })]
+pub fn slices_to_raw_ptrs(slice1: &[u8], slice2: &mut [u8]) -> Pair<SlicesToRaw, SlicesToRaw> {
+    Pair {
+        fst: SlicesToRaw {
+            start: slice1.as_fluxptr(),
+            len: slice1.len(),
+        },
+        snd: SlicesToRaw {
+            start: slice2.as_fluxptr(),
+            len: slice2.len(),
+        },
+    }
+}
+
+#[flux_rs::trusted]
+#[flux_rs::sig(fn (_, usize[@len]) -> &mut [T][len])]
+pub fn from_raw_parts_mut<'a, T>(data: *mut T, len: usize) -> &'a mut [T] {
+    unsafe { core::slice::from_raw_parts_mut(data, len) }
 }

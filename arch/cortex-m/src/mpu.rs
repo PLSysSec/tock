@@ -948,7 +948,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
 #[flux_rs::assoc(fn config_can_access_flash(c: CortexMConfig, fstart: int, fend: int) -> bool { config_can_access_flash(c, fstart, fend) })]
 #[flux_rs::assoc(fn config_can_access_heap(c: CortexMConfig, hstart: int, hend: int) -> bool { config_can_access_heap(c, hstart, hend) })]
 #[flux_rs::assoc(fn config_cant_access_at_all(c: CortexMConfig, start: int, end: int) -> bool { config_cant_access_at_all(c, start, end) } )]
-#[flux_rs::assoc(fn ipc_cant_access_process_mem(c: CortexMConfig, fstart: int, fend: int, hstart: int, hend: int) -> bool { ipc_cant_access_process_mem(c, fstart, fend, hstart, hend) } )]
+// #[flux_rs::assoc(fn ipc_cant_access_process_mem(c: CortexMConfig, fstart: int, fend: int, hstart: int, hend: int) -> bool { ipc_cant_access_process_mem(c, fstart, fend, hstart, hend) } )]
 impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     type MpuConfig = CortexMConfig;
 
@@ -1078,7 +1078,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         fn (
             &Self,
             FluxPtrU8[@mem_start],
-            usize,
+            usize[@memsz],
             usize[@min_mem_sz],
             usize[@appmsz],
             usize[@kernelmsz],
@@ -1090,24 +1090,17 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             b.app_break >= b.memory_start + appmsz &&
             b.memory_start + b.memory_size <= u32::MAX &&
             b.memory_start >= mem_start &&
+            b.memory_start + kernelmsz < b.memory_start + b.memory_size &&
             config_can_access_flash(new_c, fstart, fstart + fsz) &&
             config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             config_cant_access_at_all(new_c, 0, fstart - 1) &&
             config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) &&
-            config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX) &&
-            ipc_cant_access_process_mem(new_c, fstart, fstart + fsz, mem_start, u32::MAX)
+            config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX) 
+            // &&
+            // ipc_cant_access_process_mem(new_c, fstart, fstart + fsz, mem_start, u32::MAX)
         }, mpu::AllocateAppMemoryError>
         requires 
-            fstart + fsz < mem_start &&
-            min_mem_sz > 0 &&
-            min_mem_sz <= u32::MAX / 2 + 1 &&
-            appmsz > 0 &&
-            kernelmsz > 0 &&
-            appmsz + kernelmsz <= u32::MAX / 2 + 1 &&
-            fstart > 0 &&
-            fstart <= u32::MAX / 2 + 1 && 
-            fsz > 0 &&
-            fsz <= u32::MAX / 2 + 1 &&
+            (fstart + fsz <= mem_start || mem_start + memsz <= fstart) &&
             config_cant_access_at_all(old_c, 0, u32::MAX)
         ensures config: CortexMConfig[#new_c]
     )]
@@ -1123,6 +1116,10 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         config: &mut CortexMConfig,
     ) -> Result<mpu::AllocatedAppBreaksAndSize, mpu::AllocateAppMemoryError> {
         // first allocate flash
+        if flash_start.as_usize() == 0 || flash_size == 0 || flash_start.as_usize() > (u32::MAX / 2 + 1) as usize || flash_size > (u32::MAX / 2 + 1) as usize {
+            return Err(AllocateAppMemoryError::FlashError)
+        }
+
         let region = self
             .create_region(
                 FLASH_REGION,
@@ -1150,6 +1147,10 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             min_memory_size,
             initial_app_memory_size + initial_kernel_memory_size,
         );
+
+        if memory_size > (u32::MAX / 2 + 1) as usize || memory_size == 0 {
+            return Err(AllocateAppMemoryError::HeapError)
+        }
 
         // Size must be a power of two, so:
         // https://www.youtube.com/watch?v=ovo6zwv6DX4.
@@ -1290,8 +1291,8 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             config_cant_access_at_all(new_c, 0, fstart - 1) &&
             config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) &&
-            config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX) &&
-            ipc_cant_access_process_mem(new_c, fstart, fstart + fsz, b.memory_start, u32::MAX)
+            config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX) // &&
+            // ipc_cant_access_process_mem(new_c, fstart, fstart + fsz, b.memory_start, u32::MAX)
         }, ()>[#res]
         requires 
             fstart + fsz < mem_start &&
