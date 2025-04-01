@@ -12,7 +12,6 @@ use core::fmt;
 use crate::config;
 use crate::debug;
 use crate::process_checker::AcceptedCredential;
-use crate::process_standard::FlashGhostState;
 use crate::utilities::cells::OptionalCell;
 #[allow(clippy::wildcard_imports)]
 use flux_support::*;
