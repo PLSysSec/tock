@@ -669,7 +669,8 @@ impl CortexMRegion {
             rsize % 8 == 0 && 
             rsize >= 32 &&
             (subregions => rsize >= 256) &&
-            rsize <= u32::MAX / 2 + 1
+            rsize <= u32::MAX / 2 + 1 &&
+            rstart % rsize == 0
     )]
     #[flux_rs::trusted] // VTOCK TODO: this one is a beast
     fn new(
@@ -1466,3 +1467,109 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
 // TODO: better solution than trusted `get_region`?
 // TODO: once there is support for double projections in specs, remove `value()` function
 // -- alternately, dont refine CortexMRegion by FieldValue but just by bitvec?
+
+#[cfg(test)]
+mod test_new {
+
+    use super::CortexMRegion;
+    use kernel::platform::mpu::Permissions;
+
+    fn usize_to_permissions(i: usize) -> Permissions {
+        if i == 0 {
+            Permissions::ReadWriteExecute
+        } else if i == 1 {
+            Permissions::ReadWriteOnly
+        } else if i == 2 {
+            Permissions::ReadExecuteOnly
+        } else if i == 3 {
+            Permissions::ReadOnly
+        } else if i == 4 {
+            Permissions::ExecuteOnly
+        } else {
+            panic!("Invalid Enum Variant")
+        }
+    }
+
+    fn test_region(region: CortexMRegion) {
+        
+    }
+
+    fn test_without_subregions(region_start: usize, region_size: usize) {
+        for region_number in 0..16 {
+            // all permissions
+            for perm_i in 0..5 {
+                let perm = usize_to_permissions(perm_i);
+                let region = CortexMRegion::new(
+                    0,
+                    0,
+                    region_start,
+                    region_size,
+                    region_number,
+                    None,
+                    perm
+                );
+                test_region(region);
+            }
+        }
+    }
+
+    fn test_with_subregions(region_start: usize, region_size: usize) {
+        for subregion_start in 0..16 {
+            for subregion_end in (subregion_start + 1)..16 {
+                let subregions = Some((subregion_start, subregion_end));
+                // all permissions
+                for perm_i in 0..5 {
+                    let perm = usize_to_permissions(perm_i);
+                    let region = CortexMRegion::new(
+                        0,
+                        0,
+                        region_start,
+                        region_size,
+                        region_number,
+                        subregions,
+                        perm
+                    );
+                    test_region(region);
+                }
+            }
+        }
+    }
+
+    fn create_constrained_inputs() {
+        // Region Size:
+        // the region size is a power of two
+        // the minimum region size possible is 32
+        // if the region size is >= 256 then we can have subregions
+
+        // Region Start:
+        // the region start can be whatever as long as region_start + region_size <= u32::MAX
+        // and it is aligned with the size
+        // This should be a precondition
+        
+        // Accessible Start & Accessible Size aren't used.
+
+        // Subregions must satisfy start <= end <= 15 
+        // TODO: Make sure this is the case when calls are made. 
+
+        // permissions: Can be any enum variants
+        let mut region_size = 32;
+        let mut region_size_po2 = 5;
+        while region_size_po2 <= 32 {
+            let region_size = 2.pow(region_size_po2);
+            for region_start in 0..(u32::MAX / 2 + 1) {
+                if region_start % region_size != 0 {
+                    region_start += region_size - (region_start % region_size);
+                }
+
+                if region_size >= 256 {
+                    // subregions
+                    test_with_subregions(region_start, region_size);
+                } 
+                // 16 regions
+                test_without_subregions(region_start, region_size);
+            }
+            region_size_po2 += 1;
+        }
+    }
+
+}
