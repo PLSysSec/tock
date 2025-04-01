@@ -311,7 +311,7 @@ pub fn usize_into_isize(x: usize) -> isize {
 }
 
 #[flux_rs::trusted]
-#[flux_rs::sig(fn (usize[@x]) -> isize[x])]
-pub fn usize_into_isize_trusted(x: usize) -> isize {
-    x as isize
+#[flux_rs::sig(fn ({isize[@x] | x >= 0}) -> usize[x])]
+pub fn isize_into_usize(x: isize) -> usize {
+    x as usize
 }

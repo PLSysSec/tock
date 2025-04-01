@@ -1671,7 +1671,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
 
     // Memory offset to make room for this process's metadata.
     const PROCESS_STRUCT_OFFSET: usize = mem::size_of::<ProcessStandard<C>>();
-
+ 
     /// Create a `ProcessStandard` object based on the found `ProcessBinary`.
     #[flux_rs::sig(
         fn (
@@ -1717,10 +1717,12 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // kernel-owned memory even with padding for alignment, add an extra
         // `sizeof(usize)` bytes.
         let usize_size = core::mem::size_of::<usize>();
-        assume(usize_size == 4); // VTOCK TODO: ensure 32 bit boards
+        assume(usize_size > 0 && usize_size <= 8); 
+        let process_struct_offset = Self::PROCESS_STRUCT_OFFSET;
+        assume(process_struct_offset < isize_into_usize(isize::MAX));
         let initial_kernel_memory_size = grant_ptrs_offset
             + Self::CALLBACKS_OFFSET
-            + Self::PROCESS_STRUCT_OFFSET
+            + process_struct_offset
             + usize_size;
 
         // By default we start with the initial size of process-accessible
@@ -1993,7 +1995,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // upcalls.
         let callbacks_isize = usize_into_isize(Self::CALLBACKS_OFFSET);
 
-        let curr_kernel_memory_break = kernel_memory_break;
         kernel_memory_break = kernel_memory_break.offset(-callbacks_isize); 
 
         // This is safe today, as MPU constraints ensure that `memory_start`
@@ -2013,11 +2014,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let tasks = RingBuffer::new(upcall_buf);
 
         // Last thing in the kernel region of process RAM is the process struct. 
-
-        // VTOCK TODO: seems like a trivial assumption but should check
-        let process_size = usize_into_isize_trusted(Self::PROCESS_STRUCT_OFFSET);
-
-        kernel_memory_break = kernel_memory_break.offset(-process_size); 
+        let process_struct_offset = usize_into_isize(process_struct_offset);
+        kernel_memory_break = kernel_memory_break.offset(-process_struct_offset); 
         let process_struct_memory_location = kernel_memory_break;
 
         // Create the Process struct in the app grant region.
@@ -2042,8 +2040,10 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         process.kernel = kernel;
         process.chip = chip;
         // process.allow_high_water_mark = Cell::new(initial_allow_high_water_mark);
+        // process.init_memory_start_and_len(allocated_memory_start, allocated_memory_len);
         process.memory_start = allocated_memory_start;
         process.memory_len = allocated_memory_len;
+
         process.header = pb.header;
         // process.kernel_memory_break = Cell::new(kernel_memory_break);
         // process.app_break = Cell::new(initial_app_brk);
@@ -2056,6 +2056,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             app_break: initial_app_brk,
             allow_high_water_mark: initial_allow_high_water_mark,
         };
+
+        // process.init_grant_ptrs(grant_pointers);
         process.grant_pointers = MapCell::new(grant_pointers);
 
         process.credential = pb.credential.get();
@@ -2082,6 +2084,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             ],
         };
 
+        // process.init_breaks_and_config(breaks_and_config);
         process.breaks_and_config = MapCell::new(breaks_and_config);
         process.tasks = MapCell::new(tasks);
 
@@ -2154,6 +2157,22 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         });
         // Return the process object and a remaining memory for processes slice.
         Ok((Some(process), unused_memory))
+    }
+
+    #[flux_rs::sig(fn (self: &strg Self, _) ensures self: Self)]
+    fn init_grant_ptrs(&mut self, grant_pointers: &'static mut [GrantPointerEntry]) {
+        self.grant_pointers = MapCell::new(grant_pointers);
+    }
+
+    #[flux_rs::sig(fn (self: &strg Self, _, _) ensures self: Self)]
+    fn init_memory_start_and_len(&mut self, memory_start: FluxPtr, memory_len: usize) {
+        self.memory_start = memory_start;
+        self.memory_len = memory_len;
+    }
+
+    #[flux_rs::sig(fn (self: &strg Self, b: BreaksAndMPUConfig<C>) ensures self: Self)]
+    fn init_breaks_and_config(&mut self, breaks: BreaksAndMPUConfig<C>) {
+        self.breaks_and_config = MapCell::new(breaks);
     }
 
     /// Reset the process, resetting all of its state and re-initializing it so
