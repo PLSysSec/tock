@@ -776,7 +776,6 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
             }>
         requires minsz > 0 && minsz <= u32::MAX / 2 + 1 && size <= u32::MAX / 2 + 1 && start <= u32::MAX / 2 + 1
     )]
-    #[flux_rs::trusted_impl]
     fn new_region(
         &self,
         region_number: usize,

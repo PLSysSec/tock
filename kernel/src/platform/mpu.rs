@@ -310,19 +310,19 @@ impl MPU for () {
             permissions: Permissions,
         ) -> Option<{r. Self::Region[r] | 
             // region is set
-            <Self::Region as RegionDescriptor>::is_set(r) &&
+            <<Self as MPU>::Region as RegionDescriptor>::is_set(r) &&
             // region number is set
-            <Self::Region as RegionDescriptor>::rnum(r) == region_number &&
+            <<Self as MPU>::Region as RegionDescriptor>::rnum(r) == region_number &&
             // region is within available start
-            <Self::Region as RegionDescriptor>::astart(r) >= available_start &&
+            <<Self as MPU>::Region as RegionDescriptor>::astart(r) >= available_start &&
             // region accessible size is equal to the size asked for
-            <Self::Region as RegionDescriptor>::asize(r) == region_size &&
+            <<Self as MPU>::Region as RegionDescriptor>::asize(r) == region_size &&
             // region fits into space 
-            <Self::Region as RegionDescriptor>::astart(r) + <Self::Region as RegionDescriptor>::asize(r) <= available_start + available_size &&
+            <<Self as MPU>::Region as RegionDescriptor>::astart(r) + <<Self as MPU>::Region as RegionDescriptor>::asize(r) <= available_start + available_size &&
             // accessible start is ok
-            <Self::Region as RegionDescriptor>::astart(r) >= <Self::Region as RegionDescriptor>::rstart(r) &&
+            <<Self as MPU>::Region as RegionDescriptor>::astart(r) >= <<Self as MPU>::Region as RegionDescriptor>::rstart(r) &&
             // accessible region is within bounds
-            <Self::Region as RegionDescriptor>::astart(r) + <Self::Region as RegionDescriptor>::asize(r) <= <Self::Region as RegionDescriptor>::rstart(r) + <Self::Region as RegionDescriptor>::rsize(r)
+            <<Self as MPU>::Region as RegionDescriptor>::astart(r) + <<Self as MPU>::Region as RegionDescriptor>::asize(r) <= <Self::Region as RegionDescriptor>::rstart(r) + <Self::Region as RegionDescriptor>::rsize(r)
         }>
     )]
     fn new_region(
