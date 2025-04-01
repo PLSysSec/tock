@@ -37,13 +37,17 @@ flux_rs::defs! {
     // Rbar
     fn valid(reg:bitvec<32>) -> bool { bit(reg, 0x00000010)}
     fn region(reg:bitvec<32>) -> bitvec<32> { extract(reg, 0x0000000f, 0)}
+    // fn region(reg: bitvec<32>) -> bitvec<32> { reg & 0x0000_0007 }
     fn addr(reg:bitvec<32>) -> bitvec<32> {  extract(reg, 0xffffffe0, 5)}
+    // fn addr(reg: bitvec<32>) -> bitvec<32> { reg & 0xffff_ffe0 }
     // Rasr
     fn xn(reg:bitvec<32>) -> bool { bit(reg, 0x08000000)}
     fn region_enable(reg:bitvec<32>) -> bool { bit(reg, 0x00000001)}
     fn ap(reg:bitvec<32>) -> bitvec<32> { extract(reg, 0x07000000, 24) }
     fn srd(reg:bitvec<32>) -> bitvec<32> { extract(reg, 0x0000ff00, 8) }
+    // fn srd(reg: bitvec<32>) -> bitvec<32> { reg & 0x0000_FF00 }
     fn size(reg:bitvec<32>) -> bitvec<32> { bv32(1) << (extract(reg, 0x0000003e, 1) + 1) }
+    // fn size(reg: bitvec<32>) -> bitvec<32> { bv32(1) << ((reg & 0x0000_003E) + 1) }
 
     fn value(fv: FieldValueU32) -> bitvec<32> { fv.value}
     fn rbar(region: CortexMRegion) -> bitvec<32> { value(region.rbar) }
@@ -139,7 +143,14 @@ flux_rs::defs! {
         // the permissions match
         perms_match_exactly(value(rasr), perms) &&
         // and the subregions are set correctly
-        subregions_enabled_exactly(value(rasr), first_subregion(rbar, rasr, astart), last_subregion(rbar, rasr, astart, asize))
+        (
+            size(value(rasr)) >= 256 
+                => subregions_enabled_exactly(value(rasr), first_subregion(rbar, rasr, astart), last_subregion(rbar, rasr, astart, asize))
+        ) &&
+        (
+            size(value(rasr)) < 256 => srd(value(rasr)) == 0
+        )
+
     }
 
     fn region_can_access(region: CortexMRegion, start: int, end: int, perms: mpu::Permissions) -> bool {
@@ -654,9 +665,13 @@ impl CortexMRegion {
                 r.perms == perms &&
                 r.set  
             }
-        requires (subregions => rsize >= 256) && rsize < u32::MAX
+        requires 
+            rsize % 8 == 0 && 
+            rsize >= 32 &&
+            (subregions => rsize >= 256) &&
+            rsize <= u32::MAX / 2 + 1
     )]
-    #[flux_rs::trusted] // VTOCK TODO: this one is a beast
+    // #[flux_rs::trusted] // VTOCK TODO: this one is a beast
     fn new(
         logical_start: FluxPtrU8,
         logical_size: usize,
