@@ -815,26 +815,28 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         self.header.get_writeable_flash_region(region_index)
     }
 
-    fn update_stack_start_pointer(&self, stack_pointer: FluxPtrU8Mut) -> Result<(), ()> {
-        if stack_pointer >= self.mem_start().ok_or(())? && stack_pointer < self.mem_end().ok_or(())? {
-            self.debug.map(|debug| {
-                debug.app_stack_start_pointer = Some(stack_pointer);
+    fn update_stack_start_pointer(&self, stack_pointer: FluxPtrU8Mut) {
+        self.breaks_and_config.map(|bc| {
+            if stack_pointer >= bc.mem_start() && stack_pointer < bc.mem_end() {
+                self.debug.map(|debug| {
+                    debug.app_stack_start_pointer = Some(stack_pointer);
 
-                // We also reset the minimum stack pointer because whatever
-                // value we had could be entirely wrong by now.
-                debug.app_stack_min_pointer = Some(stack_pointer);
-            });
-        }
-        Ok(())
+                    // We also reset the minimum stack pointer because whatever
+                    // value we had could be entirely wrong by now.
+                    debug.app_stack_min_pointer = Some(stack_pointer);
+                });
+            }
+        });
     }
 
-    fn update_heap_start_pointer(&self, heap_pointer: FluxPtrU8Mut) -> Result<(), ()> {
-        if heap_pointer >= self.mem_start().ok_or(())? && heap_pointer < self.mem_end().ok_or(())? {
-            self.debug.map(|debug| {
-                debug.app_heap_start_pointer = Some(heap_pointer);
-            });
-        }
-        Ok(())
+    fn update_heap_start_pointer(&self, heap_pointer: FluxPtrU8Mut) {
+        self.breaks_and_config.map(|bc| {
+            if heap_pointer >= bc.mem_start() && heap_pointer < bc.mem_end() {
+                self.debug.map(|debug| {
+                    debug.app_heap_start_pointer = Some(heap_pointer);
+                });
+            }
+        });
     }
 
     fn setup_mpu(&self) {
@@ -1522,14 +1524,16 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
                 );
                 return;
             }
-            unsafe {
-                self.chip.userspace_kernel_boundary().print_context(
-                    self.mem_start(),
-                    maybe_app_break.unwrap(),
-                    stored_state,
-                    writer,
-                );
-            }
+            self.breaks_and_config.map(|bc| {
+                unsafe {
+                    self.chip.userspace_kernel_boundary().print_context(
+                        bc.mem_start(),
+                        maybe_app_break.unwrap(),
+                        stored_state,
+                        writer,
+                    );
+                }
+            });
         });
 
         // Display grant information.
