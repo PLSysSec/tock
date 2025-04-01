@@ -312,8 +312,7 @@ pub trait MPU {
             // <Self as MPU>::ipc_cant_access_process_mem(new_c, fstart, fstart + fsz, mem_start, u32::MAX)
         }, AllocateAppMemoryError>
         requires 
-            (fstart + fsz <= mem_start || mem_start + memsz <= fstart) 
-            &&
+            fstart + fsz < mem_start &&
             <Self as MPU>::config_cant_access_at_all(old_c, 0, u32::MAX)
         ensures config: Self::MpuConfig[#new_c]
     )]
@@ -370,8 +369,7 @@ pub trait MPU {
             // <Self as MPU>::ipc_cant_access_process_mem(new_c, fstart, fstart + fsz, b.memory_start, u32::MAX)
         }, ()>[#res]
         requires 
-            (fstart + fsz <= mem_start || mem_start + kernel_break <= fstart) &&
-            app_break - mem_start <= u32::MAX / 2 + 1 &&
+            fstart + fsz < mem_start &&
             app_break > mem_start &&
             <Self as MPU>::config_can_access_flash(old_c, fstart, fstart + fsz) &&
             <Self as MPU>::config_cant_access_at_all(old_c, 0, fstart - 1) &&

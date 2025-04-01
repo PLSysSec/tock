@@ -253,7 +253,7 @@ impl DerefMut for FluxPtr {
 
 flux_rs::defs! {
     fn no_overlap(fst: SlicesToRaw, snd: SlicesToRaw) -> bool {
-        fst.start + fst.len <= snd.start || snd.start + snd.len <= fst.start
+        fst.start + fst.len < snd.start
     }
 }
 
@@ -265,18 +265,18 @@ pub struct SlicesToRaw {
     pub len: usize,
 }
 
-// TRUSTED: From Rust aliasing rules
+// TRUSTED: From Rust aliasing rules + the fact that we trust flash < ram in the address space
 #[flux_rs::trusted]
 #[flux_rs::sig(fn (&[u8][@l1], &mut [u8][@l2]) -> Pair<SlicesToRaw, SlicesToRaw>{p: no_overlap(p.fst, p.snd) })]
-pub fn slices_to_raw_ptrs(slice1: &[u8], slice2: &mut [u8]) -> Pair<SlicesToRaw, SlicesToRaw> {
+pub fn mem_slices_to_raw_ptrs(flash: &[u8], ram: &mut [u8]) -> Pair<SlicesToRaw, SlicesToRaw> {
     Pair {
         fst: SlicesToRaw {
-            start: slice1.as_fluxptr(),
-            len: slice1.len(),
+            start: flash.as_fluxptr(),
+            len: flash.len(),
         },
         snd: SlicesToRaw {
-            start: slice2.as_fluxptr(),
-            len: slice2.len(),
+            start: ram.as_fluxptr(),
+            len: ram.len(),
         },
     }
 }

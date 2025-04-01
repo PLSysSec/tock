@@ -172,7 +172,7 @@ impl ProcessBreaks {
     mpu_config: <<C as Chip>::MPU as MPU>::MpuConfig
 )]
 #[flux_rs::invariant(mem_start + mem_len <= usize::MAX)]
-#[flux_rs::invariant(flash_start + flash_len <= mem_start || mem_start + mem_len <= flash_start)]
+#[flux_rs::invariant(flash_start + flash_len < mem_start)]
 #[flux_rs::invariant(kernel_break >= app_break)]
 #[flux_rs::invariant(kernel_break < mem_start + mem_len)]
 #[flux_rs::invariant(app_break >= allow_high_water_mark)]
@@ -1807,7 +1807,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let Pair {
             fst: flash_ptrs,
             snd: remaining_mem_ptrs
-        } = slices_to_raw_ptrs(pb.flash, remaining_memory);
+        } = mem_slices_to_raw_ptrs(pb.flash, remaining_memory);
 
         // Initialize MPU region configuration.
         let mut mpu_config = match chip.mpu().new_config() {
