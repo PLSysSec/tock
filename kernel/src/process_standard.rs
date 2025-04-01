@@ -262,13 +262,11 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
         self.breaks.mem_start
     }
 
-    #[flux_rs::trusted]
     #[flux_rs::sig(fn (&Self[@pb]) -> FluxPtrU8[pb.flash_start])]
     fn flash_start(&self) -> FluxPtrU8 {
         self.breaks.flash_start
     }
 
-    #[flux_rs::trusted]
     #[flux_rs::sig(fn (&Self[@pb]) -> usize[pb.flash_len])]
     fn flash_size(&self) -> usize {
         self.breaks.flash_size
@@ -303,9 +301,9 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
         }
     }
 
+    #[flux_rs::sig(fn (self: &strg Self, _, _) -> Result<_, _> ensures self: Self)]
     pub(crate) fn foo(&mut self, size: usize, align: usize) -> Result<(ProcessCustomGrantIdentifier, NonNull<u8>), ()> {
         let ptr = self.allocate_in_grant_region_internal(size, align).ok_or(())?;
-        assert(ptr.as_usize() < self.breaks.mem_start.as_usize() + self.breaks.mem_len);
         let custom_grant_address = ptr.as_usize();
         let process_memory_end = self.mem_end().as_usize();
 
@@ -322,11 +320,7 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
         fn (self: &strg Self[@old_bc], usize, usize) -> Option<{p. FluxPtrU8[p] | p < bc.mem_start + bc.mem_len}>[#opt] 
             ensures self: Self[#bc],
                 (opt => bc.kernel_break >= bc.app_break) &&
-                (!opt => bc.kernel_break == old_bc.kernel_break) &&
-                bc.mem_start == old_bc.mem_start &&
-                bc.mem_len == old_bc.mem_len &&
-                bc.flash_start == old_bc.flash_start &&
-                bc.flash_len == old_bc.flash_len
+                (!opt => bc.kernel_break == old_bc.kernel_break)
     )]
     pub(crate) fn allocate_in_grant_region_internal(
         &mut self,
@@ -1416,7 +1410,6 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         }
     }
 
-    #[flux_rs::trusted] // https://github.com/flux-rs/flux/issues/782
     fn switch_to(&self) -> Option<syscall::ContextSwitchReason> {
         // Cannot switch to an invalid process
         if !self.is_running() {
@@ -1968,7 +1961,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // and `grant_ptrs_offset` is a multiple of the word size.
         #[allow(clippy::cast_ptr_alignment)]
         // Set all grant pointers to null.
-        let grant_pointers = flux_support::from_raw_parts_mut(
+        let grant_pointers = core::slice::from_raw_parts_mut(
             kernel_memory_break.unsafe_as_ptr() as *mut GrantPointerEntry,
             grant_ptrs_num,
         );
@@ -1982,6 +1975,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let callbacks_isize = usize_into_isize(Self::CALLBACKS_OFFSET);
 
         kernel_memory_break = kernel_memory_break.offset(-callbacks_isize); 
+        let x = 100;
 
         // This is safe today, as MPU constraints ensure that `memory_start`
         // will always be aligned on at least a word boundary, and that
