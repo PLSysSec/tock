@@ -303,16 +303,19 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
         }
     }
 
-    pub(crate) fn allocate_custom_grant(&mut self, size: usize, align: usize) -> Result<(ProcessCustomGrantIdentifier, NonNull<u8>), ()> {
-        if let Some(ptr) = self.allocate_in_grant_region_internal(size, align) {
-            // Create the identifier that the caller will use to get access to
-            // this custom grant in the future.
-            let identifier = self.create_custom_grant_identifier(ptr);
-            Ok((identifier, ptr.into()))
-        } else {
-            // Could not allocate memory for the custom grant.
-            Err(())
-        }
+    pub(crate) fn foo(&mut self, size: usize, align: usize) -> Result<(ProcessCustomGrantIdentifier, NonNull<u8>), ()> {
+        let ptr = self.allocate_in_grant_region_internal(size, align).ok_or(())?;
+        assert(ptr.as_usize() < self.breaks.mem_start.as_usize() + self.breaks.mem_len);
+        let custom_grant_address = ptr.as_usize();
+        let process_memory_end = self.mem_end().as_usize();
+
+        Ok(
+            (
+                ProcessCustomGrantIdentifier {
+                    offset: process_memory_end - custom_grant_address,
+                }, 
+                ptr.into())
+        )
     }
 
     #[flux_rs::sig(
@@ -424,21 +427,6 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
             Ok(())
         } else {
             Err(())
-        }
-    }
-
-    /// Create the identifier for a custom grant that grant.rs uses to access
-    /// the custom grant.
-    ///
-    /// We create this identifier by calculating the number of bytes between
-    /// where the custom grant starts and the end of the process memory.
-    #[flux_rs::sig(fn (&Self[@bc], { FluxPtrU8[@p] | p < bc.mem_start + bc.mem_len }) -> ProcessCustomGrantIdentifier)]
-    pub(crate) fn create_custom_grant_identifier(&self, ptr: FluxPtrU8) -> ProcessCustomGrantIdentifier {
-        let custom_grant_address = ptr.as_usize();
-        let process_memory_end = self.mem_end().as_usize();
-
-        ProcessCustomGrantIdentifier {
-            offset: process_memory_end - custom_grant_address,
         }
     }
 }
@@ -1208,7 +1196,8 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         // Use the shared grant allocator function to actually allocate memory.
         // Returns `None` if the allocation cannot be created.
         self.breaks_and_config.map_or(Err(()), |bc| {
-            bc.allocate_custom_grant(size, align)
+            // bc.allocate_custom_grant(size, align)
+            bc.foo(size, align)
         })
     }
 
@@ -2049,7 +2038,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             allow_high_water_mark: initial_allow_high_water_mark,
         };
 
-        // process.init_grant_ptrs(grant_pointers);
         process.grant_pointers = MapCell::new(grant_pointers);
 
         process.credential = pb.credential.get();
