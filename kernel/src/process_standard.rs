@@ -1584,7 +1584,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         // generated for those addresses. If the process was already compiled
         // for a fixed address, then just generating a .lst file is fine.
 
-        self.debug.map(|debug| {
+        let _ = self.debug.map_or(None, |debug| {
             if debug.fixed_address_flash.is_some() {
                 // Fixed addresses, can just run `make lst`.
                 let _ = writer.write_fmt(format_args!(
@@ -1596,8 +1596,8 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
                 ));
             } else {
                 // PIC, need to specify the addresses.
-                let sram_start = self.mem_start().as_usize();
-                let flash_start = self.flash_start().as_usize();
+                let sram_start = self.mem_start()?.as_usize();
+                let flash_start = self.flash_start()?.as_usize();
                 let flash_init_fn = flash_start + self.header.get_init_function_offset() as usize;
 
                 let _ = writer.write_fmt(format_args!(
@@ -1608,6 +1608,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
                     sram_start, flash_init_fn
                 ));
             }
+            Some(())
         });
     }
 
@@ -2013,14 +2014,9 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         process.app_id = app_id;
         process.kernel = kernel;
         process.chip = chip;
-        // process.allow_high_water_mark = Cell::new(initial_allow_high_water_mark);
-        // process.init_memory_start_and_len(allocated_memory_start, allocated_memory_len);
-        process.memory_start = allocated_memory_start;
-        process.memory_len = allocated_memory_len;
 
         process.header = pb.header;
-        // process.kernel_memory_break = Cell::new(kernel_memory_break);
-        // process.app_break = Cell::new(initial_app_brk);
+
         let breaks = ProcessBreaks {
             mem_start: allocated_memory_start,
             mem_len: allocated_memory_len,
@@ -2036,7 +2032,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
 
         process.credential = pb.credential.get();
         process.footers = pb.footers;
-        process.flash = pb.flash;
 
         process.stored_state = MapCell::new(Default::default());
         // Mark this process as approved and leave it to the kernel to start it.
@@ -2123,8 +2118,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
                 source: FunctionCallSource::Kernel,
                 pc: init_fn,
                 argument0: app_start,
-                argument1: breaks_and_config.breaks.mem_start.as_usize(),
-                argument2: breaks_and_config.breaks.mem_len,
+                argument1:  allocated_memory_start.as_usize(),
+                argument2: allocated_memory_len,
                 argument3: app_break,
             }));
             Ok::<(), ProcessLoadError>(())
@@ -2136,12 +2131,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     #[flux_rs::sig(fn (self: &strg Self, _) ensures self: Self)]
     fn init_grant_ptrs(&mut self, grant_pointers: &'static mut [GrantPointerEntry]) {
         self.grant_pointers = MapCell::new(grant_pointers);
-    }
-
-    #[flux_rs::sig(fn (self: &strg Self, _, _) ensures self: Self)]
-    fn init_memory_start_and_len(&mut self, memory_start: FluxPtr, memory_len: usize) {
-        self.memory_start = memory_start;
-        self.memory_len = memory_len;
     }
 
     #[flux_rs::sig(fn (self: &strg Self, b: BreaksAndMPUConfig<C>) ensures self: Self)]
@@ -2320,7 +2309,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     /// at `app_break`). If this method returns `true`, the buffer is guaranteed
     /// to be accessible to the process and to not overlap with the grant
     /// region.
-    #[flux_rs::sig(fn(&Self[@p], FluxPtr[@ptr], usize[@sz]) -> Result<bool{b: b == true => ptr >= p.mem_start}, ()>)]
     fn in_app_owned_memory(&self, buf_start_addr: FluxPtrU8Mut, size: usize) -> Result<bool, ()> {
         let buf_end_addr = buf_start_addr.wrapping_add(size);
         self.breaks_and_config.map_or(Err(()), |breaks_and_config| {
@@ -2357,7 +2345,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     /// If there is not enough memory, or the MPU cannot isolate the process
     /// accessible region from the new kernel memory break after doing the
     /// allocation, then this will return `None`.
-    #[flux_rs::sig(fn(&Self[@proc], usize, usize{align: align > 0}) -> Option<{p. FluxPtrU8[p] | p < proc.mem_start + proc.mem_len}>)]
     fn allocate_in_grant_region_internal(&self, size: usize, align: usize) -> Option<FluxPtrU8> {
         self.breaks_and_config.and_then(|breaks_and_config| {
             breaks_and_config.allocate_in_grant_region_internal(size, align)
@@ -2410,14 +2397,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     fn flash_start(&self) -> Option<FluxPtrU8Mut> {
         self.breaks_and_config.map_or(None, |bc| {
             Some(bc.breaks.flash_start)
-        })
-    }
-
-    #[flux_rs::trusted]
-    #[flux_rs::sig(fn (&Self[@f]) -> usize[f.flash_len])]
-    fn flash_size(&self) -> Option<usize> {
-        self.breaks_and_config.map_or(None, |bc| {
-            Some(bc.breaks.flash_size)
         })
     }
 
