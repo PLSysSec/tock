@@ -303,6 +303,18 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
         }
     }
 
+    pub(crate) fn allocate_custom_grant(&mut self, size: usize, align: usize) -> Result<(ProcessCustomGrantIdentifier, NonNull<u8>), ()> {
+        if let Some(ptr) = self.allocate_in_grant_region_internal(size, align) {
+            // Create the identifier that the caller will use to get access to
+            // this custom grant in the future.
+            let identifier = self.create_custom_grant_identifier(ptr);
+            Ok((identifier, ptr.into()))
+        } else {
+            // Could not allocate memory for the custom grant.
+            Err(())
+        }
+    }
+
     #[flux_rs::sig(
         fn (self: &strg Self[@old_bc], usize, usize) -> Option<{p. FluxPtrU8[p] | p < bc.mem_start + bc.mem_len}>[#opt] 
             ensures self: Self[#bc],
@@ -412,6 +424,21 @@ impl<C: 'static + Chip> BreaksAndMPUConfig<C> {
             Ok(())
         } else {
             Err(())
+        }
+    }
+
+    /// Create the identifier for a custom grant that grant.rs uses to access
+    /// the custom grant.
+    ///
+    /// We create this identifier by calculating the number of bytes between
+    /// where the custom grant starts and the end of the process memory.
+    #[flux_rs::sig(fn (&Self[@bc], { FluxPtrU8[@p] | p < bc.mem_start + bc.mem_len }) -> ProcessCustomGrantIdentifier)]
+    pub(crate) fn create_custom_grant_identifier(&self, ptr: FluxPtrU8) -> ProcessCustomGrantIdentifier {
+        let custom_grant_address = ptr.as_usize();
+        let process_memory_end = self.mem_end().as_usize();
+
+        ProcessCustomGrantIdentifier {
+            offset: process_memory_end - custom_grant_address,
         }
     }
 }
@@ -1177,17 +1204,12 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             return Err(());
         }
 
+
         // Use the shared grant allocator function to actually allocate memory.
         // Returns `None` if the allocation cannot be created.
-        if let Some(ptr) = self.allocate_in_grant_region_internal(size, align) {
-            // Create the identifier that the caller will use to get access to
-            // this custom grant in the future.
-            let identifier = self.create_custom_grant_identifier(ptr).ok_or(())?;
-            Ok((identifier, ptr.into()))
-        } else {
-            // Could not allocate memory for the custom grant.
-            Err(())
-        }
+        self.breaks_and_config.map_or(Err(()), |bc| {
+            bc.allocate_custom_grant(size, align)
+        })
     }
 
     fn enter_grant(&self, grant_num: usize) -> Result<NonNull<u8>, Error> {
@@ -2128,16 +2150,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         Ok((Some(process), unused_memory))
     }
 
-    #[flux_rs::sig(fn (self: &strg Self, _) ensures self: Self)]
-    fn init_grant_ptrs(&mut self, grant_pointers: &'static mut [GrantPointerEntry]) {
-        self.grant_pointers = MapCell::new(grant_pointers);
-    }
-
-    #[flux_rs::sig(fn (self: &strg Self, b: BreaksAndMPUConfig<C>) ensures self: Self)]
-    fn init_breaks_and_config(&mut self, breaks: BreaksAndMPUConfig<C>) {
-        self.breaks_and_config = MapCell::new(breaks);
-    }
-
     /// Reset the process, resetting all of its state and re-initializing it so
     /// it can start running. Assumes the process is not running but is still in
     /// flash and still has its memory region allocated to it.
@@ -2351,20 +2363,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         })
     }
 
-    /// Create the identifier for a custom grant that grant.rs uses to access
-    /// the custom grant.
-    ///
-    /// We create this identifier by calculating the number of bytes between
-    /// where the custom grant starts and the end of the process memory.
-    #[flux_rs::sig(fn(self: &Self[@proc], ptr: FluxPtrU8) -> Option<ProcessCustomGrantIdentifier>)]
-    fn create_custom_grant_identifier(&self, ptr: FluxPtrU8) -> Option<ProcessCustomGrantIdentifier> {
-        let custom_grant_address = ptr.as_usize();
-        let process_memory_end = self.mem_end()?.as_usize();
-
-        Some(ProcessCustomGrantIdentifier {
-            offset: process_memory_end - custom_grant_address,
-        })
-    }
 
     /// Use a `ProcessCustomGrantIdentifier` to find the address of the
     /// custom grant.
