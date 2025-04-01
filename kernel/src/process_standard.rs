@@ -1995,7 +1995,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             kernel_memory_break.unsafe_as_ptr() as *mut GrantPointerEntry,
             grant_ptrs_num,
         );
-        for grant_entry in grant_pointers.() {
+        for grant_entry in grant_pointers.iter_mut() {
             grant_entry.driver_num = 0;
             grant_entry.grant_ptr = FluxPtr::null_mut();
         }
