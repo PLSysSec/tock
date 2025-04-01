@@ -156,10 +156,17 @@ impl FluxPtr {
 
     /// # Safety
     #[flux_rs::trusted]
-    #[flux_rs::sig(fn (Self[@s], { isize[@count] | count < s }) -> Self[s - count])]
+    #[flux_rs::sig(fn (Self[@s], { isize[@count] | count + s >= 0 && count + s <= usize::MAX }) -> Self[s - count])]
     pub const unsafe fn offset(self, count: isize) -> Self {
         Self {
             inner: self.inner.offset(count),
+        }
+    }
+
+    #[flux_rs::trusted]
+    pub const fn wrapping_offset(self, count: isize) -> Self {
+        Self {
+            inner: self.inner.wrapping_offset(count),
         }
     }
 

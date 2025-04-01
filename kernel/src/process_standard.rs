@@ -932,7 +932,11 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             return Err(Error::InactiveApp);
         }
         let app_break = self.app_memory_break().map_err(|_| Error::KernelError)?;
-        let new_break = unsafe { app_break.offset(increment) };
+        // VTOCK Bug: No check here and used offset... 
+        // guess it doesn't matter too much because the pointer doesn't seem to be 
+        // used and is checked but this is still UB and should be prevented
+        // at the very least wrapping offset should be used
+        let new_break = app_break.wrapping_offset(increment);
         self.brk(new_break)
     }
 
@@ -1991,7 +1995,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             kernel_memory_break.unsafe_as_ptr() as *mut GrantPointerEntry,
             grant_ptrs_num,
         );
-        for grant_entry in grant_pointers.iter_mut() {
+        for grant_entry in grant_pointers.() {
             grant_entry.driver_num = 0;
             grant_entry.grant_ptr = FluxPtr::null_mut();
         }
