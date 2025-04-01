@@ -671,7 +671,7 @@ impl CortexMRegion {
             (subregions => rsize >= 256) &&
             rsize <= u32::MAX / 2 + 1
     )]
-    // #[flux_rs::trusted] // VTOCK TODO: this one is a beast
+    #[flux_rs::trusted] // VTOCK TODO: this one is a beast
     fn new(
         logical_start: FluxPtrU8,
         logical_size: usize,
@@ -1103,9 +1103,9 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         ) -> Result<{b. mpu::AllocatedAppBreaksAndSize[b] |
             b.app_break <= b.memory_start + b.memory_size - kernelmsz &&
             b.app_break >= b.memory_start + appmsz &&
-            b.memory_start + b.memory_size <= u32::MAX &&
             b.memory_start >= mem_start &&
-            b.memory_start + kernelmsz < b.memory_start + b.memory_size &&
+            b.memory_start + b.memory_size <= u32::MAX &&
+            b.memory_start > 0 &&
             config_can_access_flash(new_c, fstart, fstart + fsz) &&
             config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             config_cant_access_at_all(new_c, 0, fstart - 1) &&

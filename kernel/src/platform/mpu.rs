@@ -300,9 +300,9 @@ pub trait MPU {
         ) -> Result<{b. AllocatedAppBreaksAndSize[b] | 
             b.app_break <= b.memory_start + b.memory_size - kernelmsz &&
             b.app_break >= b.memory_start + appmsz &&
-            b.memory_start + b.memory_size <= u32::MAX &&
             b.memory_start >= mem_start &&
-            b.memory_start + kernelmsz < b.memory_start + b.memory_size &&
+            b.memory_start + b.memory_size <= u32::MAX &&
+            b.memory_start > 0 &&
             <Self as MPU>::config_can_access_flash(new_c, fstart, fstart + fsz) &&
             <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart - 1) &&

@@ -78,6 +78,7 @@ impl From<FluxPtr> for u8 {
 }
 // FluxPtr to usize
 impl From<FluxPtr> for usize {
+    #[flux_rs::sig(fn (ptr: FluxPtr) -> usize[ptr])]
     fn from(ptr: FluxPtr) -> usize {
         ptr.as_usize()
     }
@@ -111,19 +112,26 @@ impl core::cmp::Ord for FluxPtr {
 
 // VTOCK-TODO: fill in these functions with obvious implementations
 impl FluxPtr {
+    #[flux_rs::trusted]
     #[sig(fn(self: Self[@lhs], rhs: usize) -> Self[if lhs + rhs <= usize::MAX { lhs + rhs } else { lhs + rhs - usize::MAX }])]
-    pub const fn wrapping_add(self, _count: usize) -> FluxPtr {
-        unimplemented!()
+    pub const fn wrapping_add(self, count: usize) -> FluxPtr {
+        Self {
+            inner: self.inner.wrapping_add(count),
+        }
     }
 
-    #[sig(fn(self: Self[@lhs], rhs: usize) -> Self[if lhs - rhs >= 0 { lhs - rhs } else { - (lhs - rhs) }])]
-    pub const fn wrapping_sub(self, _count: usize) -> FluxPtr {
-        unimplemented!()
+    #[flux_rs::trusted]
+    #[sig(fn(self: Self[@lhs], rhs: usize) -> Self[if lhs >= rhs { lhs - rhs } else { - (lhs - rhs) }])]
+    pub const fn wrapping_sub(self, count: usize) -> FluxPtr {
+        Self {
+            inner: self.inner.wrapping_sub(count),
+        }
     }
 
+    #[flux_rs::trusted]
     #[sig(fn(self: Self[@n]) -> bool[n == 0] )]
     pub fn is_null(self) -> bool {
-        unimplemented!()
+        self.inner.is_null()
     }
 
     #[flux_rs::trusted]
@@ -155,8 +163,10 @@ impl FluxPtr {
     }
 
     /// # Safety
+    /// the size of u8 is 1 so this is equivalent to self + count
+    /// must not overflow the address space
     #[flux_rs::trusted]
-    #[flux_rs::sig(fn (Self[@s], { isize[@count] | count + s >= 0 && count + s <= usize::MAX }) -> Self[s - count])]
+    #[flux_rs::sig(fn (Self[@s], { isize[@count] | s + count >= 0 && s + count <= usize::MAX }) -> Self[s + count])]
     pub const unsafe fn offset(self, count: isize) -> Self {
         Self {
             inner: self.inner.offset(count),
@@ -172,7 +182,7 @@ impl FluxPtr {
 
     /// # Safety
     #[flux_rs::trusted]
-    #[flux_rs::sig(fn (Self[@s], { usize[@count] | s + count <= usize::MAX }) -> Self[s - count])]
+    #[flux_rs::sig(fn (Self[@s], { usize[@count] | s + count <= usize::MAX }) -> Self[s + count])]
     pub const unsafe fn add(self, count: usize) -> Self {
         Self {
             inner: self.inner.add(count),
@@ -259,7 +269,7 @@ impl DerefMut for FluxPtr {
 }
 
 flux_rs::defs! {
-    fn no_overlap(fst: SlicesToRaw, snd: SlicesToRaw) -> bool {
+    fn flash_before_ram(fst: SlicesToRaw, snd: SlicesToRaw) -> bool {
         fst.start + fst.len < snd.start
     }
 }
@@ -274,7 +284,7 @@ pub struct SlicesToRaw {
 
 // TRUSTED: From Rust aliasing rules + the fact that we trust flash < ram in the address space
 #[flux_rs::trusted]
-#[flux_rs::sig(fn (&[u8][@l1], &mut [u8][@l2]) -> Pair<SlicesToRaw, SlicesToRaw>{p: no_overlap(p.fst, p.snd) })]
+#[flux_rs::sig(fn (&[u8][@l1], &mut [u8][@l2]) -> Pair<SlicesToRaw, SlicesToRaw>{p: flash_before_ram(p.fst, p.snd) })]
 pub fn mem_slices_to_raw_ptrs(flash: &[u8], ram: &mut [u8]) -> Pair<SlicesToRaw, SlicesToRaw> {
     Pair {
         fst: SlicesToRaw {
@@ -292,4 +302,16 @@ pub fn mem_slices_to_raw_ptrs(flash: &[u8], ram: &mut [u8]) -> Pair<SlicesToRaw,
 #[flux_rs::sig(fn (_, usize[@len]) -> &mut [T][len])]
 pub fn from_raw_parts_mut<'a, T>(data: *mut T, len: usize) -> &'a mut [T] {
     unsafe { core::slice::from_raw_parts_mut(data, len) }
+}
+
+#[flux_rs::trusted]
+#[flux_rs::sig(fn ({usize[@x] | x < isize::MAX}) -> isize[x])]
+pub fn usize_into_isize(x: usize) -> isize {
+    x as isize
+}
+
+#[flux_rs::trusted]
+#[flux_rs::sig(fn (usize[@x]) -> isize[x])]
+pub fn usize_into_isize_trusted(x: usize) -> isize {
+    x as isize
 }

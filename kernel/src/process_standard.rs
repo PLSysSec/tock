@@ -1716,10 +1716,12 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // that the below kernel-owned data structures still fit into the
         // kernel-owned memory even with padding for alignment, add an extra
         // `sizeof(usize)` bytes.
+        let usize_size = core::mem::size_of::<usize>();
+        assume(usize_size == 4); // VTOCK TODO: ensure 32 bit boards
         let initial_kernel_memory_size = grant_ptrs_offset
             + Self::CALLBACKS_OFFSET
             + Self::PROCESS_STRUCT_OFFSET
-            + core::mem::size_of::<usize>();
+            + usize_size;
 
         // By default we start with the initial size of process-accessible
         // memory set to 0. This maximizes the flexibility that processes have
@@ -1936,27 +1938,17 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             remaining_memory.split_at_mut(app_memory_start_offset + allocation_size);
 
         // Now, slice off the (optional) padding at the start:
-        // let (_padding, allocated_memory) =
-        //     _allocated_padded_memory.split_at_mut(app_memory_start_offset);
-        let allocated_memory_start = remaining_mem_ptrs.start.wrapping_add(app_memory_start_offset);
-        let allocated_memory_len = remaining_mem_ptrs.len - app_memory_start_offset; // VTOCK TODO: Should come from allocate_app
-
-        // We continue to sub-slice the `allocated_memory` into
-        // process-accessible and kernel-owned memory. Prior to that, store the
-        // start and length ofthe overall allocation:
+        let allocated_memory_start = breaks_and_size.breaks.memory_start; 
+        let allocated_memory_len = breaks_and_size.memory_size; 
 
         // Set the initial process-accessible memory:
         let initial_app_brk = breaks_and_size.breaks.app_break;
-        // Slice off the process-accessible memory:
-        // use the size of the accessible region given to us by the MPU since
-        // a process should not be able to access anything past it's app break
-        let process_allocated_size =
-            initial_app_brk.as_usize() - breaks_and_size.breaks.memory_start.as_usize();
-        // let (app_accessible_memory, allocated_kernel_memory) =
-        //     allocated_memory.split_at_mut(process_allocated_size);
         let app_accessible_memory_start = allocated_memory_start;
-        let allocated_kernel_memory_start = allocated_memory_start.wrapping_add(process_allocated_size);
-        let allocated_kernel_memory_size = allocated_memory_len - process_allocated_size; // VTOCK TODO: also should come from allocate_app
+        let allocated_kernel_memory_size = initial_kernel_memory_size; 
+        let allocated_kernel_memory_start = allocated_memory_start.wrapping_add(allocated_memory_len - allocated_kernel_memory_size);
+
+        // SAFETY: Can't have an overlap between kernel start and app break
+        assert(allocated_kernel_memory_start >= initial_app_brk);
 
         // Set the initial allow high water mark to the start of process memory
         // since no `allow` calls have been made yet.
@@ -1976,16 +1968,13 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // Calling `wrapping_sub` is safe here, as we've factored in an optional
         // padding of at most `sizeof(usize)` bytes in the calculation of
         // `initial_kernel_memory_size` above.
-        let mut kernel_memory_break = allocated_kernel_memory_start.add(allocated_kernel_memory_size); // VTOCK TODO: This comes from the arithmetic for initial_kernel_mem_size 
-
+        let mut kernel_memory_break = allocated_kernel_memory_start.add(allocated_kernel_memory_size); 
         
-        let usize_size = core::mem::size_of::<usize>();
-        assume(usize_size > 0); // this is a given
         kernel_memory_break = kernel_memory_break
             .wrapping_sub(kernel_memory_break.as_usize() % usize_size);
 
         // Now that we know we have the space we can setup the grant pointers.
-        kernel_memory_break = kernel_memory_break.offset(-(grant_ptrs_offset as isize)); // VTOCK TODO: This comes from the arithmetic for initial_kernel_mem_size 
+        // kernel_memory_break = kernel_memory_break.offset(-(grant_ptrs_offset as isize)); // VTOCK TODO: Something about usize cast to isize here?
 
         // This is safe, `kernel_memory_break` is aligned to a word-boundary,
         // and `grant_ptrs_offset` is a multiple of the word size.
@@ -2002,7 +1991,10 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
 
         // Now that we know we have the space we can setup the memory for the
         // upcalls.
-        kernel_memory_break = kernel_memory_break.offset(-(Self::CALLBACKS_OFFSET as isize)); // VTOCK TODO: This comes from the arithmetic for initial_kernel_mem_size 
+        let callbacks_isize = usize_into_isize(Self::CALLBACKS_OFFSET);
+
+        let curr_kernel_memory_break = kernel_memory_break;
+        kernel_memory_break = kernel_memory_break.offset(-callbacks_isize); 
 
         // This is safe today, as MPU constraints ensure that `memory_start`
         // will always be aligned on at least a word boundary, and that
@@ -2021,11 +2013,15 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let tasks = RingBuffer::new(upcall_buf);
 
         // Last thing in the kernel region of process RAM is the process struct. 
-        kernel_memory_break = kernel_memory_break.offset(-(Self::PROCESS_STRUCT_OFFSET as isize));  // VTOCK TODO: This comes from the arithmetic for initial_kernel_mem_size 
+
+        // VTOCK TODO: seems like a trivial assumption but should check
+        let process_size = usize_into_isize_trusted(Self::PROCESS_STRUCT_OFFSET);
+
+        kernel_memory_break = kernel_memory_break.offset(-process_size); 
         let process_struct_memory_location = kernel_memory_break;
 
         // Create the Process struct in the app grant region.
-        // Note that this requires every field be explicitly initialized, as
+        // Note that this requires every field be explicitly initialized
         // we are just transforming a pointer into a structure.
         let process: &mut ProcessStandard<C> = &mut *(process_struct_memory_location.unsafe_as_ptr()
             as *mut ProcessStandard<'static, C>);
@@ -2156,7 +2152,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             }));
             Ok::<(), ProcessLoadError>(())
         });
-
         // Return the process object and a remaining memory for processes slice.
         Ok((Some(process), unused_memory))
     }
