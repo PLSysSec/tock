@@ -601,6 +601,12 @@ impl PartialEq<mpu::Region> for CortexMRegion {
     }
 }
 
+#[flux_rs::trusted]
+#[flux_rs::sig(fn (u8[@mask], usize[@i]) -> u8[bv_bv32_to_int(xor(bv32(mask), bv32(1) << bv32(i)))])]
+fn xor_mask(mask: u8, i: usize) -> u8 {
+    mask ^ (1 << i)
+}
+
 impl CortexMRegion {
     #[flux_rs::sig(
         fn (
@@ -678,10 +684,16 @@ impl CortexMRegion {
         // To compute the mask, we start with all subregions disabled and enable
         // the ones in the inclusive range [min_subregion, max_subregion].
         if let Some((min_subregion, max_subregion)) = subregions {
-            let mask = (min_subregion..=max_subregion).fold(u8::MAX, |res, i| {
-                // Enable subregions bit by bit (1 ^ 1 == 0)
-                res ^ (1 << i)
-            });
+            // let mask = (min_subregion..=max_subregion).fold(u8::MAX, |res, i| {
+            //     // Enable subregions bit by bit (1 ^ 1 == 0)
+            //     res ^ (1 << i)
+            // });
+            let mut mask= u8::MAX; 
+            let mut i = min_subregion;
+            while i <= max_subregion {
+                mask = xor_mask(mask, i);
+                i += 1;
+            }
             attributes += RegionAttributes::SRD().val(mask as u32);
         }
 
