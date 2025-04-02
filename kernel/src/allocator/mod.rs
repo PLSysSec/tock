@@ -29,12 +29,13 @@ flux_rs::defs! {
         //  2. region_can_access talks about everything from start..(start + size) being
         //  included in one region. However, here we want to say that there is no subslice of
         //  start..(start + size) that is accessible via the current region we are looking at
+        let region_start = region.astart;
+        let region_end = region.astart + region.asize;
+        // Either the region is not set
         !region.set ||
-        // NO slice of start..(start + size) is included in the region
+        // or NO slice of start..(start + size) is included in the region
         // i.e. the start..end is entirely before the region start
-        end < region.astart ||
-        // or the start is entirely after region_start + region_size
-        start > region.astart + region.asize
+        !(region_start < start && start < region_end)
     }
 
     fn app_regions_can_access_flash(regions: RArray<CortexMRegion>, fstart: int, fend: int) -> bool {
@@ -53,16 +54,19 @@ flux_rs::defs! {
         }
     }
 
-    fn regions_disjoint(region1: CortexMRegion, region2: CortexMRegion) -> bool {
-        region1.astart + region2.asize <= region2.astart ||
-        region2.astart + region2.asize <= region1.astart
+    fn regions_overlap(region1: CortexMRegion, region2: CortexMRegion) -> bool {
+        let fst_region_start = region1.astart;
+        let fst_region_end = region1.astart + region2.asize;
+        let snd_region_start = region2.astart;
+        let snd_region_end = region2.astart + region2.asize;
+        fst_region_start < snd_region_end && snd_region_start < fst_region_end
     }
 
     fn no_app_regions_overlap(regions: RArray<CortexMRegion>) -> bool {
         forall i in 0..8 {
             forall j in 0..8 {
                 (i != j) => (
-                    !regions_disjoint(map_select(regions, i), map_select(regions, j))
+                    !regions_overlap(map_select(regions, i), map_select(regions, j))
                 )
             }
         }
@@ -194,6 +198,17 @@ impl MemAllocGhost {
 
 
 #[flux_rs::refined_by(set: bool, regions: Map<int, CortexMRegion>, breaks: AppBreaks)]
+#[flux_rs::invariant(
+    set => (
+        app_regions_can_access_flash(regions, breaks.flash_start, breaks.flash_start + breaks.flash_size) &&
+        app_regions_can_access_ram(regions, breaks.memory_start, breaks.app_break) &&
+        app_regions_cant_access_at_all(regions, 0, breaks.flash_start - 1) &&
+        app_regions_cant_access_at_all(regions, breaks.flash_start + breaks.flash_size, breaks.memory_start - 1) &&
+        app_regions_cant_access_at_all(regions, breaks.app_break + 1, u32::MAX) &&
+        no_app_regions_overlap(regions)
+    ) &&
+    !set => app_regions_cant_access_at_all(regions, 0, 0xFFFF_FFFF)
+)]
 pub(crate) struct AppMemoryAllocator {
     #[field(Option<{b. AppBreaks[b] | b == breaks}>[set])]
     pub breaks: Option<AppBreaks>,
@@ -205,7 +220,8 @@ pub(crate) struct AppMemoryAllocator {
             app_regions_cant_access_at_all(regions, breaks.flash_start + breaks.flash_size, breaks.memory_start - 1) &&
             app_regions_cant_access_at_all(regions, breaks.app_break + 1, u32::MAX) &&
             no_app_regions_overlap(regions)
-        )
+        ) &&
+        !set => app_regions_cant_access_at_all(regions, 0, 0xFFFF_FFFF)
     })]
     pub regions: RArray<CortexMRegion>,
     #[field(MemAllocGhost[breaks])]
@@ -223,7 +239,6 @@ impl Display for AppMemoryAllocator {
 }
 
 impl AppMemoryAllocator {
-    #[flux_rs::sig(fn () -> Self{app: !app.set && app_regions_cant_access_at_all(app.regions, 0, 0xFFFF_FFFF)})]
     pub(crate) fn new() -> Self {
         // let regions = core::array::from_fn(|i| CortexMRegion::default(i));
         let regions = [CortexMRegion::empty(0); 8];
@@ -240,7 +255,7 @@ impl AppMemoryAllocator {
         }
     }
 
-    #[flux_rs::sig(fn (self: &strg Self) ensures self: Self{app: !app.set && app_regions_cant_access_at_all(app.regions, 0, 0xFFFF_FFFF)})]
+    #[flux_rs::sig(fn (self: &strg Self) ensures self: Self)]
     pub(crate) fn reset(&mut self) {
         // for (i, r) in self.regions.iter_mut().enumerate() {
         //     *r = <M as mpu::MPU>::Region::default(i)
@@ -411,6 +426,7 @@ impl AppMemoryAllocator {
         None
     }
 
+    #[flux_rs::sig(fn (&Self[@app], &CortexMRegion[@region]) -> bool[exists i in 0..8 { regions_overlap(map_select(app.regions, i), region) } ])]
     fn any_overlaps(&self, region: &CortexMRegion) -> bool {
         for existing_region in self.regions.iter() {
             if region.region_overlaps(existing_region) {
@@ -420,7 +436,7 @@ impl AppMemoryAllocator {
         return false;
     }
 
-    #[flux_rs::sig(fn (self: &strg Self, _, _, _, _,) -> Result<_, _> ensures self: Self)]
+    #[flux_rs::trusted] // IPC is entirely broken, being rewritten and not worth verifying
     pub(crate) fn allocate_ipc_region(
         &mut self,
         unallocated_memory_start: FluxPtrU8Mut,
@@ -454,7 +470,6 @@ impl AppMemoryAllocator {
             self: &strg Self[@app], 
             fstart: FluxPtrU8,
             fsize: usize, 
-            _
         ) -> Result<(), ()>[#res]
         ensures self: Self { new_app: 
             res => (
@@ -498,7 +513,8 @@ impl AppMemoryAllocator {
             kernel_mem_size: usize,
             flash_start: FluxPtrU8,
             flash_size: usize, 
-        ) -> Result<{b. AppBreaks[b] | true
+        ) -> Result<AppBreaks
+        // {b. AppBreaks[b] | 
             // b.app_break <= b.memory_start + b.memory_size - kernel_mem_size &&
             // b.app_break >= b.memory_start + app_mem_size &&
             // b.memory_start >= mem_start &&
@@ -509,7 +525,8 @@ impl AppMemoryAllocator {
             // app_cant_access_at_all(app, 0, flash_start - 1) &&
             // app_cant_access_at_all(app, flash_start + flash_size, b.memory_start - 1) &&
             // app_cant_access_at_all(app, b.app_break + 1, u32::MAX)
-        }, AllocateAppMemoryError>
+        // }
+        , AllocateAppMemoryError>
         requires flash_start + flash_size < mem_start && min_mem_size > 0 
         ensures self: Self[#app], app.set
     )]

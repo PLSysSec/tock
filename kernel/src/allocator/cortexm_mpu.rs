@@ -770,16 +770,17 @@ impl CortexMRegion {
         self.location.is_some()
     }
 
+    #[flux_rs::sig(fn (&Self[@region1], &CortexMRegion[@region2]) -> bool[regions_overlap(region1, region2)])]
     pub(crate) fn region_overlaps(&self, other: &CortexMRegion) -> bool {
         if self.location.is_some() && other.location.is_some() {
             let fst_region_loc = self.location.unwrap();
             let snd_region_loc = other.location.unwrap();
 
-            let fst_region_start = fst_region_loc.accessible_start;
-            let fst_region_end = fst_region_start.wrapping_add(fst_region_loc.accessible_size); 
+            let fst_region_start = fst_region_loc.accessible_start.as_usize();
+            let fst_region_end = fst_region_start + fst_region_loc.accessible_size; 
 
-            let snd_region_start = snd_region_loc.accessible_start;
-            let snd_region_end = snd_region_start.wrapping_add(snd_region_loc.accessible_size);
+            let snd_region_start = snd_region_loc.accessible_start.as_usize();
+            let snd_region_end = snd_region_start + snd_region_loc.accessible_size;
 
             fst_region_start < snd_region_end && snd_region_start < fst_region_end
         } else {
