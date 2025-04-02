@@ -533,9 +533,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
 
     fn setup_mpu(&self) {
         self.app_memory_allocator.map(|am| {
-            // self.chip.mpu().configure_mpu(&breaks_and_config.mpu_config);
-            // am.configure_mpu(self.chip.mpu()) // VTOCK TODO: hmmm
-            todo!()
+            self.chip.mpu().configure_mpu(&am.regions);
         });
     }
 

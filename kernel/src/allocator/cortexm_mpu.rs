@@ -19,7 +19,6 @@ use crate::platform::mpu::AllocatedAppBreaks;
 use crate::utilities::cells::OptionalCell;
 use crate::utilities::math;
 
-// VTOCK-TODO: NUM_REGIONS currently fixed to 8. Need to also handle 16
 flux_rs::defs! {
     fn xor(b: bitvec<32>, a: bitvec<32>) -> bitvec<32> { (a | b) - (a & b) }
     fn bv32(x:int) -> bitvec<32> { bv_int_to_bv32(x) }
@@ -40,12 +39,12 @@ flux_rs::defs! {
     // ctrl
     fn enable(reg:bitvec<32>) -> bool { bit(reg, 0x00000001)}
 
-    // fn mpu_configured_for(mpu: MPU, config: CortexMConfig) -> bool {
-    //     forall i in 0..8 {
-    //         map_select(mpu.regions, i) == rbar(map_select(config.regions, i)) &&
-    //         map_select(mpu.attrs, i) == rasr(map_select(config.regions, i))
-    //     }
-    // }
+    fn mpu_configured_for(mpu: MPU, regions: RArray<CortexMRegion>) -> bool {
+        forall i in 0..8 {
+            map_select(mpu.regions, i) == rbar(map_select(regions, i)) &&
+            map_select(mpu.attrs, i) == rasr(map_select(regions, i))
+        }
+    }
 
     fn enabled_srd_mask(first_subregion: bitvec<32>, last_subregion: bitvec<32>) -> bitvec<32> {
         ((bv32(1) << (last_subregion - first_subregion + 1)) - 1) << first_subregion 
@@ -105,70 +104,7 @@ flux_rs::defs! {
         ) &&
         perms_match_exactly(rasr.value, perms)
     }
-
-    fn region_can_access(region: CortexMRegion, start: int, end: int, perms: mpu::Permissions) -> bool {
-        // region set
-        region.set &&
-        // region's accesible block contains the start..end (exclusive) checked
-        start >= region.astart &&
-        end <= region.astart + region.asize &&
-        // and perms are correct
-        region.perms == perms
-    }
-
-    fn region_cant_access_at_all(region: CortexMRegion, start: int, end: int) -> bool {
-        // WHY is this different than !region_can_access:
-        //  1. We don't want to talk about permissions at all here - it shouldn't be allocated at all
-        //  2. region_can_access talks about everything from start..(start + size) being
-        //  included in one region. However, here we want to say that there is no subslice of
-        //  start..(start + size) that is accessible via the current region we are looking at
-        !region.set ||
-        // NO slice of start..(start + size) is included in the region
-        // i.e. the start..end is entirely before the region start
-        end < region.astart ||
-        // or the start is entirely after region_start + region_size
-        start > region.astart + region.asize
-    }
-
-    // fn config_can_access_flash(config: CortexMConfig, fstart: int, fend: int) -> bool {
-    //     // checks the flash is accessible with read and execute perms
-    //     region_can_access(map_select(config, 2), fstart, fend, mpu::Permissions {r: true, w: false, x: true})
-    // }
-
-    fn can_access_heap_split(region0: CortexMRegion, region1: CortexMRegion, hstart: int, hend: int) -> bool {
-        region0.astart + region0.asize == region1.astart &&
-        hstart >= region0.astart &&
-        hend <= region1.astart + region1.asize &&
-        region0.perms == mpu::Permissions {r: true, w: true, x: false} &&
-        region1.perms == mpu::Permissions {r: true, w: true, x: false}
-    }
-
-    // fn config_can_access_heap(config: CortexMConfig, hstart: int, hend: int) -> bool {
-    //     // checks the heap is accessible with read and write perms
-    //     // either you can access it through 0
-    //     region_can_access(map_select(config, 0), hstart, hend, mpu::Permissions {r: true, w: true, x: false}) ||
-    //     // or its accessible through the combination of 0 and 1
-    //     can_access_heap_split(map_select(config, 0), map_select(config, 1), hstart, hend)
-    // }
-
-    // fn config_cant_access_at_all(config: CortexMConfig, start: int, end: int) -> bool {
-    //     forall i in 0..3 {
-    //         region_cant_access_at_all(map_select(config, i), start, end)
-    //     }
-    // }
-
-    // fn ipc_cant_access_process_mem(config: CortexMConfig, fstart: int, fend: int, hstart: int, hend: int) -> bool {
-    //     forall i in 3..8 {
-    //         region_cant_access_at_all(map_select(config, i), fstart, fend) &&
-    //         region_cant_access_at_all(map_select(config, i), hstart, hend)
-    //     }
-    // }
-
-    fn rnum(region: CortexMRegion) -> int { region.region_no}
-    fn rbar(region: CortexMRegion) -> bitvec<32>{ region.rbar.value }
-    fn rasr(region: CortexMRegion) -> bitvec<32> { region.rasr.value }
 }
-
 
 // VTOCK-TODO: supplementary proof?
 #[flux_rs::sig(fn(n: u32{n < 32}) -> usize {r: r > 0 &&  r <= u32::MAX / 2 + 1})]
@@ -324,7 +260,7 @@ register_bitfields![u32,
 ///
 #[flux_rs::invariant(MIN_REGION_SIZE > 0 && MIN_REGION_SIZE <= u32::MAX / 2 + 1)]
 #[flux_rs::refined_by(ctrl: bitvec<32>, rnr: bitvec<32>, rbar: bitvec<32>, rasr: bitvec<32>, regions: Map<int, bitvec<32>>, attrs: Map<int, bitvec<32>>)]
-pub(crate) struct MPU<const MIN_REGION_SIZE: usize> {
+pub struct MPU<const MIN_REGION_SIZE: usize> {
     /// MMIO reference to MPU registers.
     #[field(MpuRegisters[ctrl, rnr, rbar, rasr, regions, attrs])]
     registers: MpuRegisters,
@@ -562,6 +498,7 @@ impl CortexMRegion {
             }>
         requires minsz > 0 && minsz <= u32::MAX / 2 + 1 && size <= u32::MAX / 2 + 1 && start <= u32::MAX / 2 + 1
     )]
+    #[flux_rs::trusted] // hanging
     pub(crate) fn new_region(
         region_number: usize,
         available_start: FluxPtrU8,
@@ -862,7 +799,7 @@ impl CortexMRegion {
 impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
 
     #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: enable(mpu.ctrl)})]
-    fn enable_app_mpu(&mut self) {
+    pub(crate) fn enable_app_mpu(&mut self) {
         // Enable the MPU, disable it during HardFault/NMI handlers, and allow
         // privileged code access to all unprotected memory.
         self.registers.ctrl.write(
@@ -871,7 +808,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
     }
 
     #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: !enable(mpu.ctrl)})]
-    fn disable_app_mpu(&mut self) {
+    pub(crate) fn disable_app_mpu(&mut self) {
         // The MPU is not enabled for privileged mode, so we don't have to do
         // anything
         self.registers.ctrl.write(Control::ENABLE::CLEAR());
@@ -881,7 +818,8 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
         self.registers.mpu_type.read(Type::DREGION()) as usize
     }
 
-    pub(crate) fn configure_mpu(&mut self, config: &RArray<CortexMRegion>) {
+    #[flux_rs::sig(fn (self: &strg Self[@mpu], &RArray<CortexMRegion>[@regions]) ensures self: Self{c_mpu: mpu_configured_for(c_mpu, regions)})]
+    pub(crate) fn configure_mpu(&mut self, regions: &RArray<CortexMRegion>) {
         // If the hardware is already configured for this app and the app's MPU
         // configuration has not changed, then skip the hardware update.
         // if !self.hardware_is_configured_for.contains(&config.id()) || config.is_dirty() {
@@ -894,9 +832,14 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
         // self.commit_region(config.get_region(5));
         // self.commit_region(config.get_region(6));
         // self.commit_region(config.get_region(7));
-        for region in config.iter() {
-            self.commit_region(region);
+        let mut i = 0;
+        while i < regions.len() {
+            let region = regions.get(i);
+            self.commit_region(&region);
         }
+        // for region in config.iter() {
+        //     self.commit_region(region);
+        // }
         // self.hardware_is_configured_for.set(config.id());
         // config.set_dirty(false);
         // }

@@ -4,10 +4,11 @@
 
 //! Interfaces for implementing microcontrollers in Tock.
 
-use crate::platform::mpu;
+use crate::allocator::cortexm_mpu;
 use crate::syscall;
 use core::fmt::Write;
 
+pub const ARM7_MIN_REGION_SIZE: usize = 32;
 /// Interface for individual MCUs.
 ///
 /// The trait defines chip-specific properties of Tock's operation. These
@@ -18,7 +19,8 @@ use core::fmt::Write;
 /// Each microcontroller should define a struct and implement this trait.
 pub trait Chip {
     /// The particular Memory Protection Unit (MPU) for this chip.
-    type MPU: mpu::MPU;
+    // type MPU: mpu::MPU;
+    const MIN_REGION_SIZE: usize;
 
     /// The implementation of the interface between userspace and the kernel for
     /// this specific chip. Likely this is architecture specific, but individual
@@ -38,7 +40,7 @@ pub trait Chip {
     fn has_pending_interrupts(&self) -> bool;
 
     /// Returns a reference to the implementation for the MPU on this chip.
-    fn mpu(&self) -> &mut Self::MPU;
+    fn mpu(&self) -> &mut cortexm_mpu::MPU<ARM7_MIN_REGION_SIZE>;
 
     /// Returns a reference to the implementation for the interface between
     /// userspace and kernelspace.
