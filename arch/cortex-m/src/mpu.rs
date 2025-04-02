@@ -1473,6 +1473,7 @@ mod test_new {
 
     use super::CortexMRegion;
     use kernel::platform::mpu::Permissions;
+    use flux_support::FluxPtr;
 
     fn usize_to_permissions(i: usize) -> Permissions {
         if i == 0 {
@@ -1494,36 +1495,35 @@ mod test_new {
         
     }
 
-    fn test_without_subregions(region_start: usize, region_size: usize) {
-        for region_number in 0..16 {
-            // all permissions
-            for perm_i in 0..5 {
-                let perm = usize_to_permissions(perm_i);
-                let region = CortexMRegion::new(
-                    0,
-                    0,
-                    region_start,
-                    region_size,
-                    region_number,
-                    None,
-                    perm
-                );
-                test_region(region);
-            }
+    fn test_without_subregions(region_start: usize, region_size: usize, region_number: usize) {
+        // all permissions
+        for perm_i in 0..5 {
+            let perm = usize_to_permissions(perm_i);
+            let region = CortexMRegion::new(
+                FluxPtr::from(0),
+                0,
+                FluxPtr::from(region_start),
+                region_size,
+                region_number,
+                None,
+                perm
+            );
+            test_region(region);
         }
     }
 
-    fn test_with_subregions(region_start: usize, region_size: usize) {
+    fn test_with_subregions(region_start: usize, region_size: usize, region_number: usize) {
         for subregion_start in 0..16 {
             for subregion_end in (subregion_start + 1)..16 {
                 let subregions = Some((subregion_start, subregion_end));
                 // all permissions
                 for perm_i in 0..5 {
                     let perm = usize_to_permissions(perm_i);
+                    // regions
                     let region = CortexMRegion::new(
+                        FluxPtr::from(0),
                         0,
-                        0,
-                        region_start,
+                        FluxPtr::from(region_start),
                         region_size,
                         region_number,
                         subregions,
@@ -1535,7 +1535,8 @@ mod test_new {
         }
     }
 
-    fn create_constrained_inputs() {
+    #[test]
+    fn test_region_new_exhaustive() {
         // Region Size:
         // the region size is a power of two
         // the minimum region size possible is 32
@@ -1552,21 +1553,21 @@ mod test_new {
         // TODO: Make sure this is the case when calls are made. 
 
         // permissions: Can be any enum variants
-        let mut region_size = 32;
         let mut region_size_po2 = 5;
         while region_size_po2 <= 32 {
-            let region_size = 2.pow(region_size_po2);
-            for region_start in 0..(u32::MAX / 2 + 1) {
+            let region_size = 2_usize.pow(region_size_po2);
+            for mut region_start in 0..((u32::MAX / 2 + 1) as usize) {
                 if region_start % region_size != 0 {
                     region_start += region_size - (region_start % region_size);
                 }
-
-                if region_size >= 256 {
-                    // subregions
-                    test_with_subregions(region_start, region_size);
-                } 
-                // 16 regions
-                test_without_subregions(region_start, region_size);
+                for region_number in 0..16 {
+                    if region_size >= 256 {
+                        // subregions
+                        test_with_subregions(region_start as usize, region_size, region_number);
+                    } 
+                    // 16 regions
+                    test_without_subregions(region_start as usize, region_size, region_number);
+                }
             }
             region_size_po2 += 1;
         }
