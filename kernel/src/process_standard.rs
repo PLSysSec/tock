@@ -24,7 +24,7 @@ use crate::debug;
 use crate::errorcode::ErrorCode;
 use crate::kernel::Kernel;
 use crate::platform::chip::Chip;
-use crate::platform::mpu::{self, MPU};
+use crate::platform::mpu::{self};
 use crate::process::BinaryVersion;
 use crate::process::ProcessBinary;
 use crate::process::{Error, FunctionCall, FunctionCallSource, Process, Task};
@@ -1613,19 +1613,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let allocated_memory_start = breaks.memory_start();
         let allocated_memory_len = breaks.memory_size();
 
-        // Set the initial process-accessible memory:
-        let initial_app_brk = breaks.app_break();
-        let app_accessible_memory_start = allocated_memory_start;
-        let allocated_kernel_memory_size = initial_kernel_memory_size; 
-        let allocated_kernel_memory_start = allocated_memory_start.wrapping_add(allocated_memory_len - allocated_kernel_memory_size);
-
-        // SAFETY: Can't have an overlap between kernel start and app break
-        assert(allocated_kernel_memory_start >= initial_app_brk);
-
-        // Set the initial allow high water mark to the start of process memory
-        // since no `allow` calls have been made yet.
-        let initial_allow_high_water_mark = app_accessible_memory_start;
-
         // Set up initial grant region.
         //
         // `kernel_memory_break` is set to the end of kernel-accessible memory
@@ -1640,7 +1627,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // Calling `wrapping_sub` is safe here, as we've factored in an optional
         // padding of at most `sizeof(usize)` bytes in the calculation of
         // `initial_kernel_memory_size` above.
-        let mut kernel_memory_break = allocated_kernel_memory_start.add(allocated_kernel_memory_size); 
+        let mut kernel_memory_break = allocated_memory_start.wrapping_add(allocated_memory_len);
         
         kernel_memory_break = kernel_memory_break
             .wrapping_sub(kernel_memory_break.as_usize() % usize_size);
@@ -1666,7 +1653,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let callbacks_isize = usize_into_isize(Self::CALLBACKS_OFFSET);
 
         kernel_memory_break = kernel_memory_break.offset(-callbacks_isize); 
-        let x = 100;
 
         // This is safe today, as MPU constraints ensure that `memory_start`
         // will always be aligned on at least a word boundary, and that
@@ -1713,16 +1699,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
 
         process.header = pb.header;
 
-        // let breaks = ProcessBreaks {
-        //     mem_start: allocated_memory_start,
-        //     mem_len: allocated_memory_len,
-        //     flash_start: flash_ptrs.start,
-        //     flash_size: flash_ptrs.len,
-        //     kernel_memory_break,
-        //     app_break: initial_app_brk,
-        //     allow_high_water_mark: initial_allow_high_water_mark,
-        // };
-
         process.grant_pointers = MapCell::new(grant_pointers);
 
         process.credential = pb.credential.get();
@@ -1735,20 +1711,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         process.restart_count = Cell::new(0);
         process.completion_code = OptionalCell::empty();
 
-        // let breaks_and_config = BreaksAndMPUConfig {
-        //     mpu_config,
-        //     breaks,
-        //     mpu_regions: [
-        //         Cell::new(None),
-        //         Cell::new(None),
-        //         Cell::new(None),
-        //         Cell::new(None),
-        //         Cell::new(None),
-        //         Cell::new(None),
-        //     ],
-        // };
-
-        // process.breaks_and_config = MapCell::new(breaks_and_config);
         process.app_memory_allocator = MapCell::new(app_memory_alloc);
         process.tasks = MapCell::new(tasks);
 
@@ -1774,8 +1736,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // TODO: https://github.com/tock/tock/issues/1739
         match process.stored_state.map(|stored_state| {
             chip.userspace_kernel_boundary().initialize_process(
-                app_accessible_memory_start,
-                initial_app_brk,
+                breaks.memory_start(),
+                breaks.app_break(),
                 stored_state,
             )
         }) {

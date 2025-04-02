@@ -6,7 +6,7 @@ use crate::{
     platform::mpu, process::{Error, ProcessCustomGrantIdentifier}, utilities::math
 };
 
-mod cortexm_mpu;
+pub mod cortexm_mpu;
 use cortexm_mpu::CortexMRegion;
 
 const MIN_REGION_SIZE: usize = 32;
@@ -26,10 +26,10 @@ pub(crate) enum AllocateAppMemoryError {
     flash_start: int, 
     flash_size: int
 )]
-// #[flux_rs::invariant(flash_start + flash_size < memory_start)]
-// #[flux_rs::invariant(app_break >= high_water_mark)]
-// #[flux_rs::invariant(app_break <= kernel_break)]
-// #[flux_rs::invariant(high_water_mark >= memory_start)]
+#[flux_rs::invariant(flash_start + flash_size < memory_start)]
+#[flux_rs::invariant(app_break >= high_water_mark)]
+#[flux_rs::invariant(app_break <= kernel_break)]
+#[flux_rs::invariant(high_water_mark >= memory_start)]
 pub(crate) struct AppBreaks {
     #[field(FluxPtrU8[memory_start])]
     memory_start: FluxPtrU8,
@@ -78,11 +78,6 @@ impl AppBreaks {
 
     pub(crate) fn kernel_break(&self) -> FluxPtrU8 {
         self.high_water_mark()
-    }
-
-    #[flux_rs::trusted]
-    pub(crate) fn process_ram_size(&self) -> usize {
-        self.app_break.as_usize() - self.memory_start.as_usize()
     }
 
     fn in_app_ram_memory(&self, start: FluxPtrU8, end: FluxPtrU8) -> bool {
@@ -200,7 +195,6 @@ impl AppMemoryAllocator {
         Some(self.breaks?.in_app_ram_memory(start, end))
     }
 
-    #[flux_rs::trusted]
     pub(crate) fn add_shared_readonly_buffer(
         &mut self,
         buf_start_addr: FluxPtrU8Mut,
@@ -222,7 +216,6 @@ impl AppMemoryAllocator {
         }
     }
 
-    #[flux_rs::trusted]
     pub(crate) fn add_shared_readwrite_buffer(
         &mut self,
         buf_start_addr: FluxPtrU8Mut,
@@ -258,10 +251,10 @@ impl AppMemoryAllocator {
     }
 
     #[flux_rs::sig(
-        fn (self: &strg Self[@old_bc], usize, usize) -> Option<{p. FluxPtrU8[p] | p < bc.mem_start + bc.mem_len}>[#opt] 
+        fn (self: &strg Self[@old_bc], usize, usize) -> Option<{p. FluxPtrU8[p] | p < bc.breaks.memory_start + bc.breaks.memory_size}>[#opt] 
             ensures self: Self[#bc],
-                (opt => bc.kernel_break >= bc.app_break) &&
-                (!opt => bc.kernel_break == old_bc.kernel_break)
+                (opt => bc.breaks.kernel_break >= bc.breaks.app_break) &&
+                (!opt => bc.breaks.kernel_break == old_bc.breaks.kernel_break)
     )]
     pub(crate) fn allocate_in_grant_region_internal(
         &mut self,
@@ -310,66 +303,6 @@ impl AppMemoryAllocator {
             Some(new_break)
         }
     }
-
-    pub(crate) fn allocate_in_grant_region(
-        &mut self,
-        size: usize,
-        align: usize,
-    ) -> Option<NonNull<u8>> {
-        // First, compute the candidate new pointer. Note that at this point
-        // we have not yet checked whether there is space for this
-        // allocation or that it meets alignment requirements.
-        let breaks = &mut self.breaks?;
-        let new_break_unaligned = breaks.kernel_break.wrapping_sub(size);
-
-        // Our minimum alignment requirement is two bytes, so that the
-        // lowest bit of the address will always be zero and we can use it
-        // as a flag. It doesn't hurt to increase the alignment (except for
-        // potentially a wasted byte) so we make sure `align` is at least
-        // two.
-        let align = max_usize(align, 2);
-
-        // The alignment must be a power of two, 2^a. The expression
-        // `!(align - 1)` then returns a mask with leading ones, followed by
-        // `a` trailing zeros.
-        let alignment_mask = !(align - 1);
-        let new_break = FluxPtrU8::from(new_break_unaligned.as_usize() & alignment_mask);
-
-        // Verify there is space for this allocation
-        if new_break < breaks.app_break {
-            None
-            // Verify it didn't wrap around
-        } else if new_break > breaks.kernel_break {
-            None
-            // Verify this is compatible with the MPU.
-        } else {
-            // Allocation is valid.
-            // The app break is precisely the end of the process
-            // accessible memory so we don't need to ask the MPU
-            // anything
-
-            // We always allocate down, so we must lower the
-            // kernel_memory_break.
-            breaks.kernel_break = new_break;
-
-            // We need `grant_ptr` as a mutable pointer.
-            let grant_ptr = new_break;
-
-            // ### Safety
-            //
-            // Here we are guaranteeing that `grant_ptr` is not null. We can
-            // ensure this because we just created `grant_ptr` based on the
-            // process's allocated memory, and we know it cannot be null.
-            unsafe { Some(NonNull::new_unchecked(grant_ptr.unsafe_as_ptr())) }
-        }
-    }
-
-    // pub(crate) fn remove_memory_region(
-    //     &mut self,
-    //     _region: <M as mpu::MPU>::Region,
-    // ) -> Result<(), ()> {
-    //     todo!()
-    // }
 
     pub(crate) fn configure_mpu(&mut self, mpu: &mut cortexm_mpu::MPU<MIN_REGION_SIZE>) {
         mpu.configure_mpu(&self.regions);
@@ -517,16 +450,16 @@ impl AppMemoryAllocator {
         flash_start: FluxPtrU8,
         flash_size: usize,
     ) -> Result<AppBreaks, AllocateAppMemoryError> {
-        // let flash_region = self.regions.get(0);
-        // let ram_region = self.regions.get(1);
+        let flash_region = self.regions.get(0);
+        let ram_region = self.regions.get(1);
 
-        // if flash_region.is_set() || ram_region.is_set() {
-        //     // Don't reallocate a process that is already set up
-        //     return Err(AllocateAppMemoryError::HeapError)
-        // }
+        if flash_region.is_set() || ram_region.is_set() {
+            // Don't reallocate a process that is already set up
+            return Err(AllocateAppMemoryError::HeapError)
+        }
 
-        // self.add_flash_region(flash_start, flash_size, mpu)
-        //     .map_err(|_| AllocateAppMemoryError::FlashError)?;
+        self.add_flash_region(flash_start, flash_size)
+            .map_err(|_| AllocateAppMemoryError::FlashError)?;
 
         let ideal_region_size = cmp::min(
             min_memory_size,
@@ -564,10 +497,14 @@ impl AppMemoryAllocator {
         }
 
         self.regions.set(RAM_REGION_NUMBER, region);
-        let kernel_break = memory_start
-            .wrapping_add(total_block_size)
-            .wrapping_sub(initial_kernel_memory_size);
         let high_water_mark = memory_start;
+
+        // compute the kernel break
+        let mut kernel_break = memory_start.wrapping_add(total_block_size).wrapping_sub(initial_kernel_memory_size);
+        // need to factor in the slight difference for alignment
+        let usize_size = core::mem::size_of::<usize>();
+        kernel_break = kernel_break.wrapping_add(usize_size - (kernel_break % usize_size));
+
         let breaks = AppBreaks {
             memory_start,
             memory_size: total_block_size,
@@ -581,7 +518,6 @@ impl AppMemoryAllocator {
         Ok(breaks)
     }
 
-    #[flux_rs::trusted]
     pub(crate) fn update_app_memory(
         &mut self,
         new_app_break: FluxPtrU8Mut,
