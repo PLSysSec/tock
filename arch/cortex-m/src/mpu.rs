@@ -711,7 +711,8 @@ impl CortexMRegion {
             + RegionBaseAddress::VALID::UseRBAR()
             + RegionBaseAddress::REGION().val(region_num as u32);
 
-        let size_value = math::log_base_two_u32_usize(region_size) - 1;
+        // let size_value = math::log_base_two_u32_usize(region_size) - 1;
+        let size_value = math::log_base_two(region_size as u32) - 1;
 
         // Attributes register
         let mut attributes = RegionAttributes::ENABLE::SET()
