@@ -11,7 +11,7 @@
 use core::fmt::Write;
 
 pub mod mpu {
-    pub type MPU = kernel::allocator::cortexm_mpu::MPU<8>;
+    pub type MPU = kernel::allocator::MPU<8>;
 }
 
 pub use cortexm::dwt;

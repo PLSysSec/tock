@@ -105,11 +105,11 @@ impl<'a> kernel::platform::chip::InterruptService for Nrf52DefaultPeripherals<'a
 }
 
 impl<'a, I: InterruptService + 'a> kernel::platform::chip::Chip for NRF52<'a, I> {
-    type MPU = cortexm4::mpu::MPU;
     type UserspaceKernelBoundary = cortexm4::syscall::SysCall;
+    type MPU = cortexm4::mpu::MPU;
 
-    fn mpu(&self) -> &Self::MPU {
-        &self.mpu
+    fn mpu(&self) -> &mut Self::MPU {
+        unsafe { &mut *((&self.mpu) as *const cortexm4::mpu::MPU as *mut cortexm4::mpu::MPU) }
     }
 
     fn userspace_kernel_boundary(&self) -> &Self::UserspaceKernelBoundary {

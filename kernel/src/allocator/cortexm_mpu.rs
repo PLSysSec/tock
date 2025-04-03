@@ -286,7 +286,7 @@ pub struct MPU<const NUM_REGIONS: usize> {
 }
 
 impl<const NUM_REGIONS: usize> MPU<NUM_REGIONS> {
-    pub(crate) const unsafe fn new() -> Self {
+    pub const unsafe fn new() -> Self {
         assume(NUM_REGIONS == 8 || NUM_REGIONS == 16);
         let mpu_addr = 0xE000ED90;
         let mpu_type = ReadWriteU32::new(mpu_addr);

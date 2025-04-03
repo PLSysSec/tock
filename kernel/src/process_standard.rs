@@ -16,7 +16,7 @@ use core::{mem, str};
 #[allow(clippy::wildcard_imports)]
 use flux_support::*;
 
-use crate::allocator::{self, AppMemoryAllocator};
+use crate::allocator::{self, AppMemoryAllocator, IntoCortexMPU};
 use crate::collections::queue::Queue;
 use crate::collections::ring_buffer::RingBuffer;
 use crate::config;
@@ -529,7 +529,11 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
 
     fn setup_mpu(&self) {
         self.app_memory_allocator.map(|am| {
-            self.chip.mpu().configure_mpu(&am.regions);
+            match self.chip.mpu().into_cortex_mpu() {
+                allocator::CortexMpuTypes::Sixteen(mpu) => mpu.configure_mpu(&am.regions),
+                allocator::CortexMpuTypes::Eight(mpu) => mpu.configure_mpu(&am.regions),
+            }
+
         });
     }
 

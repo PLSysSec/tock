@@ -1,5 +1,6 @@
 use core::{cmp, fmt::Display, ptr::NonNull};
 
+use cortexm_mpu::CortexMRegion;
 use flux_support::{max_ptr, max_usize, FluxPtrU8, FluxPtrU8Mut, RArray, FluxPtrExt};
 
 use crate::{
@@ -7,8 +8,30 @@ use crate::{
 };
 
 pub(crate) mod cortexm_mpu;
-#[allow(clippy::wildcard_imports)]
-use cortexm_mpu::*;
+pub use cortexm_mpu::MPU;
+
+pub type MPU8 = MPU<8>;
+impl IntoCortexMPU for MPU8 {
+    fn into_cortex_mpu(&mut self) -> CortexMpuTypes {
+        CortexMpuTypes::Eight(self)
+    }
+}
+
+pub type MPU16 = MPU<16>;
+impl IntoCortexMPU for MPU16 {
+    fn into_cortex_mpu(&mut self) -> CortexMpuTypes {
+        CortexMpuTypes::Sixteen(self)
+    }
+}
+
+pub enum CortexMpuTypes<'a> {
+    Sixteen(&'a mut cortexm_mpu::MPU<16>),
+    Eight(&'a mut cortexm_mpu::MPU<8>),
+}
+
+pub trait IntoCortexMPU {
+    fn into_cortex_mpu(&mut self) -> CortexMpuTypes;
+}
 
 // VTOCK-TODO: NUM_REGIONS currently fixed to 8. Need to also handle 16
 flux_rs::defs! {

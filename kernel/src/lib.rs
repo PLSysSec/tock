@@ -104,6 +104,7 @@ pub const KERNEL_MAJOR_VERSION: u16 = 2;
 /// loaded apps.
 pub const KERNEL_MINOR_VERSION: u16 = 1;
 
+pub mod allocator;
 pub mod capabilities;
 pub mod collections;
 pub mod component;
@@ -124,7 +125,6 @@ pub mod syscall;
 pub mod upcall;
 pub mod utilities;
 
-mod allocator;
 mod config;
 mod kernel;
 mod memop;
