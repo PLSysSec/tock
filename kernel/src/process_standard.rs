@@ -505,28 +505,24 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
 
     fn update_stack_start_pointer(&self, stack_pointer: FluxPtrU8Mut) {
         self.app_memory_allocator.map(|am| {
-            if let (Some(mem_start), Some(mem_end)) = (am.mem_start(), am.mem_end()) {
-                if stack_pointer >= mem_start && stack_pointer < mem_end {
-                    self.debug.map(|debug| {
-                        debug.app_stack_start_pointer = Some(stack_pointer);
+            if stack_pointer >= am.memory_start() && stack_pointer < am.memory_end() {
+                self.debug.map(|debug| {
+                    debug.app_stack_start_pointer = Some(stack_pointer);
 
-                        // We also reset the minimum stack pointer because whatever
-                        // value we had could be entirely wrong by now.
-                        debug.app_stack_min_pointer = Some(stack_pointer);
-                    });
-                }
+                    // We also reset the minimum stack pointer because whatever
+                    // value we had could be entirely wrong by now.
+                    debug.app_stack_min_pointer = Some(stack_pointer);
+                });
             }
         });
     }
 
     fn update_heap_start_pointer(&self, heap_pointer: FluxPtrU8Mut) {
         self.app_memory_allocator.map(|am| {
-            if let (Some(mem_start), Some(mem_end)) = (am.mem_start(), am.mem_end()) {
-                if heap_pointer >= mem_start && heap_pointer < mem_end {
-                    self.debug.map(|debug| {
-                        debug.app_heap_start_pointer = Some(heap_pointer);
-                    });
-                }
+            if heap_pointer >= am.memory_start() && heap_pointer < am.memory_end() {
+                self.debug.map(|debug| {
+                    debug.app_heap_start_pointer = Some(heap_pointer);
+                });
             }
         });
     }
@@ -576,8 +572,8 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
 
         self.app_memory_allocator
             .map_or(Err(Error::KernelError), |am| {
-                let new_breaks = am.update_app_memory(new_break)?;
-                Ok(new_breaks.app_break())
+                am.update_app_memory(new_break)?;
+                Ok(am.app_break())
             })
     }
 
@@ -1171,23 +1167,14 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         self.stored_state.map(|stored_state| {
             // We guarantee the memory bounds pointers provided to the UKB are
             // correct.
-            let maybe_app_break = self.app_memory_break();
-            if maybe_app_break.is_err() {
-                let _ = writer.write_str(
-                    "Uh oh. Somehow the app_memory_break behind a map cell returned an error",
-                );
-                return;
-            }
             self.app_memory_allocator.map(|am| {
-                if let Some(mem_start) = am.mem_start() {
-                    unsafe {
-                        self.chip.userspace_kernel_boundary().print_context(
-                            mem_start,
-                            maybe_app_break.unwrap(),
-                            stored_state,
-                            writer,
-                        );
-                    }
+                unsafe {
+                    self.chip.userspace_kernel_boundary().print_context(
+                        am.memory_start(),
+                        am.app_break(),
+                        stored_state,
+                        writer,
+                    );
                 }
             });
         });
@@ -1449,13 +1436,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         } = mem_slices_to_raw_ptrs(pb.flash, remaining_memory);
 
         // Initialize MPU region configuration.
-        let mut app_memory_alloc = AppMemoryAllocator::new();
-        // let mut mpu_config = match chip.mpu().new_config() {
-        //     Some(mpu_config) => mpu_config,
-        //     None => return Err((ProcessLoadError::MpuConfigurationError, remaining_memory)),
-        // };
 
-        let breaks = match app_memory_alloc.allocate_app_memory(
+        let app_memory_alloc = match AppMemoryAllocator::new_app_alloc(
             remaining_mem_ptrs.start,
             remaining_mem_ptrs.len,
             min_total_memory_size,
@@ -1491,45 +1473,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             }
         };
 
-        // let breaks_and_size = match chip.mpu().allocate_app_memory_regions(
-        //     remaining_mem_ptrs.start,
-        //     remaining_mem_ptrs.len,
-        //     min_total_memory_size,
-        //     min_process_memory_size,
-        //     initial_kernel_memory_size,
-        //     flash_ptrs.start,
-        //     flash_ptrs.len,
-        //     &mut mpu_config,
-        // ) {
-        //     Ok(bnsz) => bnsz,
-        //     Err(mpu::AllocateAppMemoryError::FlashError) => {
-        //         if config::CONFIG.debug_load_processes {
-        //             debug!(
-        //                     "[!] flash={:#010X}-{:#010X} process={:?} - couldn't allocate MPU region for flash",
-        //                     flash_ptrs.start.as_usize(),
-        //                     flash_ptrs.start.as_usize().wrapping_add(flash_ptrs.len).wrapping_sub(1),
-        //                     process_name
-        //                 );
-        //         }
-        //         return Err((ProcessLoadError::MpuInvalidFlashLength, remaining_memory));
-        //     }
-        //     Err(mpu::AllocateAppMemoryError::HeapError) => {
-        //         // Failed to load process. Insufficient memory.
-        //         if config::CONFIG.debug_load_processes {
-        //             debug!(
-        //                     "[!] flash={:#010X}-{:#010X} process={:?} - couldn't allocate memory region of size >= {:#X}",
-        //                     remaining_mem_ptrs.start.as_usize(),
-        //                     remaining_mem_ptrs.start.as_usize().wrapping_add(remaining_mem_ptrs.len).wrapping_sub(1),
-        //                     process_name,
-        //                     min_total_memory_size
-        //                 );
-        //         }
-        //         return Err((ProcessLoadError::NotEnoughMemory, remaining_memory));
-        //     }
-        // };
-
-        let allocation_start = breaks.memory_start();
-        let allocation_size = breaks.memory_size(); 
+        let allocation_start = app_memory_alloc.memory_start();
+        let allocation_size = app_memory_alloc.memory_size(); 
 
         // Determine the offset of the app-owned part of the above memory
         // allocation. An MPU may not place it at the very start of
@@ -1608,8 +1553,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             remaining_memory.split_at_mut(app_memory_start_offset + allocation_size);
 
         // Now, slice off the (optional) padding at the start:
-        let allocated_memory_start = breaks.memory_start();
-        let allocated_memory_len = breaks.memory_size();
+        let allocated_memory_start = app_memory_alloc.memory_start();
+        let allocated_memory_len = app_memory_alloc.memory_size();
 
         // Set up initial grant region.
         //
@@ -1709,6 +1654,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         process.restart_count = Cell::new(0);
         process.completion_code = OptionalCell::empty();
 
+        let app_break = app_memory_alloc.app_break();
+        let memory_start =app_memory_alloc.memory_start();
         process.app_memory_allocator = MapCell::new(app_memory_alloc);
         process.tasks = MapCell::new(tasks);
 
@@ -1734,8 +1681,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // TODO: https://github.com/tock/tock/issues/1739
         match process.stored_state.map(|stored_state| {
             chip.userspace_kernel_boundary().initialize_process(
-                breaks.memory_start(),
-                breaks.app_break(),
+                memory_start,
+                app_break,
                 stored_state,
             )
         }) {
@@ -1816,9 +1763,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // process if this invariant is violated. We avoid allocating
         // a new MPU configuration, as this may eventually exhaust the
         // number of available MPU configurations.
-        let mut app_memory_alloc = self.app_memory_allocator.take().ok_or(ErrorCode::FAIL)?;
-        let app_breaks = app_memory_alloc.breaks.ok_or(ErrorCode::FAIL)?;
-        app_memory_alloc.reset();
+        let app_memory_alloc = self.app_memory_allocator.take().ok_or(ErrorCode::FAIL)?;
+        let app_breaks = app_memory_alloc.breaks;
 
         // RAM and Flash
 
@@ -1858,16 +1804,16 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         //     breaks_and_mpu_config.breaks.flash_size,
         //     &mut breaks_and_mpu_config.mpu_config,
         // );
-        let app_mem = app_memory_alloc.allocate_app_memory(
-            app_breaks.memory_start(),
-            app_breaks.memory_size(),
+        let maybe_app_mem_alloc = AppMemoryAllocator::new_app_alloc(
+            app_breaks.memory_start,
+            app_breaks.memory_size,
             min_process_memory_size,
             min_process_memory_size,
             initial_kernel_memory_size,
-            app_breaks.flash_start(),
-            app_breaks.flash_size(),
+            app_breaks.flash_start,
+            app_breaks.flash_size,
         );
-        let breaks = match app_mem {
+        let app_mem_alloc = match maybe_app_mem_alloc {
             Ok(breaks_and_size) => breaks_and_size,
             Err(allocator::AllocateAppMemoryError::FlashError) => {
                 return Err(ErrorCode::FAIL);
@@ -1884,27 +1830,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // Reset memory pointers now that we know the layout of the process
         // memory and know that we can configure the MPU.
 
-        let app_mpu_mem_start = breaks.memory_start();
-        let app_brk = breaks.app_break();
-        // kernel_brk is calculated backwards from the end of memory the size of
-        // the initial kernel data structures.
-        // let memory_size = breaks.memory_size(); 
-        // let kernel_brk =
-        //     app_mpu_mem_start.as_usize() + memory_size - initial_kernel_memory_size;
-        // let breaks = ProcessBreaks {
-        //     mem_start: app_mpu_mem_start,
-        //     mem_len: memory_size,
-        //     flash_start: breaks.flash_start(),
-        //     flash_size: breaks_and_mpu_config.breaks.flash_size,
-        //     kernel_memory_break: FluxPtr::from(kernel_brk),
-        //     app_break: app_brk,
-        //     allow_high_water_mark: app_mpu_mem_start,
-        // };
-        // let new_breaks_and_mpu_config = BreaksAndMPUConfig {
-        //     breaks,
-        //     mpu_regions: breaks_and_mpu_config.mpu_regions,
-        //     mpu_config: breaks_and_mpu_config.mpu_config,
-        // };
+        let app_mpu_mem_start = app_mem_alloc.memory_start();
+        let app_brk = app_mem_alloc.app_break();
         self.app_memory_allocator.replace(app_memory_alloc);
 
         // Handle any architecture-specific requirements for a process when it
@@ -1934,7 +1861,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         self.state.set(State::Yielded);
 
         // And queue up this app to be restarted.
-        let flash_start = breaks.flash_start();
+        let flash_start = app_breaks.flash_start;
         let app_start = flash_start
             .wrapping_add(self.header.get_app_start_offset() as usize)
             .as_usize();
@@ -1946,9 +1873,9 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             source: FunctionCallSource::Kernel,
             pc: init_fn,
             argument0: app_start,
-            argument1: breaks.memory_start().as_usize(),
-            argument2: breaks.memory_size(),
-            argument3: breaks.app_break().as_usize(),
+            argument1: app_breaks.memory_start.as_usize(),
+            argument2: app_breaks.memory_size,
+            argument3: app_breaks.app_break.as_usize()
         }))
     }
 
@@ -1960,7 +1887,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     fn in_app_owned_memory(&self, buf_start_addr: FluxPtrU8Mut, size: usize) -> Result<bool, ()> {
         let buf_end_addr = buf_start_addr.wrapping_add(size);
         self.app_memory_allocator.map_or(Err(()), |am| {
-            am.in_app_ram_memory(buf_start_addr, buf_end_addr).ok_or(())
+            Ok(am.in_app_ram_memory(buf_start_addr, buf_end_addr))
         })
     }
 
@@ -2015,7 +1942,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     /// The start address of allocated RAM for this process.
     fn mem_start(&self) -> Option<FluxPtrU8Mut> {
         self.app_memory_allocator.map_or(None, |am| {
-            am.mem_start()
+            Some(am.memory_start())
         })
     }
 
@@ -2023,14 +1950,14 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     // #[flux_rs::sig(fn(self: &Self[@p]) -> FluxPtrU8Mut[p.mem_start + p.mem_len])]
     fn mem_end(&self) -> Option<FluxPtrU8Mut> {
         self.app_memory_allocator.map_or(None, |am| {
-            am.mem_end()
+            Some(am.memory_end())
         })
     }
 
     /// The start address of the flash region allocated for this process.
     fn flash_start(&self) -> Option<FluxPtrU8Mut> {
         self.app_memory_allocator.map_or(None, |am| {
-            am.flash_start()
+            Some(am.flash_start())
         })
     }
 
@@ -2040,7 +1967,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     /// and cannot be edited by the process.
     fn flash_non_protected_start(&self) -> Option<FluxPtrU8Mut> {
         self.app_memory_allocator.map_or(None, |am| {
-            Some(am.flash_start()?.wrapping_add(self.header.get_protected_size() as usize))
+            Some(am.flash_start().wrapping_add(self.header.get_protected_size() as usize))
         })
     }
 
@@ -2048,14 +1975,14 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     /// process.
     fn flash_end(&self) -> Option<FluxPtrU8Mut> {
         self.app_memory_allocator.map_or(None, |am| {
-            am.flash_end()
+            Some(am.flash_end())
         })
     }
 
     /// The lowest address of the grant region for the process.
     fn kernel_memory_break(&self) -> Result<FluxPtrU8Mut, ()> {
         self.app_memory_allocator.map_or(Err(()), |am| {
-            am.kernel_break().ok_or(())
+            Ok(am.kernel_break())
         })
     }
 
@@ -2063,7 +1990,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     /// process memory brk.
     fn app_memory_break(&self) -> Result<FluxPtrU8Mut, ()> {
         self.app_memory_allocator.map_or(Err(()), |am| {
-            am.app_break().ok_or(())
+            Ok(am.app_break())
         })
     }
 }

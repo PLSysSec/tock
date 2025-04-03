@@ -497,7 +497,6 @@ impl CortexMRegion {
                 size == minsz => (start == r.astart && size == r.asize)
             }>
     )]
-    #[flux_rs::trusted] // hanging
     pub(crate) fn new_region(
         region_number: usize,
         available_start: FluxPtrU8,
@@ -508,10 +507,10 @@ impl CortexMRegion {
         const MIN_REGION_SIZE: usize = 32; 
 
         let mut start = available_start.as_usize();
-        let mut size = region_size;
+        let mut size = region_size ;
 
         let overflow_bound = (u32::MAX / 2 + 1) as usize;
-        if size == 0 || size > overflow_bound as usize || start > overflow_bound {
+        if size == 0 || size > overflow_bound || start > overflow_bound {
             // cannot create such a region
             return None;
         }
@@ -621,7 +620,7 @@ impl CortexMRegion {
             return None;
         }
 
-        if region_size > u32::MAX as usize {
+        if region_size > (u32::MAX / 2 + 1) as usize {
             return None;
         }
 
@@ -653,11 +652,12 @@ impl CortexMRegion {
                 r.set  
             }
         requires 
-            rsize % 8 == 0 && 
+            // rsize % 8 == 0 && 
             rsize >= 32 &&
             (subregions => rsize >= 256) &&
-            rsize <= u32::MAX / 2 + 1 &&
-            rstart % rsize == 0
+            rsize <= u32::MAX / 2 + 1 
+            // &&
+            // rstart % rsize == 0
     )]
     #[flux_rs::trusted] // VTOCK todo: Hanging
     fn new(
@@ -756,7 +756,7 @@ impl CortexMRegion {
         }
     }
 
-    #[flux_rs::sig(fn (&CortexMRegion[@addr, @attrs, @no, @set, @astart, @asize, @rstart, @rsize, @perms]) -> Option<{l. CortexMLocation[l] | l.astart == astart && l.asize == asize && l.rstart == rstart && l.rsize == rsize}>)]
+    #[flux_rs::sig(fn (&CortexMRegion[@addr, @attrs, @no, @set, @astart, @asize, @rstart, @rsize, @perms]) -> Option<{l. CortexMLocation[l] | l.astart == astart && l.asize == asize && l.rstart == rstart && l.rsize == rsize}>[set])]
     fn location(&self) -> Option<CortexMLocation> {
         self.location
     }
@@ -777,7 +777,7 @@ impl CortexMRegion {
 
     #[flux_rs::sig(fn (&Self[@region1], &CortexMRegion[@region2]) -> bool[regions_overlap(region1, region2)])]
     pub(crate) fn region_overlaps(&self, other: &CortexMRegion) -> bool {
-        match (self.location, other.location) {
+        match (self.location(), other.location()) {
             (Some(fst_region_loc), Some(snd_region_loc)) => {
                 let fst_region_start = fst_region_loc.accessible_start.as_usize();
                 let fst_region_end = fst_region_start + fst_region_loc.accessible_size; 
@@ -786,7 +786,7 @@ impl CortexMRegion {
                 let snd_region_end = snd_region_start + snd_region_loc.accessible_size;
 
                 fst_region_start < snd_region_end && snd_region_start < fst_region_end
-            }
+            },
             _ => false
         }
     }

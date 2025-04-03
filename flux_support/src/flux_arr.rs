@@ -3,6 +3,7 @@ use core::{
     slice::{Iter, IterMut},
 };
 
+#[derive(Clone, Copy)]
 #[flux_rs::opaque]
 #[flux_rs::refined_by(m: Map<int, T>)]
 pub struct RArray<T: Copy + Display> {
