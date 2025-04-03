@@ -85,7 +85,6 @@ flux_rs::defs! {
     fn asize(region: CortexMRegion) -> int { region.asize }
 }
 
-#[allow(dead_code)]
 const MIN_REGION_SIZE: usize = 32;
 
 pub(crate) enum AllocateAppMemoryError {
