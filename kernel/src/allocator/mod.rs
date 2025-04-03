@@ -486,6 +486,10 @@ impl AppMemoryAllocator {
         let app_break = memory_start.wrapping_add(app_memory_size);
 
         // compute the total block size: 
+        // if the process block size is too big fail
+        if app_memory_size + initial_kernel_memory_size > (u32::MAX / 2 + 1) as usize {
+            return Err(AllocateAppMemoryError::HeapError);
+        }
         // make it a power of two to add some space between the app and the kernel regions of memory
         let total_block_size = math::closest_power_of_two_usize(app_memory_size + initial_kernel_memory_size);
 
@@ -497,14 +501,10 @@ impl AppMemoryAllocator {
         }
 
         app_regions.set(RAM_REGION_NUMBER, region);
+
+        // compute breaks
         let high_water_mark = memory_start;
-
-        // compute the kernel break
-        let mut kernel_break = memory_start.wrapping_add(total_block_size).wrapping_sub(initial_kernel_memory_size);
-        // need to factor in the slight difference for alignment
-        let usize_size = core::mem::size_of::<usize>();
-        kernel_break = kernel_break.wrapping_add(usize_size - (kernel_break % usize_size));
-
+        let kernel_break = memory_start.wrapping_add(total_block_size).wrapping_sub(initial_kernel_memory_size);
         let breaks = AppBreaks {
             memory_start,
             memory_size: total_block_size,
