@@ -28,6 +28,7 @@ flux_rs::defs! {
 
     // rbar
     fn rbar_global_region_enabled(reg: bitvec<32>) -> bool { bit(reg, 0x1) }
+    fn rbar_valid_bit_set(reg: bitvec<32>) -> bool { bit(reg, 0x10) }
     fn rbar_region_number(reg: bitvec<32>) -> bitvec<32> { reg & 0xF }
     fn rbar_region_start(reg: bitvec<32>) -> bitvec<32> { reg & 0xFFFF_FFE0 }
 
@@ -96,6 +97,7 @@ flux_rs::defs! {
 
     fn can_access_exactly(rbar: FieldValueU32, rasr: FieldValueU32, rstart: int, rsize: int, astart: int, asize: int, perms: mpu::Permissions) -> bool {
         rbar_global_region_enabled(rbar.value) &&
+        rbar_valid_bit_set(rbar.value) &&
         rbar_region_start(rbar.value) == bv32(rstart) &&
         rasr_region_size(rasr.value) == bv32(rsize) &&
         subregions_enabled_exactly(
@@ -1568,6 +1570,10 @@ mod test_new {
 
     fn region_size_set(rasr: FieldValueU32<RegionAttributes::Register>, region_size: usize) {
         assert!((1 << ((rasr.value() & 0x0000003e) >> 1) + 1) == region_size as u32);
+    }
+
+    fn rbar_valid_set(rbar: FieldValueU32<RegionBaseAddress::Register>) {
+        assert!(rbar.value() & 0x10 != 0);
     }
 
     fn test_region(region: CortexMRegion, region_start: usize, region_size: usize, accessible_start: usize, accessible_size: usize, region_number: usize, perms: Permissions) {
