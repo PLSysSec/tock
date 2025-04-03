@@ -431,7 +431,8 @@ impl AppMemoryAllocator {
             // b.app_break >= b.memory_start + app_mem_size &&
             app.breaks.memory_start >= mem_start &&
             app.breaks.memory_start + app.breaks.memory_size <= u32::MAX &&
-            app.breaks.memory_start > 0
+            app.breaks.memory_start > 0 &&
+            app.breaks.kernel_break == app.breaks.memory_start + app.breaks.memory_size - kernel_mem_size
             // app_can_access_flash(app, flash_start, flash_size) &&
             // app_can_access_ram(app, b.memory_start, b.app_break) &&
             // app_cant_access_at_all(app, 0, flash_start - 1) &&
