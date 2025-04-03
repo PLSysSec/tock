@@ -442,7 +442,6 @@ impl AppMemoryAllocator {
         , AllocateAppMemoryError>
         requires flash_start + flash_size < mem_start && min_mem_size > 0 
     )]
-    #[flux_rs::trusted]
     pub(crate) fn new_app_alloc(
         unallocated_memory_start: FluxPtrU8,
         unallocated_memory_size: usize,
