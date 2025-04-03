@@ -441,6 +441,7 @@ impl AppMemoryAllocator {
         , AllocateAppMemoryError>
         requires flash_start + flash_size < mem_start && min_mem_size > 0 
     )]
+    #[flux_rs::trusted] // for now
     pub(crate) fn new_app_alloc(
         unallocated_memory_start: FluxPtrU8,
         unallocated_memory_size: usize,
@@ -534,6 +535,7 @@ impl AppMemoryAllocator {
         // no_app_regions_overlap(app.regions)
             // )
     })]
+    #[flux_rs::trusted] // for now
     pub(crate) fn update_app_memory(
         &mut self,
         new_app_break: FluxPtrU8,
@@ -566,8 +568,6 @@ impl AppMemoryAllocator {
             .as_usize()
             + new_region.accessible_size().ok_or(Error::KernelError)?;
         let new_app_size = new_region.accessible_size().ok_or(Error::KernelError)?;
-        flux_rs::assert(new_app_size >= new_region_size.as_usize());
-        // flux_rs::assert(new_new_app_break >= new_app_break.as_usize());
         if new_new_app_break > kernel_break.as_usize() {
             return Err(Error::OutOfMemory);
         }

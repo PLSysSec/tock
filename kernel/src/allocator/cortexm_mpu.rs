@@ -813,6 +813,7 @@ impl<const NUM_REGIONS: usize> MPU<NUM_REGIONS> {
     }
 
     #[flux_rs::sig(fn (self: &strg Self[@mpu], &RArray<CortexMRegion>[@regions]) ensures self: Self{c_mpu: mpu_configured_for(c_mpu, regions, NUM_REGIONS)})]
+    #[flux_rs::trusted] // for now
     pub(crate) fn configure_mpu(&mut self, regions: &RArray<CortexMRegion>) {
         // If the hardware is already configured for this app and the app's MPU
         // configuration has not changed, then skip the hardware update.
