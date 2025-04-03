@@ -494,9 +494,8 @@ impl CortexMRegion {
                 r.perms == perms &&
                 r.astart + r.asize <= start + size &&
                 r.asize >= minsz &&
-                (size == minsz => start == r.astart && size == r.asize)
+                size == minsz => (start == r.astart && size == r.asize)
             }>
-        requires minsz > 0 && minsz <= u32::MAX / 2 + 1 && size <= u32::MAX / 2 + 1 && start <= u32::MAX / 2 + 1
     )]
     #[flux_rs::trusted] // hanging
     pub(crate) fn new_region(
@@ -506,10 +505,16 @@ impl CortexMRegion {
         region_size: usize,
         permissions: mpu::Permissions
     ) -> Option<CortexMRegion> {
-        const MIN_REGION_SIZE: usize = 32; // VTOCK TOOD: FIX THIS
+        const MIN_REGION_SIZE: usize = 32; 
 
         let mut start = available_start.as_usize();
         let mut size = region_size;
+
+        let overflow_bound = (u32::MAX / 2 + 1) as usize;
+        if size == 0 || size > overflow_bound as usize || start > overflow_bound {
+            // cannot create such a region
+            return None;
+        }
 
         // Region start always has to align to minimum region size bytes
         if start % MIN_REGION_SIZE != 0 {
@@ -772,19 +777,17 @@ impl CortexMRegion {
 
     #[flux_rs::sig(fn (&Self[@region1], &CortexMRegion[@region2]) -> bool[regions_overlap(region1, region2)])]
     pub(crate) fn region_overlaps(&self, other: &CortexMRegion) -> bool {
-        if self.location.is_some() && other.location.is_some() {
-            let fst_region_loc = self.location.unwrap();
-            let snd_region_loc = other.location.unwrap();
+        match (self.location, other.location) {
+            (Some(fst_region_loc), Some(snd_region_loc)) => {
+                let fst_region_start = fst_region_loc.accessible_start.as_usize();
+                let fst_region_end = fst_region_start + fst_region_loc.accessible_size; 
 
-            let fst_region_start = fst_region_loc.accessible_start.as_usize();
-            let fst_region_end = fst_region_start + fst_region_loc.accessible_size; 
+                let snd_region_start = snd_region_loc.accessible_start.as_usize();
+                let snd_region_end = snd_region_start + snd_region_loc.accessible_size;
 
-            let snd_region_start = snd_region_loc.accessible_start.as_usize();
-            let snd_region_end = snd_region_start + snd_region_loc.accessible_size;
-
-            fst_region_start < snd_region_end && snd_region_start < fst_region_end
-        } else {
-            false
+                fst_region_start < snd_region_end && snd_region_start < fst_region_end
+            }
+            _ => false
         }
     }
 

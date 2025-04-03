@@ -59,7 +59,7 @@ flux_rs::defs! {
         let fst_region_end = region1.astart + region2.asize;
         let snd_region_start = region2.astart;
         let snd_region_end = region2.astart + region2.asize;
-        fst_region_start < snd_region_end && snd_region_start < fst_region_end
+        fst_region_start < snd_region_end && snd_region_start < fst_region_end && region1.set && region2.set
     }
 
     fn no_app_regions_overlap(regions: RArray<CortexMRegion>) -> bool {
@@ -428,10 +428,18 @@ impl AppMemoryAllocator {
 
     #[flux_rs::sig(fn (&Self[@app], &CortexMRegion[@region]) -> bool[exists i in 0..8 { regions_overlap(map_select(app.regions, i), region) } ])]
     fn any_overlaps(&self, region: &CortexMRegion) -> bool {
-        for existing_region in self.regions.iter() {
-            if region.region_overlaps(existing_region) {
+        // for existing_region in self.regions.iter() {
+        //     if region.region_overlaps(existing_region) {
+        //         return true;
+        //     }
+        // }
+        let mut i = 0;
+        while i < self.regions.len() {
+            let existing_region = self.regions.get(i);
+            if region.region_overlaps(&existing_region) {
                 return true;
             }
+            i += 1;
         }
         return false;
     }
@@ -472,12 +480,8 @@ impl AppMemoryAllocator {
             fsize: usize, 
         ) -> Result<(), ()>[#res]
         ensures self: Self { new_app: 
-            res => (
-                set(map_select(new_app.regions, FLASH_REGION_NUMBER)) &&
-                astart(map_select(new_app.regions, FLASH_REGION_NUMBER)) == fstart &&
-                asize(map_select(new_app.regions, FLASH_REGION_NUMBER)) == fsize
-            ) &&
-            (!res => app == new_app)
+            res => app_regions_can_access_flash(new_app.regions, fstart, fstart + fsize) &&
+            !res => app == new_app
         }
     )]
     fn add_flash_region(
@@ -513,22 +517,21 @@ impl AppMemoryAllocator {
             kernel_mem_size: usize,
             flash_start: FluxPtrU8,
             flash_size: usize, 
-        ) -> Result<AppBreaks
-        // {b. AppBreaks[b] | 
+        ) -> Result<{b. AppBreaks[b] | 
             // b.app_break <= b.memory_start + b.memory_size - kernel_mem_size &&
             // b.app_break >= b.memory_start + app_mem_size &&
-            // b.memory_start >= mem_start &&
-            // b.memory_start + b.memory_size <= u32::MAX &&
-            // b.memory_start > 0 &&
+            b.memory_start >= mem_start &&
+            b.memory_start + b.memory_size <= u32::MAX &&
+            b.memory_start > 0
             // app_can_access_flash(app, flash_start, flash_size) &&
             // app_can_access_ram(app, b.memory_start, b.app_break) &&
             // app_cant_access_at_all(app, 0, flash_start - 1) &&
             // app_cant_access_at_all(app, flash_start + flash_size, b.memory_start - 1) &&
             // app_cant_access_at_all(app, b.app_break + 1, u32::MAX)
-        // }
+        }
         , AllocateAppMemoryError>
         requires flash_start + flash_size < mem_start && min_mem_size > 0 
-        ensures self: Self[#app], app.set
+        ensures self: Self[#app]
     )]
     pub(crate) fn allocate_app_memory(
         &mut self,
