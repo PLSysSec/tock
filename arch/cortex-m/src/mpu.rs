@@ -28,7 +28,7 @@ flux_rs::defs! {
 
     // rbar
     fn rbar_global_region_enabled(reg: bitvec<32>) -> bool { bit(reg, 0x1) }
-    fn rbar_region_number(reg: bitvec<32>) -> bitvec<32> { reg & 0x7 }
+    fn rbar_region_number(reg: bitvec<32>) -> bitvec<32> { reg & 0xF }
     fn rbar_region_start(reg: bitvec<32>) -> bitvec<32> { reg & 0xFFFF_FFE0 }
 
     // rasr
@@ -671,8 +671,8 @@ impl CortexMRegion {
                 RegionAttributes::XN::Enable(),
             ),
         };
-        let size_value = math::log_base_two_u32_usize(region_size) - 1;
-        // let size_value = math::log_base_two(region_size as u32) - 1;
+        // let size_value = math::log_base_two_u32_usize(region_size) - 1;
+        let size_value = math::log_base_two(region_size as u32) - 1;
 
         // Attributes register
         RegionAttributes::ENABLE::SET()
@@ -1555,7 +1555,7 @@ mod test_new {
 
     // masks out the first 3 bits of the rbar register
     fn region_number_set(rbar: FieldValueU32<RegionBaseAddress::Register>, region_number: usize) {
-        assert!(rbar.value() & 0x7 == region_number as u32)
+        assert!(rbar.value() & 0xF == region_number as u32)
     }
 
     fn global_region_enabled(rasr: FieldValueU32<RegionAttributes::Register>) {
@@ -1640,7 +1640,7 @@ mod test_new {
         // TODO: Make sure this is the case when calls are made. 
 
         // permissions: Can be any enum variants
-        let mut region_size_po2 = 8;
+        let mut region_size_po2 = 5;
         while region_size_po2 <= 32 {
             let region_size = 2_usize.pow(region_size_po2);
             for mut region_start in 0..((u32::MAX / 2 + 1) as usize) {
@@ -1653,7 +1653,7 @@ mod test_new {
                 };
 
                 // 8 regions only
-                for region_number in 0..8 {
+                for region_number in 0..16 {
                     if region_size >= 256 {
                         // subregions
                         test_with_subregions(region_start as usize, region_size, region_number);
