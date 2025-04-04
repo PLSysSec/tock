@@ -292,12 +292,13 @@ const MPU_BASE_ADDRESS: usize = 0xE000ED90;
 impl<const NUM_REGIONS: usize> MPU<NUM_REGIONS> {
     pub const unsafe fn new() -> Self {
         assume(NUM_REGIONS == 8 || NUM_REGIONS == 16);
+        let usize_size = size_of::<usize>();
         let mpu_type = ReadOnlyU32::new(MPU_BASE_ADDRESS);
-        let ctrl = ReadWriteU32::new(MPU_BASE_ADDRESS + 4);
-        let rnr = ReadWriteU32::new(MPU_BASE_ADDRESS + 8);
-        let rbar = ReadWriteU32::new(MPU_BASE_ADDRESS + 12);
-        let rasr = ReadWriteU32::new(MPU_BASE_ADDRESS + 16);
-        let regs = MpuRegisters {
+        let ctrl = ReadWriteU32::new(MPU_BASE_ADDRESS + usize_size);
+        let rnr = ReadWriteU32::new(MPU_BASE_ADDRESS + 2 * usize_size);
+        let rbar = ReadWriteU32::new(MPU_BASE_ADDRESS + 3 * usize_size);
+        let rasr = ReadWriteU32::new(MPU_BASE_ADDRESS + 4 * usize_size);
+        let registers = MpuRegisters {
             mpu_type,
             ctrl,
             rnr,
@@ -307,7 +308,7 @@ impl<const NUM_REGIONS: usize> MPU<NUM_REGIONS> {
         };
 
         Self {
-            registers: regs,
+            registers,
             config_count: Cell::new(NonZeroUsize::MIN),
             hardware_is_configured_for: OptionalCell::empty(),
         }
