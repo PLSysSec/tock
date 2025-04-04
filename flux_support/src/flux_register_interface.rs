@@ -3,7 +3,6 @@ use core::clone::Clone;
 use core::marker::Copy;
 use core::ops::{Add, AddAssign};
 use core::prelude::rust_2021::derive;
-use core::unimplemented;
 pub use tock_registers::debug;
 pub use tock_registers::fields::TryFromValue;
 use tock_registers::fields::{Field, FieldValue};
@@ -120,8 +119,15 @@ pub struct ReadWriteU32<R: RegisterLongName = ()> {
 
 #[allow(dead_code)]
 impl<R: RegisterLongName> ReadWriteU32<R> {
-    pub const fn new(_addr: usize) -> Self {
-        unimplemented!()
+    #[flux_rs::trusted]
+    pub const fn new(addr: usize) -> ReadWriteU32<R> {
+        ReadWriteU32 {
+            inner: unsafe { core::ptr::read(addr as *const ReadWrite<u32, R>) },
+        }
+        // // Self {
+        // //     inner: ReadWrite<u32, R>::
+        // // }
+        // unimplemented!()
     }
 
     #[flux_rs::trusted]

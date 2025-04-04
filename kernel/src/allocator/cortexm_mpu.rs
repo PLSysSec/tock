@@ -18,6 +18,7 @@ use crate::platform::mpu::AllocateAppMemoryError;
 use crate::platform::mpu::AllocatedAppBreaks;
 use crate::utilities::cells::OptionalCell;
 use crate::utilities::math;
+use crate::utilities::StaticRef;
 
 use super::MIN_REGION_SIZE;
 
@@ -285,15 +286,18 @@ pub struct MPU<const NUM_REGIONS: usize> {
     hardware_is_configured_for: OptionalCell<NonZeroUsize>,
 }
 
+const MPU_BASE_ADDRESS: usize = 0xE000ED90;
+// const MPU_BASE_ADDRESS: StaticRef<MpuRegisters> =
+//     unsafe { StaticRef::new(0xE000ED90 as *const MpuRegisters) };
+
 impl<const NUM_REGIONS: usize> MPU<NUM_REGIONS> {
     pub const unsafe fn new() -> Self {
         assume(NUM_REGIONS == 8 || NUM_REGIONS == 16);
-        let mpu_addr = 0xE000ED90;
-        let mpu_type = ReadWriteU32::new(mpu_addr);
-        let ctrl = ReadWriteU32::new(mpu_addr + 4);
-        let rnr = ReadWriteU32::new(mpu_addr + 8);
-        let rbar = ReadWriteU32::new(mpu_addr + 12);
-        let rasr = ReadWriteU32::new(mpu_addr + 16);
+        let mpu_type = ReadWriteU32::new(MPU_BASE_ADDRESS);
+        let ctrl = ReadWriteU32::new(MPU_BASE_ADDRESS + 4);
+        let rnr = ReadWriteU32::new(MPU_BASE_ADDRESS + 8);
+        let rbar = ReadWriteU32::new(MPU_BASE_ADDRESS + 12);
+        let rasr = ReadWriteU32::new(MPU_BASE_ADDRESS + 16);
         let regs = MpuRegisters {
             mpu_type,
             ctrl,

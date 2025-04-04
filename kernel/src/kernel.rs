@@ -133,7 +133,6 @@ impl Kernel {
     where
         F: FnOnce(&dyn process::Process) -> R,
     {
-        // unimplemented!()
         match self.get_process(processid) {
             Some(process) => closure(process),
             None => default,
