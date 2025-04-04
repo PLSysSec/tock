@@ -13,7 +13,7 @@ pub fn assume(b: bool) {
     }
 }
 
-#[flux::opaque]
+#[flux_rs::opaque]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FluxPtr {
     _inner: *mut u8,
