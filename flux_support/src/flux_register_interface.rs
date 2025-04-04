@@ -43,6 +43,11 @@ impl<R: RegisterLongName> FieldU32<R> {
             inner: FieldValue::<u32, R>::new(self.inner.mask, self.inner.shift, value),
         }
     }
+
+    #[flux_rs::trusted]
+    pub fn into_inner(self) -> Field<u32, R> {
+        self.inner
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -75,6 +80,11 @@ impl<R: RegisterLongName> FieldValueU32<R> {
     #[flux_rs::sig(fn(self: &Self[@mask, @_value]) -> u32[bv_bv32_to_int(mask)])]
     pub fn mask(&self) -> u32 {
         self.inner.mask
+    }
+
+    #[flux_rs::trusted]
+    pub fn into_inner(self) -> FieldValue<u32, R> {
+        self.inner
     }
 
     #[inline]

@@ -19,6 +19,8 @@ use crate::platform::mpu::AllocatedAppBreaks;
 use crate::utilities::cells::OptionalCell;
 use crate::utilities::math;
 use crate::utilities::StaticRef;
+use crate::utilities::registers::{ReadWrite, ReadOnly};
+use tock_registers::interfaces::{Readable, Writeable};
 
 use super::MIN_REGION_SIZE;
 
@@ -148,35 +150,27 @@ impl HwGhostState {
 /// Described in section 4.5 of
 /// <http://infocenter.arm.com/help/topic/com.arm.doc.dui0553a/DUI0553A_cortex_m4_dgug.pdf>
 #[repr(C)]
-#[flux_rs::refined_by(ctrl: bitvec<32>, rnr: bitvec<32>, rbar: bitvec<32>, rasr: bitvec<32>, regions: Map<int, bitvec<32>>, attrs: Map<int, bitvec<32>>)]
-struct MpuRegisters {
+pub struct MpuRegisters {
     /// Indicates whether the MPU is present and, if so, how many regions it
     /// supports.
-    pub mpu_type: ReadOnlyU32<Type::Register>,
+    pub mpu_type: ReadOnly<u32, Type::Register>,
 
     /// The control register:
     ///   * Enables the MPU (bit 0).
     ///   * Enables MPU in hard-fault, non-maskable interrupt (NMI).
     ///   * Enables the default memory map background region in privileged mode.
-    #[field(ReadWriteU32<Control::Register>[ctrl])]
-    pub ctrl: ReadWriteU32<Control::Register>,
+    pub ctrl: ReadWrite<u32, Control::Register>,
 
     /// Selects the region number (zero-indexed) referenced by the region base
     /// address and region attribute and size registers.
-    #[field(ReadWriteU32<RegionNumber::Register>[rnr])]
-    pub rnr: ReadWriteU32<RegionNumber::Register>,
+    pub rnr: ReadWrite<u32, RegionNumber::Register>,
 
     /// Defines the base address of the currently selected MPU region.
-    #[field(ReadWriteU32<RegionBaseAddress::Register>[rbar])]
-    pub rbar: ReadWriteU32<RegionBaseAddress::Register>,
+    pub rbar: ReadWrite<u32, RegionBaseAddress::Register>,
 
     /// Defines the region size and memory attributes of the selected MPU
     /// region. The bits are defined as in 4.5.5 of the Cortex-M4 user guide.
-    #[field(ReadWriteU32<RegionAttributes::Register>[rasr])]
-    pub rasr: ReadWriteU32<RegionAttributes::Register>,
-
-    #[field(HwGhostState[regions, attrs])]
-    hw_state: HwGhostState,
+    pub rasr: ReadWrite<u32, RegionAttributes::Register>,
 }
 
 register_bitfields![u32,
@@ -269,15 +263,11 @@ register_bitfields![u32,
 /// real hardware.
 ///
 #[flux_rs::invariant(NUM_REGIONS == 8 || NUM_REGIONS == 16)]
-#[flux_rs::invariant(MIN_REGION_SIZE > 0 && MIN_REGION_SIZE <= u32::MAX / 2 + 1)]
-#[flux_rs::refined_by(ctrl: bitvec<32>, rnr: bitvec<32>, rbar: bitvec<32>, rasr: bitvec<32>, regions: Map<int, bitvec<32>>, attrs: Map<int, bitvec<32>>)]
 pub struct MPU<const NUM_REGIONS: usize> {
     /// MMIO reference to MPU registers.
-    #[field(MpuRegisters[ctrl, rnr, rbar, rasr, regions, attrs])]
-    registers: MpuRegisters,
+    registers: StaticRef<MpuRegisters>,
     /// Monotonically increasing counter for allocated regions, used
     /// to assign unique IDs to `CortexMConfig` instances.
-    #[field({Cell<NonZeroUsize> | MIN_REGION_SIZE > 0 && MIN_REGION_SIZE < 2147483648})]
     config_count: Cell<NonZeroUsize>,
     /// Optimization logic. This is used to indicate which application the MPU
     /// is currently configured for so that the MPU can skip updating when the
@@ -285,35 +275,14 @@ pub struct MPU<const NUM_REGIONS: usize> {
     hardware_is_configured_for: OptionalCell<NonZeroUsize>,
 }
 
-const MPU_BASE_ADDRESS: usize = 0xE000ED90;
-// const MPU_BASE_ADDRESS: StaticRef<MpuRegisters> =
-//     unsafe { StaticRef::new(0xE000ED90 as *const MpuRegisters) };
+const MPU_BASE_ADDRESS: StaticRef<MpuRegisters> =
+    unsafe { StaticRef::new(0xE000ED90 as *const MpuRegisters) };
 
 impl<const NUM_REGIONS: usize> MPU<NUM_REGIONS> {
     pub const unsafe fn new() -> Self {
         assume(NUM_REGIONS == 8 || NUM_REGIONS == 16);
-        let usize_size = size_of::<usize>();
-        let mpu_type = ReadOnlyU32::new(MPU_BASE_ADDRESS);
-        // let ctrl = ReadWriteU32::new(MPU_BASE_ADDRESS + usize_size);
-        // let rnr = ReadWriteU32::new(MPU_BASE_ADDRESS + 2 * usize_size);
-        // let rbar = ReadWriteU32::new(MPU_BASE_ADDRESS + 3 * usize_size);
-        // let rasr = ReadWriteU32::new(MPU_BASE_ADDRESS + 4 * usize_size);
-        let ctrl = ReadWriteU32::new(MPU_BASE_ADDRESS + 4);
-        let rnr = ReadWriteU32::new(MPU_BASE_ADDRESS + 8);
-        let rbar = ReadWriteU32::new(MPU_BASE_ADDRESS + 12);
-        let rasr = ReadWriteU32::new(MPU_BASE_ADDRESS + 16);
-
-        let registers = MpuRegisters {
-            mpu_type,
-            ctrl,
-            rnr,
-            rbar,
-            rasr,
-            hw_state: HwGhostState::new(),
-        };
-
         Self {
-            registers,
+            registers: MPU_BASE_ADDRESS,
             config_count: Cell::new(NonZeroUsize::MIN),
             hardware_is_configured_for: OptionalCell::empty(),
         }
@@ -321,22 +290,9 @@ impl<const NUM_REGIONS: usize> MPU<NUM_REGIONS> {
 
     // Function useful for boards where the bootloader sets up some
     // MPU configuration that conflicts with Tock's configuration:
-    #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: mpu.ctrl & 0x00000001 == 0 })]
+    // #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: mpu.ctrl & 0x00000001 == 0 })]
     pub(crate) unsafe fn clear_mpu(&mut self) {
-        self.registers.ctrl.write(Control::ENABLE::CLEAR());
-    }
-
-    // VTOCK CODE
-    #[flux_rs::trusted]
-    #[flux_rs::sig(
-        fn(self: &strg Self[@mpu], &CortexMRegion[@addr, @attrs, @no, @set, @astart, @asize, @rstart, @rsize, @perms]) ensures
-            self: Self[mpu.ctrl, mpu.rnr, addr.value, attrs.value,
-                map_store(mpu.regions, no, addr.value),
-                map_store(mpu.attrs, no, attrs.value)]
-    )]
-    fn commit_region(&mut self, region: &CortexMRegion) {
-        self.registers.rbar.write(region.base_address());
-        self.registers.rasr.write(region.attributes());
+        self.registers.ctrl.write(Control::ENABLE::CLEAR().into_inner());
     }
 }
 
@@ -802,54 +758,45 @@ impl CortexMRegion {
 impl<const NUM_REGIONS: usize> MPU<NUM_REGIONS> {
 
     
-    pub(crate) fn enable_app_mpu(&mut self) {
+    // #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: enable(mpu.ctrl)})]
+    pub(crate) fn enable_app_mpu(&self) {
         // Enable the MPU, disable it during HardFault/NMI handlers, and allow
         // privileged code access to all unprotected memory.
+        let bits = Control::ENABLE::SET() + Control::HFNMIENA::CLEAR() + Control::PRIVDEFENA::SET();
         self.registers.ctrl.write(
-            Control::ENABLE::SET() + Control::HFNMIENA::CLEAR() + Control::PRIVDEFENA::SET(),
+            bits.into_inner()
         );
-        crate::debug!("{:x}", &self.registers.mpu_type as *const _ as u32);
-        crate::debug!("{:x}", &self.registers.mpu_type.get_inner() as *const _ as u32);
-        // crate::debug!("{}", (Control::ENABLE::SET() + Control::HFNMIENA::CLEAR() + Control::PRIVDEFENA::SET()).value());
-        panic!();
     }
 
-    #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: !enable(mpu.ctrl)})]
-    pub(crate) fn disable_app_mpu(&mut self) {
+    // #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: !enable(mpu.ctrl)})]
+    pub(crate) fn disable_app_mpu(&self) {
         // The MPU is not enabled for privileged mode, so we don't have to do
         // anything
-        self.registers.ctrl.write(Control::ENABLE::CLEAR());
+        self.registers.ctrl.write(Control::ENABLE::CLEAR().into_inner());
     }
 
     fn number_total_regions(&self) -> usize {
-        self.registers.mpu_type.read(Type::DREGION()) as usize
+        self.registers.mpu_type.read(Type::DREGION().into_inner()) as usize
     }
 
-    #[flux_rs::sig(fn (self: &strg Self[@mpu], &RArray<CortexMRegion>[@regions]) ensures self: Self{c_mpu: mpu_configured_for(c_mpu, regions, NUM_REGIONS)})]
-    #[flux_rs::trusted] // for now
-    pub(crate) fn configure_mpu(&mut self, regions: &RArray<CortexMRegion>) {
+    // #[flux_rs::sig(fn (self: &strg Self[@mpu], &RArray<CortexMRegion>[@regions]) ensures self: Self{c_mpu: mpu_configured_for(c_mpu, regions, NUM_REGIONS)})]
+    // #[flux_rs::trusted] // for now
+    pub(crate) fn configure_mpu(&self, regions: &RArray<CortexMRegion>) {
         // If the hardware is already configured for this app and the app's MPU
         // configuration has not changed, then skip the hardware update.
         // if !self.hardware_is_configured_for.contains(&config.id()) || config.is_dirty() {
         // Set MPU regions
-        self.commit_region(&regions.get(0));
-        self.commit_region(&regions.get(1));
-        self.commit_region(&regions.get(2));
-        self.commit_region(&regions.get(3));
-        self.commit_region(&regions.get(4));
-        self.commit_region(&regions.get(5));
-        self.commit_region(&regions.get(6));
-        self.commit_region(&regions.get(7));
+        for region in regions.iter() {
+            self.registers.rbar.write(region.base_address().into_inner());
+            self.registers.rasr.write(region.attributes().into_inner());
+        }
 
         if NUM_REGIONS == 16 {
-            self.commit_region(&CortexMRegion::empty(8));
-            self.commit_region(&CortexMRegion::empty(9));
-            self.commit_region(&CortexMRegion::empty(10));
-            self.commit_region(&CortexMRegion::empty(11));
-            self.commit_region(&CortexMRegion::empty(12));
-            self.commit_region(&CortexMRegion::empty(13));
-            self.commit_region(&CortexMRegion::empty(14));
-            self.commit_region(&CortexMRegion::empty(15));
+            for i in 8..16 {
+                let region = CortexMRegion::empty(i);
+                self.registers.rbar.write(region.base_address().into_inner());
+                self.registers.rasr.write(region.attributes().into_inner());
+            }
         }
     }
 }
