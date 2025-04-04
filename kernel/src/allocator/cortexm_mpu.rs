@@ -294,10 +294,15 @@ impl<const NUM_REGIONS: usize> MPU<NUM_REGIONS> {
         assume(NUM_REGIONS == 8 || NUM_REGIONS == 16);
         let usize_size = size_of::<usize>();
         let mpu_type = ReadOnlyU32::new(MPU_BASE_ADDRESS);
-        let ctrl = ReadWriteU32::new(MPU_BASE_ADDRESS + usize_size);
-        let rnr = ReadWriteU32::new(MPU_BASE_ADDRESS + 2 * usize_size);
-        let rbar = ReadWriteU32::new(MPU_BASE_ADDRESS + 3 * usize_size);
-        let rasr = ReadWriteU32::new(MPU_BASE_ADDRESS + 4 * usize_size);
+        // let ctrl = ReadWriteU32::new(MPU_BASE_ADDRESS + usize_size);
+        // let rnr = ReadWriteU32::new(MPU_BASE_ADDRESS + 2 * usize_size);
+        // let rbar = ReadWriteU32::new(MPU_BASE_ADDRESS + 3 * usize_size);
+        // let rasr = ReadWriteU32::new(MPU_BASE_ADDRESS + 4 * usize_size);
+        let ctrl = ReadWriteU32::new(MPU_BASE_ADDRESS + 4);
+        let rnr = ReadWriteU32::new(MPU_BASE_ADDRESS + 8);
+        let rbar = ReadWriteU32::new(MPU_BASE_ADDRESS + 12);
+        let rasr = ReadWriteU32::new(MPU_BASE_ADDRESS + 16);
+
         let registers = MpuRegisters {
             mpu_type,
             ctrl,
@@ -796,13 +801,17 @@ impl CortexMRegion {
 
 impl<const NUM_REGIONS: usize> MPU<NUM_REGIONS> {
 
-    #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: enable(mpu.ctrl)})]
+    
     pub(crate) fn enable_app_mpu(&mut self) {
         // Enable the MPU, disable it during HardFault/NMI handlers, and allow
         // privileged code access to all unprotected memory.
         self.registers.ctrl.write(
             Control::ENABLE::SET() + Control::HFNMIENA::CLEAR() + Control::PRIVDEFENA::SET(),
         );
+        crate::debug!("{:x}", &self.registers.mpu_type as *const _ as u32);
+        crate::debug!("{:x}", &self.registers.mpu_type.get_inner() as *const _ as u32);
+        // crate::debug!("{}", (Control::ENABLE::SET() + Control::HFNMIENA::CLEAR() + Control::PRIVDEFENA::SET()).value());
+        panic!();
     }
 
     #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: !enable(mpu.ctrl)})]

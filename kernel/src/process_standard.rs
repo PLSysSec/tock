@@ -1131,26 +1131,28 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
     }
 
     fn get_addresses(&self) -> Result<ProcessAddresses, ()> {
-        Ok(ProcessAddresses {
-            flash_start: self.flash_start().ok_or(())?.as_usize(),
-            flash_non_protected_start: self.flash_non_protected_start().ok_or(())?.as_usize(),
-            flash_integrity_end: ((self.flash_start().ok_or(())?.as_usize())
-                + (self.header.get_binary_end() as usize))
-                .as_fluxptr(),
-            flash_end: self.flash_end().ok_or(())?.as_usize(),
-            sram_start: self.mem_start().ok_or(())?.as_usize(),
-            sram_app_brk: self.app_memory_break()?.as_usize(),
-            sram_grant_start: self.kernel_memory_break()?.as_usize(),
-            sram_end: self.mem_end().ok_or(())?.as_usize(),
-            sram_heap_start: self.debug.map_or(None, |debug| {
-                debug.app_heap_start_pointer.map(|p| p.as_usize())
-            }),
-            sram_stack_top: self.debug.map_or(None, |debug| {
-                debug.app_stack_start_pointer.map(|p| p.as_usize())
-            }),
-            sram_stack_bottom: self.debug.map_or(None, |debug| {
-                debug.app_stack_min_pointer.map(|p| p.as_usize())
-            }),
+        self.app_memory_allocator.map_or(Err(()), |am| {
+            crate::debug!("The breaks in get addresses are: {:?}", am.breaks);
+            Ok(ProcessAddresses {
+                flash_start: am.flash_start().as_usize(),
+                flash_non_protected_start: am.flash_start().wrapping_add(self.header.get_protected_size() as usize).as_usize(),
+                flash_integrity_end: (am.flash_start().as_u32() + self.header.get_binary_end()) as usize,
+                flash_end: am.flash_end().as_usize(),
+                sram_start: am.memory_start().as_usize(),
+                sram_app_brk: am.app_break().as_usize(),
+                sram_grant_start: am.kernel_break().as_usize(),
+                sram_end: am.memory_end().as_usize(),
+                sram_heap_start: self.debug.map_or(None, |debug| {
+                    debug.app_heap_start_pointer.map(|p| p.as_usize())
+                }),
+                sram_stack_top: self.debug.map_or(None, |debug| {
+                    debug.app_stack_start_pointer.map(|p| p.as_usize())
+                }),
+                sram_stack_bottom: self.debug.map_or(None, |debug| {
+                    debug.app_stack_min_pointer.map(|p| p.as_usize())
+                }),
+            })
+
         })
     }
 

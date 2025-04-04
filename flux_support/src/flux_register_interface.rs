@@ -131,6 +131,11 @@ impl<R: RegisterLongName> ReadOnlyU32<R> {
     pub fn read(&self, field: FieldU32<R>) -> u32 {
         unsafe { (*self.inner).read(field.inner) }
     }
+
+    #[flux_rs::trusted]
+    pub fn get_inner(&self) -> &ReadOnly<u32, R> {
+        unsafe { &*self.inner }
+    }
 }
 
 #[allow(dead_code)]

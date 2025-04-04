@@ -1120,7 +1120,7 @@ pub struct ProcessAddresses {
     /// is covered by integrity; the integrity region is [flash_start -
     /// flash_integrity_end). Footers are stored in the flash after
     /// flash_integrity_end.
-    pub flash_integrity_end: FluxPtrU8Mut,
+    pub flash_integrity_end: usize,
     /// The address immediately after the end of the region allocated for this
     /// process in nonvolatile memory.
     pub flash_end: usize,
