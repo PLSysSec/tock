@@ -34,7 +34,7 @@ use crate::syscall::{Syscall, YieldCall};
 use crate::syscall_driver::CommandReturn;
 use crate::upcall::{Upcall, UpcallId};
 use crate::utilities::cells::NumericCellExt;
-
+use flux_support::*;
 /// Threshold in microseconds to consider a process's timeslice to be exhausted.
 /// That is, Tock will skip re-scheduling a process if its remaining timeslice
 /// is less than this threshold.
@@ -842,7 +842,7 @@ impl Kernel {
                         // so we can safely call `set_byte()`.
                         unsafe {
                             let address = param_a as *mut u8;
-                            process.set_byte(address, has_tasks as u8);
+                            process.set_byte(address.as_fluxptr(), has_tasks as u8);
                         }
 
                         if has_tasks {

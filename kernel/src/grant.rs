@@ -651,7 +651,7 @@ impl<'a> GrantKernelData<'a> {
                 // saved pointer to only when it is valid.
                 unsafe {
                     Ok(ReadOnlyProcessBufferRef::new(
-                        saved_ro.ptr,
+                        saved_ro.ptr.unsafe_as_ptr(),
                         saved_ro.len,
                         self.process.processid(),
                     ))
@@ -692,7 +692,7 @@ impl<'a> GrantKernelData<'a> {
                 // saved pointer to only when it is valid.
                 unsafe {
                     Ok(ReadWriteProcessBufferRef::new(
-                        saved_rw.ptr,
+                        saved_rw.ptr.unsafe_as_ptr(),
                         saved_rw.len,
                         self.process.processid(),
                     ))

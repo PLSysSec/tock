@@ -83,6 +83,18 @@ pub trait FluxPtrExt {
     fn as_fluxptr(&self) -> FluxPtr;
 }
 
+impl FluxPtrExt for *mut u8 {
+    fn as_fluxptr(&self) -> FluxPtr {
+        unimplemented!()
+    }
+}
+
+impl FluxPtrExt for *const u8 {
+    fn as_fluxptr(&self) -> FluxPtr {
+        unimplemented!()
+    }
+}
+
 impl<T> FluxPtrExt for &[T] {
     fn as_fluxptr(&self) -> FluxPtr {
         unimplemented!()

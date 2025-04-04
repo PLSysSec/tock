@@ -662,7 +662,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             // `ReadWriteProcessBuffer` will handle any safety issues.
             // Therefore, we can encapsulate the unsafe.
             Ok(unsafe { ReadWriteProcessBuffer::new(buf_start_addr, 0, self.processid()) })
-        } else if self.in_app_owned_memory(buf_start_addr, size) {
+        } else if self.in_app_owned_memory(buf_start_addr.unsafe_as_ptr(), size) {
             // TODO: Check for buffer aliasing here
 
             // Valid buffer, we need to adjust the app's watermark
@@ -728,12 +728,12 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             // `ReadOnlyProcessBuffer` will handle any safety issues. Therefore,
             // we can encapsulate the unsafe.
             Ok(unsafe { ReadOnlyProcessBuffer::new(buf_start_addr, 0, self.processid()) })
-        } else if self.in_app_owned_memory(buf_start_addr, size)
-            || self.in_app_flash_memory(buf_start_addr, size)
+        } else if self.in_app_owned_memory(buf_start_addr.unsafe_as_ptr(), size)
+            || self.in_app_flash_memory(buf_start_addr.unsafe_as_ptr(), size)
         {
             // TODO: Check for buffer aliasing here
 
-            if self.in_app_owned_memory(buf_start_addr, size) {
+            if self.in_app_owned_memory(buf_start_addr.unsafe_as_ptr(), size) {
                 // Valid buffer, and since this is in read-write memory (i.e.
                 // not flash), we need to adjust the process's watermark. Note:
                 // `in_app_owned_memory()` ensures this offset does not wrap.
@@ -768,7 +768,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
     }
 
     unsafe fn set_byte(&self, mut addr: FluxPtrU8Mut, value: u8) -> bool {
-        if self.in_app_owned_memory(addr, 1) {
+        if self.in_app_owned_memory(addr.unsafe_as_ptr(), 1) {
             // We verify that this will only write process-accessible memory,
             // but this can still be undefined behavior if something else holds
             // a reference to this memory.
@@ -1000,7 +1000,8 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         let size = mem::size_of::<FluxPtrU8Mut>();
 
         // It is okay if this function is in memory or flash.
-        self.in_app_flash_memory(ptr, size) || self.in_app_owned_memory(ptr, size)
+        self.in_app_flash_memory(ptr.unsafe_as_ptr(), size)
+            || self.in_app_owned_memory(ptr.unsafe_as_ptr(), size)
     }
 
     fn get_process_name(&self) -> &'static str {
@@ -1939,8 +1940,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let buf_end_addr = buf_start_addr.wrapping_add(size);
 
         buf_end_addr >= buf_start_addr
-            && buf_start_addr >= self.mem_start()
-            && buf_end_addr <= self.app_break.get()
+            && buf_start_addr >= self.mem_start().unsafe_as_ptr()
+            && buf_end_addr <= self.app_break.get().unsafe_as_ptr()
     }
 
     /// Checks if the buffer represented by the passed in base pointer and size
@@ -1952,8 +1953,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let buf_end_addr = buf_start_addr.wrapping_add(size);
 
         buf_end_addr >= buf_start_addr
-            && buf_start_addr >= self.flash_non_protected_start()
-            && buf_end_addr <= self.flash_end()
+            && buf_start_addr >= self.flash_non_protected_start().unsafe_as_ptr()
+            && buf_end_addr <= self.flash_end().unsafe_as_ptr()
     }
 
     /// Reset all `grant_ptr`s to NULL.

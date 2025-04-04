@@ -23,7 +23,6 @@
 //! [`WriteableProcessSlice`] and use these for the lifetime of their
 //! operations. Users cannot hold live-lived references to these slices,
 //! however.
-
 use crate::capabilities;
 use crate::process::{self, ProcessId};
 use crate::ErrorCode;
@@ -392,7 +391,7 @@ impl ReadOnlyProcessBufferRef<'_> {
     #[flux_rs::ignore]
     pub(crate) unsafe fn new(ptr: *const u8, len: usize, process_id: ProcessId) -> Self {
         Self {
-            buf: ReadOnlyProcessBuffer::new(ptr, len, process_id),
+            buf: ReadOnlyProcessBuffer::new(ptr.as_fluxptr(), len, process_id),
             _phantom: PhantomData,
         }
     }
@@ -632,7 +631,7 @@ impl ReadWriteProcessBufferRef<'_> {
     #[flux_rs::ignore]
     pub(crate) unsafe fn new(ptr: *mut u8, len: usize, process_id: ProcessId) -> Self {
         Self {
-            buf: ReadWriteProcessBuffer::new(ptr, len, process_id),
+            buf: ReadWriteProcessBuffer::new(ptr.as_fluxptr(), len, process_id),
             _phantom: PhantomData,
         }
     }
