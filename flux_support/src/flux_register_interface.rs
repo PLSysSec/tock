@@ -7,7 +7,7 @@ pub use tock_registers::debug;
 pub use tock_registers::fields::TryFromValue;
 use tock_registers::fields::{Field, FieldValue};
 use tock_registers::interfaces::{Readable, Writeable};
-use tock_registers::registers::ReadWrite;
+use tock_registers::registers::{ReadOnly, ReadWrite};
 pub use tock_registers::RegisterLongName;
 
 flux_rs::defs! {
@@ -111,48 +111,60 @@ impl<R: RegisterLongName> AddAssign for FieldValueU32<R> {
     }
 }
 
+pub struct ReadOnlyU32<R: RegisterLongName = ()> {
+    inner: *mut ReadOnly<u32, R>,
+}
+
 #[flux_rs::opaque]
 #[flux_rs::refined_by(value: bitvec<32>)]
 pub struct ReadWriteU32<R: RegisterLongName = ()> {
-    inner: ReadWrite<u32, R>,
+    inner: *mut ReadWrite<u32, R>,
+}
+
+impl<R: RegisterLongName> ReadOnlyU32<R> {
+    pub const unsafe fn new(addr: usize) -> ReadOnlyU32<R> {
+        ReadOnlyU32 {
+            inner: addr as *mut ReadOnly<u32, R>,
+        }
+    }
+
+    pub fn read(&self, field: FieldU32<R>) -> u32 {
+        unsafe { (*self.inner).read(field.inner) }
+    }
 }
 
 #[allow(dead_code)]
 impl<R: RegisterLongName> ReadWriteU32<R> {
     #[flux_rs::trusted]
-    pub const fn new(addr: usize) -> ReadWriteU32<R> {
+    pub const unsafe fn new(addr: usize) -> ReadWriteU32<R> {
         ReadWriteU32 {
-            inner: unsafe { core::ptr::read(addr as *const ReadWrite<u32, R>) },
+            inner: addr as *mut ReadWrite<u32, R>,
         }
-        // // Self {
-        // //     inner: ReadWrite<u32, R>::
-        // // }
-        // unimplemented!()
     }
 
     #[flux_rs::trusted]
     #[flux_rs::sig(fn(&Self[@n]) -> u32[bv_bv32_to_int(n)])]
     pub fn get(&self) -> u32 {
-        self.inner.get()
+        unsafe { (*self.inner).get() }
     }
 
     #[flux_rs::trusted]
     #[flux_rs::sig(fn(self: &strg Self, u32[@n]) ensures self: Self[bv32(n)])]
     pub fn set(&mut self, value: u32) {
-        self.inner.set(value)
+        unsafe { (*self.inner).set(value) }
     }
 
     //(val & (self.mask << self.shift)) >> self.shift
     #[flux_rs::trusted]
     #[flux_rs::sig(fn(&Self[@n], FieldU32<R>[@mask, @shift]) -> u32[ bv_bv32_to_int(bv_lshr(bv_and(n, bv_shl(mask, shift)), shift))])]
     pub fn read(&self, field: FieldU32<R>) -> u32 {
-        self.inner.read(field.inner)
+        unsafe { (*self.inner).read(field.inner) }
     }
 
     #[flux_rs::trusted]
     #[flux_rs::sig(fn(reg: &strg ReadWriteU32<R>, FieldValueU32<R>[@mask, @value]) ensures reg: ReadWriteU32<R>[value])]
     pub fn write(&mut self, fieldval: FieldValueU32<R>) {
-        self.inner.write(fieldval.inner);
+        unsafe { (*self.inner).write(fieldval.inner) }
     }
 }
 

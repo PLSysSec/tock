@@ -152,8 +152,7 @@ impl HwGhostState {
 struct MpuRegisters {
     /// Indicates whether the MPU is present and, if so, how many regions it
     /// supports.
-    // VTOCK-TODO: this should be read-only
-    pub mpu_type: ReadWriteU32<Type::Register>,
+    pub mpu_type: ReadOnlyU32<Type::Register>,
 
     /// The control register:
     ///   * Enables the MPU (bit 0).
@@ -293,7 +292,7 @@ const MPU_BASE_ADDRESS: usize = 0xE000ED90;
 impl<const NUM_REGIONS: usize> MPU<NUM_REGIONS> {
     pub const unsafe fn new() -> Self {
         assume(NUM_REGIONS == 8 || NUM_REGIONS == 16);
-        let mpu_type = ReadWriteU32::new(MPU_BASE_ADDRESS);
+        let mpu_type = ReadOnlyU32::new(MPU_BASE_ADDRESS);
         let ctrl = ReadWriteU32::new(MPU_BASE_ADDRESS + 4);
         let rnr = ReadWriteU32::new(MPU_BASE_ADDRESS + 8);
         let rbar = ReadWriteU32::new(MPU_BASE_ADDRESS + 12);
