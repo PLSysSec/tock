@@ -1765,7 +1765,7 @@ impl<T: Default, Upcalls: UpcallSize, AllowROs: AllowRoSize, AllowRWs: AllowRwSi
     ///
     /// Calling this function when an [`ProcessGrant`] for a process is
     /// currently entered will result in a panic.
-    #[flux::ignore]
+    #[flux_rs::ignore]
     pub fn iter(&self) -> Iter<T, Upcalls, AllowROs, AllowRWs> {
         Iter {
             grant: self,
@@ -1775,7 +1775,7 @@ impl<T: Default, Upcalls: UpcallSize, AllowROs: AllowRoSize, AllowRWs: AllowRwSi
 }
 
 /// Type to iterate [`ProcessGrant`]s across processes.
-#[flux::ignore]
+#[flux_rs::ignore]
 pub struct Iter<
     'a,
     T: 'a + Default,
@@ -1793,7 +1793,7 @@ pub struct Iter<
     >,
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 impl<'a, T: Default, Upcalls: UpcallSize, AllowROs: AllowRoSize, AllowRWs: AllowRwSize> Iterator
     for Iter<'a, T, Upcalls, AllowROs, AllowRWs>
 {

@@ -19,8 +19,8 @@ use kernel::utilities::registers::{register_bitfields, FieldValue, ReadOnly, Rea
 use kernel::utilities::StaticRef;
 
 // VTOCK-TODO: supplementary proof?
-#[flux::sig(fn(n: u32{n < 32}) -> usize {r: r > 0 })]
-#[flux::trusted]
+#[flux_rs::sig(fn(n: u32{n < 32}) -> usize {r: r > 0 })]
+#[flux_rs::trusted]
 fn power_of_two(n: u32) -> usize {
     1_usize << n
 }
@@ -141,13 +141,11 @@ const MPU_BASE_ADDRESS: StaticRef<MpuRegisters> =
 /// There should only be one instantiation of this object as it represents
 /// real hardware.
 ///
-#[flux::invariant(MIN_REGION_SIZE > 0 && MIN_REGION_SIZE < 2147483648)]
 pub struct MPU<const MIN_REGION_SIZE: usize> {
     /// MMIO reference to MPU registers.
     registers: StaticRef<MpuRegisters>,
     /// Monotonically increasing counter for allocated regions, used
     /// to assign unique IDs to `CortexMConfig` instances.
-    #[flux::field({Cell<NonZeroUsize> | MIN_REGION_SIZE > 0 && MIN_REGION_SIZE < 2147483648})]
     config_count: Cell<NonZeroUsize>,
     /// Optimization logic. This is used to indicate which application the MPU
     /// is currently configured for so that the MPU can skip updating when the
@@ -156,7 +154,7 @@ pub struct MPU<const MIN_REGION_SIZE: usize> {
 }
 
 impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
-    #[flux::trusted]
+    #[flux_rs::trusted]
     pub const unsafe fn new() -> Self {
         Self {
             registers: MPU_BASE_ADDRESS,
@@ -252,8 +250,8 @@ impl fmt::Display for CortexMConfig {
 }
 
 impl CortexMConfig {
-    #[flux::trusted]
-    #[flux::sig(fn(&CortexMConfig) -> Option<usize{r: r > 1 && r < 8}>)]
+    #[flux_rs::trusted]
+    #[flux_rs::sig(fn(&CortexMConfig) -> Option<usize{r: r > 1 && r < 8}>)]
     fn unused_region_number(&self) -> Option<usize> {
         for (number, region) in self.regions.iter().enumerate() {
             if number <= APP_MEMORY_REGION_MAX_NUM {
@@ -572,7 +570,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         Some(mpu::Region::new(start.as_fluxptr(), size))
     }
 
-    #[flux::trusted]
+    #[flux_rs::trusted]
     fn remove_memory_region(
         &self,
         region: mpu::Region,

@@ -328,7 +328,7 @@ impl ReadableProcessBuffer for ReadOnlyProcessBuffer {
     ///
     /// This verifies the process is still valid before accessing the underlying
     /// memory.
-    #[flux::ignore]
+    #[flux_rs::ignore]
     fn enter<F, R>(&self, fun: F) -> Result<R, process::Error>
     where
         F: FnOnce(&ReadableProcessSlice) -> R,
@@ -389,8 +389,8 @@ impl ReadOnlyProcessBufferRef<'_> {
     /// [`ReadOnlyProcessBuffer::new_external`]. The derived lifetime can
     /// help enforce the invariant that this incoming pointer may only
     /// be access for a certain duration.
-    #[flux::ignore]
-    pub(crate) unsafe fn new(ptr: FluxPtrU8Mut, len: usize, process_id: ProcessId) -> Self {
+    #[flux_rs::ignore]
+    pub(crate) unsafe fn new(ptr: *const u8, len: usize, process_id: ProcessId) -> Self {
         Self {
             buf: ReadOnlyProcessBuffer::new(ptr, len, process_id),
             _phantom: PhantomData,
@@ -537,7 +537,7 @@ impl ReadableProcessBuffer for ReadWriteProcessBuffer {
     ///
     /// This verifies the process is still valid before accessing the underlying
     /// memory.
-    #[flux::ignore]
+    #[flux_rs::ignore]
     fn enter<F, R>(&self, fun: F) -> Result<R, process::Error>
     where
         F: FnOnce(&ReadableProcessSlice) -> R,
@@ -571,7 +571,7 @@ impl ReadableProcessBuffer for ReadWriteProcessBuffer {
     }
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 impl WriteableProcessBuffer for ReadWriteProcessBuffer {
     fn mut_enter<F, R>(&self, fun: F) -> Result<R, process::Error>
     where
@@ -629,8 +629,8 @@ impl ReadWriteProcessBufferRef<'_> {
     /// [`ReadWriteProcessBuffer::new_external`]. The derived lifetime can
     /// help enforce the invariant that this incoming pointer may only
     /// be access for a certain duration.
-    #[flux::ignore]
-    pub(crate) unsafe fn new(ptr: FluxPtrU8Mut, len: usize, process_id: ProcessId) -> Self {
+    #[flux_rs::ignore]
+    pub(crate) unsafe fn new(ptr: *mut u8, len: usize, process_id: ProcessId) -> Self {
         Self {
             buf: ReadWriteProcessBuffer::new(ptr, len, process_id),
             _phantom: PhantomData,
@@ -741,7 +741,7 @@ impl ReadableProcessSlice {
     /// # Panics
     ///
     /// This function will panic if `self.len() != dest.len()`.
-    #[flux::ignore]
+    #[flux_rs::ignore]
     pub fn copy_to_slice(&self, dest: &mut [u8]) {
         // The panic code path was put into a cold function to not
         // bloat the call site.
@@ -765,7 +765,7 @@ impl ReadableProcessSlice {
     ///
     /// The length of `self` must be the same as `dest`. Subslicing
     /// can be used to obtain a slice of matching length.
-    #[flux::ignore]
+    #[flux_rs::ignore]
     pub fn copy_to_slice_or_err(&self, dest: &mut [u8]) -> Result<(), ErrorCode> {
         // Method implemetation adopted from the
         // core::slice::copy_from_slice method implementation:
@@ -798,7 +798,7 @@ impl ReadableProcessSlice {
     }
 
     /// Iterate the slice in chunks.
-    #[flux::ignore]
+    #[flux_rs::ignore]
     pub fn chunks(
         &self,
         chunk_size: usize,
@@ -865,7 +865,7 @@ impl Index<RangeFrom<usize>> for ReadableProcessSlice {
         &self[idx.start..self.len()]
     }
 }
-#[flux::ignore]
+#[flux_rs::ignore]
 impl Index<usize> for ReadableProcessSlice {
     // Indexing into a ReadableProcessSlice must yield a
     // ReadableProcessByte, to limit the API surface of the wrapped
@@ -927,7 +927,7 @@ impl WriteableProcessSlice {
     /// # Panics
     ///
     /// This function will panic if `self.len() != dest.len()`.
-    #[flux::ignore]
+    #[flux_rs::ignore]
     pub fn copy_to_slice(&self, dest: &mut [u8]) {
         // The panic code path was put into a cold function to not
         // bloat the call site.
@@ -951,7 +951,7 @@ impl WriteableProcessSlice {
     ///
     /// The length of `self` must be the same as `dest`. Subslicing
     /// can be used to obtain a slice of matching length.
-    #[flux::ignore]
+    #[flux_rs::ignore]
     pub fn copy_to_slice_or_err(&self, dest: &mut [u8]) -> Result<(), ErrorCode> {
         // Method implemetation adopted from the
         // core::slice::copy_from_slice method implementation:
@@ -981,7 +981,7 @@ impl WriteableProcessSlice {
     /// # Panics
     ///
     /// This function will panic if `src.len() != self.len()`.
-    #[flux::ignore]
+    #[flux_rs::ignore]
     pub fn copy_from_slice(&self, src: &[u8]) {
         // Method implemetation adopted from the
         // core::slice::copy_from_slice method implementation:
@@ -1008,7 +1008,7 @@ impl WriteableProcessSlice {
     ///
     /// The length of `src` must be the same as `self`. Subslicing can
     /// be used to obtain a slice of matching length.
-    #[flux::ignore]
+    #[flux_rs::ignore]
     pub fn copy_from_slice_or_err(&self, src: &[u8]) -> Result<(), ErrorCode> {
         // Method implemetation adopted from the
         // core::slice::copy_from_slice method implementation:
@@ -1040,7 +1040,7 @@ impl WriteableProcessSlice {
     }
 
     /// Iterate over the slice in chunks.
-    #[flux::ignore]
+    #[flux_rs::ignore]
     pub fn chunks(
         &self,
         chunk_size: usize,
@@ -1107,7 +1107,7 @@ impl Index<RangeFrom<usize>> for WriteableProcessSlice {
         &self[idx.start..self.len()]
     }
 }
-#[flux::ignore]
+#[flux_rs::ignore]
 impl Index<usize> for WriteableProcessSlice {
     // Indexing into a WriteableProcessSlice yields a Cell<u8>, as
     // mutating the memory contents is allowed.

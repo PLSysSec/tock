@@ -8,3 +8,5 @@ edition.workspace = true
 enabled = true
 
 [dependencies]
+flux-rs = { git  = "https://github.com/flux-rs/flux.git" }
+

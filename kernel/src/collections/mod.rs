@@ -7,5 +7,5 @@
 pub mod list;
 //#[flux_rs::ignore]
 pub mod queue;
-// #[flux::ignore]
+// #[flux_rs::ignore]
 pub mod ring_buffer;

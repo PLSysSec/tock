@@ -11,7 +11,7 @@ use core::f32;
 /// Get closest power of two greater than the given number.
 #[flux_rs::trusted]
 // 2147483648 is half of u32::MAX. Anything higher than that causes overflow
-#[flux::sig(fn(num: u32) -> u32{r: (num < 2147483648 => r > num)})]
+#[flux_rs::sig(fn(num: u32) -> u32{r: (num < 2147483648 => r > num)})]
 pub fn closest_power_of_two(mut num: u32) -> u32 {
     num -= 1;
     num |= num >> 1;
@@ -23,10 +23,10 @@ pub fn closest_power_of_two(mut num: u32) -> u32 {
     num
 }
 
-#[flux::trusted]
+#[flux_rs::trusted]
 // 2147483648 is half of u32::MAX. Anything higher than that deviates from closest_power_of_two
 // I added this function to avoid unnecessary downcasts, which can be dangerous.
-#[flux::sig(fn(num: usize) -> usize{r: (num < 2147483648 => r > num)})]
+#[flux_rs::sig(fn(num: usize) -> usize{r: (num < 2147483648 => r > num)})]
 pub fn closest_power_of_two_usize(mut num: usize) -> usize {
     num -= 1;
     num |= num >> 1;
@@ -77,7 +77,7 @@ impl PowerOfTwo {
 /// Note: this is the floor of the result. Also, an input of 0 results in an
 /// output of 0
 #[flux_rs::trusted]
-#[flux::sig(fn(num: u32) -> u32{r: (r < 32) && (num > 1 => r > 0)})]
+#[flux_rs::sig(fn(num: u32) -> u32{r: (r < 32) && (num > 1 => r > 0)})]
 pub fn log_base_two(num: u32) -> u32 {
     if num == 0 {
         0
@@ -86,8 +86,8 @@ pub fn log_base_two(num: u32) -> u32 {
     }
 }
 
-#[flux::trusted]
-#[flux::sig(fn(num: usize{num < 4294967295}) -> u32{r: (r < 32) && (num > 1 => r > 0)})]
+#[flux_rs::trusted]
+#[flux_rs::sig(fn(num: usize{num < 4294967295}) -> u32{r: (r < 32) && (num > 1 => r > 0)})]
 // Push cast into trusted function
 // can only be used if downcast is not required
 pub fn log_base_two_u32_usize(num: usize) -> u32 {
@@ -100,7 +100,7 @@ pub fn log_base_two_u32_usize(num: usize) -> u32 {
 
 /// Log base 2 of 64 bit unsigned integers.
 #[flux_rs::trusted]
-#[flux::sig(fn(num: u64) -> u32{r: r < 64 && (num > 1 => r > 0)})]
+#[flux_rs::sig(fn(num: u64) -> u32{r: r < 64 && (num > 1 => r > 0)})]
 pub fn log_base_two_u64(num: u64) -> u32 {
     if num == 0 {
         0
@@ -113,7 +113,7 @@ pub fn log_base_two_u64(num: u64) -> u32 {
 const EXPONENT_MASK: u32 = 0b01111111_10000000_00000000_00000000;
 const EXPONENT_BIAS: u32 = 127;
 
-#[flux::ignore]
+#[flux_rs::ignore]
 pub fn abs(n: f32) -> f32 {
     f32::from_bits(n.to_bits() & 0x7FFF_FFFF)
 }
@@ -122,12 +122,12 @@ fn extract_exponent_bits(x: f32) -> u32 {
     (x.to_bits() & EXPONENT_MASK).overflowing_shr(23).0
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 fn extract_exponent_value(x: f32) -> i32 {
     (extract_exponent_bits(x) as i32) - EXPONENT_BIAS as i32
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 fn ln_1to2_series_approximation(x: f32) -> f32 {
     // idea from https://stackoverflow.com/a/44232045/
     // modified to not be restricted to int range and only values of x above 1.0.
@@ -165,7 +165,7 @@ fn ln_1to2_series_approximation(x: f32) -> f32 {
     }
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 pub fn log10(x: f32) -> f32 {
     //using change of base log10(x) = ln(x)/ln(10)
     let ln10_recip = f32::consts::LOG10_E;
