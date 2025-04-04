@@ -1,3 +1,4 @@
+#![feature(proc_macro_hygiene)]
 // Licensed under the Apache License, Version 2.0 or the MIT License.
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 // Copyright Tock Contributors 2022.
@@ -108,20 +109,20 @@ pub mod capabilities;
 pub mod collections;
 pub mod component;
 pub mod debug;
-#[flux::trusted]
+#[flux_rs::ignore]
 pub mod deferred_call;
 pub mod errorcode;
-#[flux::trusted]
+#[flux_rs::ignore]
 pub mod grant;
 pub mod hil;
 pub mod introspection;
-#[flux::trusted]
+#[flux_rs::ignore]
 pub mod ipc;
 pub mod platform;
 pub mod process;
 pub mod process_checker;
 pub mod processbuffer;
-#[flux::ignore]
+#[flux_rs::ignore]
 pub mod scheduler;
 pub mod storage_permissions;
 pub mod syscall;

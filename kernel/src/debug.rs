@@ -78,7 +78,7 @@ use crate::ErrorCode;
 /// however it might not be able to write everything, so it returns  the number of bytes written.
 ///
 /// See also the tracking issue: <https://github.com/rust-lang/rfcs/issues/2262>
-#[flux::ignore]
+#[flux_rs::ignore]
 pub trait IoWrite {
     fn write(&mut self, buf: &[u8]) -> usize;
 
@@ -109,7 +109,7 @@ pub trait IoWrite {
 /// the system once this function returns.
 ///
 /// **NOTE:** The supplied `writer` must be synchronous.
-#[flux::ignore]
+#[flux_rs::ignore]
 pub unsafe fn panic_print<W: Write + IoWrite, C: Chip, PP: ProcessPrinter>(
     writer: &mut W,
     panic_info: &PanicInfo,
@@ -142,7 +142,7 @@ pub unsafe fn panic_print<W: Write + IoWrite, C: Chip, PP: ProcessPrinter>(
 ///
 /// This will print a detailed debugging message and then loop forever while
 /// blinking an LED in a recognizable pattern.
-#[flux::ignore]
+#[flux_rs::ignore]
 pub unsafe fn panic<L: hil::led::Led, W: Write + IoWrite, C: Chip, PP: ProcessPrinter>(
     leds: &mut [&L],
     writer: &mut W,
@@ -168,7 +168,7 @@ pub unsafe fn panic<L: hil::led::Led, W: Write + IoWrite, C: Chip, PP: ProcessPr
 /// This opaque method should always be called at the beginning of a board's
 /// panic method to allow hooks for any core kernel cleanups that may be
 /// appropriate.
-#[flux::ignore]
+#[flux_rs::ignore]
 pub unsafe fn panic_begin(nop: &dyn Fn()) {
     // Let any outstanding uart DMA's finish
     for _ in 0..200000 {
@@ -179,7 +179,7 @@ pub unsafe fn panic_begin(nop: &dyn Fn()) {
 /// Lightweight prints about the current panic and kernel version.
 ///
 /// **NOTE:** The supplied `writer` must be synchronous.
-#[flux::ignore]
+#[flux_rs::ignore]
 pub unsafe fn panic_banner<W: Write>(writer: &mut W, panic_info: &PanicInfo) {
     let _ = writer.write_fmt(format_args!("\r\n{}\r\n", panic_info));
 
@@ -193,7 +193,7 @@ pub unsafe fn panic_banner<W: Write>(writer: &mut W, panic_info: &PanicInfo) {
 /// Print current machine (CPU) state.
 ///
 /// **NOTE:** The supplied `writer` must be synchronous.
-#[flux::ignore]
+#[flux_rs::ignore]
 pub unsafe fn panic_cpu_state<W: Write, C: Chip>(
     chip: &'static Option<&'static C>,
     writer: &mut W,
@@ -206,7 +206,7 @@ pub unsafe fn panic_cpu_state<W: Write, C: Chip>(
 /// More detailed prints about all processes.
 ///
 /// **NOTE:** The supplied `writer` must be synchronous.
-#[flux::ignore]
+#[flux_rs::ignore]
 pub unsafe fn panic_process_info<PP: ProcessPrinter, W: Write>(
     procs: &'static [Option<&'static dyn Process>],
     process_printer: &'static Option<&'static PP>,
@@ -243,7 +243,7 @@ pub unsafe fn panic_process_info<PP: ProcessPrinter, W: Write>(
 /// choose the 'first' or most prominent LED. Some boards may find it
 /// appropriate to blink multiple LEDs (e.g. one on the top and one on the
 /// bottom), thus this method accepts an array, however most will only need one.
-#[flux::ignore]
+#[flux_rs::ignore]
 pub fn panic_blink_forever<L: hil::led::Led>(leds: &mut [&L]) -> ! {
     leds.iter_mut().for_each(|led| led.init());
     loop {
@@ -268,14 +268,14 @@ pub fn panic_blink_forever<L: hil::led::Led>(leds: &mut [&L]) -> ! {
 ///////////////////////////////////////////////////////////////////
 // debug_gpio! support
 
-#[flux::ignore]
+#[flux_rs::ignore]
 pub static mut DEBUG_GPIOS: (
     Option<&'static dyn hil::gpio::Pin>,
     Option<&'static dyn hil::gpio::Pin>,
     Option<&'static dyn hil::gpio::Pin>,
 ) = (None, None, None);
 
-#[flux::ignore]
+#[flux_rs::ignore]
 pub unsafe fn assign_gpios(
     gpio0: Option<&'static dyn hil::gpio::Pin>,
     gpio1: Option<&'static dyn hil::gpio::Pin>,
@@ -318,7 +318,7 @@ pub struct DebugQueue {
     ring_buffer: TakeCell<'static, RingBuffer<'static, u8>>,
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 impl DebugQueue {
     pub fn new(ring_buffer: &'static mut RingBuffer<'static, u8>) -> Self {
         Self {
@@ -330,12 +330,12 @@ impl DebugQueue {
 static mut DEBUG_QUEUE: Option<&'static mut DebugQueueWrapper> = None;
 
 /// Function used by board main.rs to set a reference to the debug queue.
-#[flux::ignore]
+#[flux_rs::ignore]
 pub unsafe fn set_debug_queue(buffer: &'static mut DebugQueueWrapper) {
     DEBUG_QUEUE = Some(buffer);
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 impl Write for DebugQueueWrapper {
     fn write_str(&mut self, s: &str) -> Result {
         self.dw.map(|dw| {
@@ -351,7 +351,7 @@ impl Write for DebugQueueWrapper {
     }
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 pub fn debug_enqueue_fmt(args: Arguments) {
     unsafe { DEBUG_QUEUE.as_deref_mut() }.map(|buffer| {
         let _ = write(buffer, args);
@@ -359,7 +359,7 @@ pub fn debug_enqueue_fmt(args: Arguments) {
     });
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 pub fn debug_flush_queue_() {
     let writer = unsafe { get_debug_writer() };
 
@@ -410,7 +410,7 @@ pub struct DebugWriterWrapper {
 
 /// Main type that we need an immutable reference to so we can share it with
 /// the UART provider and this debug module.
-#[flux::ignore]
+#[flux_rs::ignore]
 pub struct DebugWriter {
     // What provides the actual writing mechanism.
     uart: &'static dyn hil::uart::Transmit<'static>,
@@ -440,7 +440,7 @@ pub unsafe fn set_debug_writer_wrapper(debug_writer: &'static mut DebugWriterWra
 }
 
 impl DebugWriterWrapper {
-    #[flux::ignore]
+    #[flux_rs::ignore]
     pub fn new(dw: &'static DebugWriter) -> DebugWriterWrapper {
         DebugWriterWrapper {
             dw: MapCell::new(dw),
@@ -448,7 +448,7 @@ impl DebugWriterWrapper {
     }
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 impl DebugWriter {
     pub fn new(
         uart: &'static dyn hil::uart::Transmit,
@@ -516,7 +516,7 @@ impl DebugWriter {
     }
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 impl hil::uart::TransmitClient for DebugWriter {
     fn transmitted_buffer(
         &self,
@@ -536,7 +536,7 @@ impl hil::uart::TransmitClient for DebugWriter {
 }
 
 /// Pass through functions.
-#[flux::ignore]
+#[flux_rs::ignore]
 impl DebugWriterWrapper {
     fn increment_count(&self) {
         self.dw.map(|dw| {
@@ -563,7 +563,7 @@ impl DebugWriterWrapper {
     }
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 impl IoWrite for DebugWriterWrapper {
     fn write(&mut self, bytes: &[u8]) -> usize {
         const FULL_MSG: &[u8] = b"\n*** DEBUG BUFFER FULL ***\n";
@@ -593,7 +593,7 @@ impl IoWrite for DebugWriterWrapper {
     }
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 impl Write for DebugWriterWrapper {
     fn write_str(&mut self, s: &str) -> Result {
         self.write(s.as_bytes());
@@ -601,7 +601,7 @@ impl Write for DebugWriterWrapper {
     }
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 pub fn debug_print(args: Arguments) {
     let writer = unsafe { get_debug_writer() };
 
@@ -609,7 +609,7 @@ pub fn debug_print(args: Arguments) {
     writer.publish_bytes();
 }
 
-#[flux::trusted]
+#[flux_rs::ignore]
 pub fn debug_println(args: Arguments) {
     let writer = unsafe { get_debug_writer() };
 
@@ -618,7 +618,7 @@ pub fn debug_println(args: Arguments) {
     writer.publish_bytes();
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 pub fn debug_slice(slice: &ReadableProcessSlice) -> usize {
     let writer = unsafe { get_debug_writer() };
     let mut total = 0;
@@ -635,20 +635,20 @@ pub fn debug_slice(slice: &ReadableProcessSlice) -> usize {
     total
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 pub fn debug_available_len() -> usize {
     let writer = unsafe { get_debug_writer() };
     writer.available_len()
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 fn write_header(writer: &mut DebugWriterWrapper, (file, line): &(&'static str, u32)) -> Result {
     writer.increment_count();
     let count = writer.get_count();
     writer.write_fmt(format_args!("TOCK_DEBUG({}): {}:{}: ", count, file, line))
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 pub fn debug_verbose_print(args: Arguments, file_line: &(&'static str, u32)) {
     let writer = unsafe { get_debug_writer() };
 
@@ -657,7 +657,7 @@ pub fn debug_verbose_print(args: Arguments, file_line: &(&'static str, u32)) {
     writer.publish_bytes();
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 pub fn debug_verbose_println(args: Arguments, file_line: &(&'static str, u32)) {
     let writer = unsafe { get_debug_writer() };
 
@@ -749,7 +749,7 @@ pub trait Debug {
     fn write(&self, buf: &'static mut [u8], len: usize) -> usize;
 }
 
-#[flux::ignore]
+#[flux_rs::ignore]
 pub unsafe fn flush<W: Write + IoWrite>(writer: &mut W) {
     if let Some(debug_writer) = try_get_debug_writer() {
         if let Some(ring_buffer) = debug_writer.extract() {

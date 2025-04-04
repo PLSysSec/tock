@@ -6,11 +6,10 @@
 
 use core::f32;
 
-
 // VTOCK-TODO: supplementary Z3 proofs for these two functions
 
 /// Get closest power of two greater than the given number.
-#[flux::trusted]
+#[flux_rs::trusted]
 // 2147483648 is half of u32::MAX. Anything higher than that causes overflow
 #[flux::sig(fn(num: u32) -> u32{r: (num < 2147483648 => r > num)})]
 pub fn closest_power_of_two(mut num: u32) -> u32 {
@@ -38,7 +37,6 @@ pub fn closest_power_of_two_usize(mut num: usize) -> usize {
     num += 1;
     num
 }
-
 
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
 pub struct PowerOfTwo(u32);
@@ -78,7 +76,7 @@ impl PowerOfTwo {
 /// Get log base 2 of a number.
 /// Note: this is the floor of the result. Also, an input of 0 results in an
 /// output of 0
-#[flux::trusted]
+#[flux_rs::trusted]
 #[flux::sig(fn(num: u32) -> u32{r: (r < 32) && (num > 1 => r > 0)})]
 pub fn log_base_two(num: u32) -> u32 {
     if num == 0 {
@@ -100,9 +98,8 @@ pub fn log_base_two_u32_usize(num: usize) -> u32 {
     }
 }
 
-
 /// Log base 2 of 64 bit unsigned integers.
-#[flux::trusted]
+#[flux_rs::trusted]
 #[flux::sig(fn(num: u64) -> u32{r: r < 64 && (num > 1 => r > 0)})]
 pub fn log_base_two_u64(num: u64) -> u32 {
     if num == 0 {

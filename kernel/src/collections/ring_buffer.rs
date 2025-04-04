@@ -6,19 +6,19 @@
 
 use crate::collections::queue;
 
-#[flux::refined_by(ring_len: int, head: int, tail: int)]
-#[flux::invariant(ring_len > 0)]
+#[flux_rs::refined_by(ring_len: int, head: int, tail: int)]
+#[flux_rs::invariant(ring_len > 0)]
 pub struct RingBuffer<'a, T: 'a> {
-    #[flux::field({&mut [T][ring_len] | ring_len > 0})]
+    #[flux_rs::field({&mut [T][ring_len] | ring_len > 0})]
     ring: &'a mut [T],
-    #[flux::field({usize[head] | head < ring_len})]
+    #[flux_rs::field({usize[head] | head < ring_len})]
     head: usize,
-    #[flux::field({usize[tail] | tail < ring_len})]
+    #[flux_rs::field({usize[tail] | tail < ring_len})]
     tail: usize,
 }
 
 impl<'a, T: Copy> RingBuffer<'a, T> {
-    #[flux::sig(fn({&mut [T][@n] | n > 0}) -> RingBuffer<T>[n, 0, 0])]
+    #[flux_rs::sig(fn({&mut [T][@n] | n > 0}) -> RingBuffer<T>[n, 0, 0])]
     pub fn new(ring: &'a mut [T]) -> RingBuffer<'a, T> {
         RingBuffer {
             head: 0,
@@ -27,8 +27,8 @@ impl<'a, T: Copy> RingBuffer<'a, T> {
         }
     }
 
-    #[flux::trusted]
-    #[flux::sig(fn(&RingBuffer<T>[@n,@h,@t]) -> usize[n])]
+    #[flux_rs::trusted]
+    #[flux_rs::sig(fn(&RingBuffer<T>[@n,@h,@t]) -> usize[n])]
     fn ring_len(&self) -> usize {
         self.ring.len()
     }
