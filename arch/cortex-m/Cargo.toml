@@ -13,7 +13,8 @@ enabled = true
 
 [dependencies]
 kernel = { path = "../../kernel" }
-flux-rs = { git  = "https://github.com/flux-rs/flux.git" }
+# flux-rs = { git  = "https://github.com/flux-rs/flux.git" }
+flux-rs = { path = "../../../flux/lib/flux-rs"  }
 flux_support = { path = "../../flux_support" }
 
 [lints]

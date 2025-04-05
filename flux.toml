@@ -1,2 +1,5 @@
 cache = true
-# solver = "cvc5"
+solver = "cvc5"
+dump_constraint = true
+# smt_define_fun = true
+# verbose = true
