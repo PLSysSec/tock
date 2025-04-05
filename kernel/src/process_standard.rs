@@ -540,15 +540,13 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
     #[flux_rs::trusted] // VTOCK: This is problematic and deals with IPC
     fn add_mpu_region(
         &self,
-        unallocated_memory_start: FluxPtrU8Mut,
-        unallocated_memory_size: usize,
-        min_region_size: usize,
+        start: FluxPtrU8,
+        size: usize,
     ) -> Option<mpu::Region> {
         self.app_memory_allocator.and_then(|am| {
             am.allocate_ipc_region(
-                unallocated_memory_start,
-                unallocated_memory_size,
-                min_region_size,
+                start, 
+                size,
                 mpu::Permissions::ReadWriteOnly,
             ).ok()
         })
