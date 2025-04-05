@@ -491,7 +491,7 @@ impl AppMemoryAllocator {
         app_regions.set(FLASH_REGION_NUMBER, flash_region);
 
         // set our stack, data, and heap up
-        let ideal_region_size = cmp::min(
+        let ideal_region_size = cmp::max(
             min_memory_size,
             initial_app_memory_size 
         );
