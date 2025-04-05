@@ -39,3 +39,17 @@ pub mod cells {
     pub use tock_cells::take_cell::TakeCell;
     pub use tock_cells::volatile_cell::VolatileCell;
 }
+flux_rs::defs! {
+
+    fn bv32(x:int) -> bitvec<32> { bv_int_to_bv32(x) }
+
+    fn exp2(n:bitvec<32>) -> bitvec<32> { (1 << n) }
+
+    #[hide]
+    fn pow2(n:int) -> bool {
+        let bv = bv32(n);
+        n > 0 && (bv & (bv - 1)) == 0
+    }
+
+
+}

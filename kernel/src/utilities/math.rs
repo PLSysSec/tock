@@ -81,7 +81,8 @@ impl PowerOfTwo {
 /// Get log base 2 of a number.
 /// Note: this is the floor of the result. Also, an input of 0 results in an
 /// output of 0
-#[flux_rs::sig(fn(num: u32) -> u32{r: (r < 32) && (num > 1 => r > 0)})]
+#[flux_rs::trusted] // Bitwise arithmetic
+#[flux_rs::sig(fn(num: u32) -> u32{r: (r < 32) && (num > 1 => r > 0) && (pow2(num) => (bv32(num) == exp2(bv32(r))))})]
 pub fn log_base_two(num: u32) -> u32 {
     if num == 0 {
         0
