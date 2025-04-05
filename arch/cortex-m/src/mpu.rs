@@ -1121,7 +1121,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
             }>
         requires minsz > 0 && minsz <= u32::MAX / 2 + 1 && size <= u32::MAX / 2 + 1 && start <= u32::MAX / 2 + 1
     )]
-    #[flux_rs::trusted]
+    #[flux_rs::trusted] // RJ:SLOW-with-cvc5-but-fast-with-z3
     fn create_region(
         &self,
         region_num: usize,
@@ -1363,7 +1363,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         ))
     }
 
-    #[flux_rs::trusted] // RJ:slow
+    // #[flux_rs::trusted] RJ:slow
     #[flux_rs::sig(fn(
         _,
         region: mpu::Region[@memstart, @memsz],
@@ -1604,6 +1604,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         ))
     }
 
+    #[flux_rs::trusted] // RJ:slow
     #[flux_rs::sig(
         fn (
             &Self,
