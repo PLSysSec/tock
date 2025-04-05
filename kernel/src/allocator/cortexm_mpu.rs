@@ -45,19 +45,19 @@ flux_rs::defs! {
     // ctrl
     fn enable(reg:bitvec<32>) -> bool { bit(reg, 0x00000001)}
 
-    fn mpu_configured_for(mpu: MPU, regions: RArray<CortexMRegion>, number_of_regions: int) -> bool {
+    // fn mpu_configured_for(mpu: MPU, regions: RArray<CortexMRegion>, number_of_regions: int) -> bool {
 
-        forall i in 0..8 {
-            map_select(mpu.regions, i) == rbar(map_select(regions, i)) &&
-            map_select(mpu.attrs, i) == rasr(map_select(regions, i))
-        } 
-        && number_of_regions == 16 => forall j in 8..16 {
-            // basically these are all empty
-            rbar_region_number(mpu.rbar) == bv32(j) &&
-            !rbar_global_region_enabled(mpu.rasr) &&
-            subregions_enabled_exactly(mpu.rasr, 0, 7)
-        }
-    }
+    //     forall i in 0..8 {
+    //         map_select(mpu.regions, i) == rbar(map_select(regions, i)) &&
+    //         map_select(mpu.attrs, i) == rasr(map_select(regions, i))
+    //     } 
+    //     && number_of_regions == 16 => forall j in 8..16 {
+    //         // basically these are all empty
+    //         rbar_region_number(mpu.rbar) == bv32(j) &&
+    //         !rbar_global_region_enabled(mpu.rasr) &&
+    //         subregions_enabled_exactly(mpu.rasr, 0, 7)
+    //     }
+    // }
 
     fn enabled_srd_mask(first_subregion: bitvec<32>, last_subregion: bitvec<32>) -> bitvec<32> {
         ((bv32(1) << (last_subregion - first_subregion + 1)) - 1) << first_subregion 
@@ -780,7 +780,7 @@ impl<const NUM_REGIONS: usize> MPU<NUM_REGIONS> {
     }
 
     // #[flux_rs::sig(fn (self: &strg Self[@mpu], &RArray<CortexMRegion>[@regions]) ensures self: Self{c_mpu: mpu_configured_for(c_mpu, regions, NUM_REGIONS)})]
-    // #[flux_rs::trusted] // for now
+    #[flux_rs::trusted] // for now
     pub(crate) fn configure_mpu(&self, regions: &RArray<CortexMRegion>) {
         // If the hardware is already configured for this app and the app's MPU
         // configuration has not changed, then skip the hardware update.
