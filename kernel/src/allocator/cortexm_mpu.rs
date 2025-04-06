@@ -436,6 +436,7 @@ fn xor_mask(mask: u8, i: usize) -> u8 {
     mask ^ (1 << i)
 }
 
+#[flux_rs::trusted]
 fn next_aligned_power_of_two(po2_aligned_start: usize, min_size: usize) -> usize {
     if po2_aligned_start == 0 {
         return min_size.next_power_of_two();
@@ -503,6 +504,7 @@ impl CortexMRegion {
         ))
     }
 
+    #[flux_rs::trusted]
     pub(crate) fn adjust_region_fixed_start(
         po2_aligned_start: FluxPtrU8,
         available_size: usize,

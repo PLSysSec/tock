@@ -79,10 +79,10 @@ flux_rs::defs! {
 
     fn regions_overlap(region1: CortexMRegion, region2: CortexMRegion) -> bool {
         if region1.set && region2.set {
-            let fst_region_start = region1.astart;
-            let fst_region_end = region1.astart + region1.asize;
-            let snd_region_start = region2.astart;
-            let snd_region_end = region2.astart + region2.asize;
+            let fst_region_start = region1.rstart;
+            let fst_region_end = region1.rstart + region1.rsize;
+            let snd_region_start = region2.rstart;
+            let snd_region_end = region2.rstart + region2.rsize;
             fst_region_start < snd_region_end && snd_region_start < fst_region_end
         } else {
             false
