@@ -220,7 +220,7 @@ pub trait MPU {
         Permissions[@perms],
         &mut Self::MpuConfig,
     ) -> Option<Region>
-        requires minsz > 0 && minsz <= u32::MAX / 2 + 1 && memsz <= u32::MAX / 2 + 1 && memstart <= u32::MAX / 2 + 1
+        requires 32 <= minsz && minsz <= u32::MAX / 2 + 1 && memsz <= u32::MAX / 2 + 1 && memstart <= u32::MAX / 2 + 1
     )]
     fn allocate_region(
         &self,
@@ -297,7 +297,7 @@ pub trait MPU {
             FluxPtrU8[@fstart],
             usize[@fsz],
             config: &strg Self::MpuConfig[@old_c],
-        ) -> Result<{b. AllocatedAppBreaksAndSize[b] | 
+        ) -> Result<{b. AllocatedAppBreaksAndSize[b] |
             b.app_break <= b.memory_start + b.memory_size - kernelmsz &&
             b.app_break >= b.memory_start + appmsz &&
             b.memory_start >= mem_start &&
@@ -307,11 +307,11 @@ pub trait MPU {
             <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart - 1) &&
             <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX) 
+            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX)
             // &&
             // <Self as MPU>::ipc_cant_access_process_mem(new_c, fstart, fstart + fsz, mem_start, u32::MAX)
         }, AllocateAppMemoryError>
-        requires 
+        requires
             fstart + fsz < mem_start &&
             min_mem_sz > 0 &&
             <Self as MPU>::config_cant_access_at_all(old_c, 0, u32::MAX)
@@ -357,7 +357,7 @@ pub trait MPU {
             FluxPtrU8Mut[@fstart],
             usize[@fsz],
             config: &strg Self::MpuConfig[@old_c],
-        ) -> Result<{b. AllocatedAppBreaks[b] | 
+        ) -> Result<{b. AllocatedAppBreaks[b] |
             b.app_break <= kernel_break &&
             b.app_break >= app_break &&
             b.memory_start == mem_start &&
@@ -365,17 +365,17 @@ pub trait MPU {
             <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break) &&
             <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart - 1) &&
             <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX) 
+            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX)
             // &&
             // <Self as MPU>::ipc_cant_access_process_mem(new_c, fstart, fstart + fsz, b.memory_start, u32::MAX)
         }, ()>[#res]
-        requires 
+        requires
             fstart + fsz < mem_start &&
             app_break > mem_start &&
             <Self as MPU>::config_can_access_flash(old_c, fstart, fstart + fsz) &&
             <Self as MPU>::config_cant_access_at_all(old_c, 0, fstart - 1) &&
             <Self as MPU>::config_cant_access_at_all(old_c, fstart + fsz + 1, mem_start - 1) &&
-            <Self as MPU>::config_cant_access_at_all(old_c, old_app_break + 1, u32::MAX) 
+            <Self as MPU>::config_cant_access_at_all(old_c, old_app_break + 1, u32::MAX)
             // &&
             // <Self as MPU>::ipc_cant_access_process_mem(old_c, fstart, fstart + fsz, mem_start, u32::MAX)
         ensures config: Self::MpuConfig[#new_c], !res => old_c == new_c

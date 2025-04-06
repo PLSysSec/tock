@@ -23,6 +23,7 @@ use kernel::utilities::math;
 
 // VTOCK-TODO: NUM_REGIONS currently fixed to 8. Need to also handle 16
 flux_rs::defs! {
+    fn half_max(r: int) -> bool { r <= u32::MAX / 2 + 1}
     fn xor(b: bitvec<32>, a: bitvec<32>) -> bitvec<32> { (a | b) - (a & b) }
     fn bv32(x:int) -> bitvec<32> { bv_int_to_bv32(x) }
     fn bit(reg: bitvec<32>, power_of_two: bitvec<32>) -> bool { reg & power_of_two != 0}
@@ -774,7 +775,7 @@ impl CortexMRegion {
             (rsize >= 256) &&
             rsize <= u32::MAX / 2 + 1
     )]
-    #[flux_rs::trusted] //RJ:TODO
+    #[flux_rs::trusted] // VTOCK:TODO:RJ:TODO
     fn dummy_new_some(
         logical_start: FluxPtrU8,
         logical_size: usize,
@@ -1010,7 +1011,7 @@ impl CortexMRegion {
             (subregions => rsize >= 256) &&
             rsize <= u32::MAX / 2 + 1
     )]
-    #[flux_rs::trusted] // RJ:TODO
+    #[flux_rs::trusted] // VTOCK:TODO:RJ:TODO
     fn new(
         logical_start: FluxPtrU8,
         logical_size: usize,
@@ -1101,6 +1102,13 @@ impl CortexMRegion {
     }
 }
 
+#[flux_rs::sig(fn (r:usize) requires half_max(r))]
+fn assert_half_max(_r: usize) {}
+
+#[flux_rs::trusted]
+#[flux_rs::sig(fn (r:usize) ensures half_max(r))]
+fn assume_half_max(_r: usize) {}
+
 impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
     #[flux_rs::sig(
         fn (
@@ -1119,9 +1127,9 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                 r.asize >= minsz &&
                 (size == minsz => start == r.astart && size == r.asize)
             }>
-        requires minsz > 0 && minsz <= u32::MAX / 2 + 1 && size <= u32::MAX / 2 + 1 && start <= u32::MAX / 2 + 1
+        requires 32 <= minsz && minsz <= u32::MAX / 2 + 1 && size <= u32::MAX / 2 + 1 && start <= u32::MAX / 2 + 1
     )]
-    #[flux_rs::trusted] // RJ:SLOW-with-cvc5-but-fast-with-z3
+    #[flux_rs::opts(solver = "z3")]
     fn create_region(
         &self,
         region_num: usize,
@@ -1172,7 +1180,9 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                 if tz < 32 {
                     // Find the largest power of two that divides `start`
                     // 1_usize << tz
-                    power_of_two(tz)
+                    let res = power_of_two(tz);
+                    assume_half_max(res * 8); // VTOCK:TODO:RJ: why?
+                    res
                 } else {
                     // This case means `start` is 0.
 
@@ -1224,6 +1234,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
 
                 region_start = underlying_region_start;
                 region_size = underlying_region_size;
+                assert_half_max(region_size);
                 subregions = Some((min_subregion, max_subregion));
             } else {
                 // In this case, we can't use subregions to solve the alignment
@@ -1239,6 +1250,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
 
                 region_start = start;
                 region_size = size;
+                assert_half_max(region_size);
             }
         }
 
@@ -1250,6 +1262,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
         if region_size > u32::MAX as usize {
             return None;
         }
+        assert_half_max(region_size);
 
         Some(CortexMRegion::new(
             FluxPtr::from(start),
@@ -1334,7 +1347,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         mpu::Permissions[@perms],
         config: &strg CortexMConfig[@old_c],
     ) -> Option<mpu::Region>
-        requires minsz > 0 && minsz <= u32::MAX / 2 + 1 && memsz <= u32::MAX / 2 + 1 && memstart <= u32::MAX / 2 + 1
+        requires 32 <= minsz && minsz <= u32::MAX / 2 + 1 && memsz <= u32::MAX / 2 + 1 && memstart <= u32::MAX / 2 + 1
         ensures config: CortexMConfig
     )]
     fn allocate_region(
@@ -1345,6 +1358,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         permissions: mpu::Permissions,
         config: &mut CortexMConfig,
     ) -> Option<mpu::Region> {
+        assert(32 <= min_region_size);
         let region_num = config.unused_region_number()?;
         let region = self.create_region(
             region_num,
@@ -1363,7 +1377,6 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         ))
     }
 
-    // #[flux_rs::trusted] RJ:slow
     #[flux_rs::sig(fn(
         _,
         region: mpu::Region[@memstart, @memsz],
@@ -1395,7 +1408,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
     // When allocating memory for apps, we use two regions, each a power of two
     // in size. By using two regions we halve their size, and also halve their
     // alignment restrictions.
-    #[flux_rs::trusted] // RJ:slow
+    #[flux_rs::opts(solver = "z3")] // takes ~5mins but finishes with z3; lots of `mod` and `/2` etc.
     #[flux_rs::sig(
         fn (
             &Self,
@@ -1441,6 +1454,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         // first allocate flash
         if flash_start.as_usize() == 0
             || flash_size == 0
+            || flash_size <  32 // VTOCK:TODO:RJ:needed for create_region below
             || flash_start.as_usize() > (u32::MAX / 2 + 1) as usize
             || flash_size > (u32::MAX / 2 + 1) as usize
         {
@@ -1563,6 +1577,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         let num_enabled_subregions0 = min_usize(num_enabled_subregions, 8);
         let num_enabled_subregions1 = num_enabled_subregions.saturating_sub(8);
 
+        assume(1 <= num_enabled_subregions0); // VTOCK:TODO:RJ:why?
         let region0 = CortexMRegion::new(
             FluxPtr::from(region_start),
             num_enabled_subregions0 * subregion_size,
@@ -1604,7 +1619,6 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         ))
     }
 
-    #[flux_rs::trusted] // RJ:slow
     #[flux_rs::sig(
         fn (
             &Self,
