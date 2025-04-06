@@ -417,10 +417,9 @@ impl AppMemoryAllocator {
         size: usize,
         permissions: mpu::Permissions,
     ) -> Result<mpu::Region, ()> {
-        crate::debug!("Allocating IPC region");
         let region_idx = self.next_available_ipc_idx().ok_or(())?;
         let region = CortexMRegion::create_exact_region(
-                region_idx + 2, // Adds two because the first two are reserved for app flash and ram
+                region_idx, 
                 start,
                 size,
                 permissions,
@@ -561,7 +560,6 @@ impl AppMemoryAllocator {
         &mut self,
         new_app_break: FluxPtrU8,
     ) -> Result<(), Error> {
-        crate::debug!("Updating app memory!");
         let memory_start = self.memory_start();
         let memory_end = self.memory_end();
         let high_water_mark = self.breaks.high_water_mark;
@@ -576,7 +574,6 @@ impl AppMemoryAllocator {
             return Err(Error::AddressOutOfBounds);
         }
         let new_region_size = new_app_break.as_usize() - memory_start.as_usize();
-        crate::debug!("Asking for a region of size {}", new_region_size);
         let new_region = CortexMRegion::adjust_region_fixed_start(
             self.memory_start(),
             self.memory_size(),
@@ -595,9 +592,7 @@ impl AppMemoryAllocator {
         if new_app_break > kernel_break.as_usize() {
             return Err(Error::OutOfMemory);
         }
-        crate::debug!("The new app break is {:x}", new_app_break);
         self.breaks.app_break = FluxPtrU8::from(new_app_break);
-        crate::debug!("Set app break to {:x}", self.breaks.app_break.as_usize());
         self.regions.set(RAM_REGION_NUMBER, new_region);
         Ok(())
     }
