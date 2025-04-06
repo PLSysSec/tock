@@ -491,7 +491,6 @@ impl CortexMRegion {
             return None;
         }
 
-        crate::debug!("The end of the region is: {:x}", subregions_enabled_end);
         // create the region
         Some(CortexMRegion::new(
             start.as_fluxptr(),
@@ -530,7 +529,6 @@ impl CortexMRegion {
         let num_subregions_enabled = region_size.div_ceil(subregion_size);
         let subregions_enabled_end = po2_aligned_start.as_usize() + num_subregions_enabled * subregion_size;
 
-        crate::debug!("New protected end: {:x}", subregions_enabled_end);
 
         // create the region
         Some(CortexMRegion::new(
@@ -782,9 +780,7 @@ impl CortexMRegion {
                 let snd_region_start = snd_region_loc.region_start.as_usize();
                 let snd_region_end = snd_region_start + snd_region_loc.region_size;
 
-                let res = fst_region_start < snd_region_end && snd_region_start < fst_region_end;
-                crate::debug!("Looking at {:x}..{:x}, and {:x}..{:x}. Overlap: {}", fst_region_start, fst_region_end, snd_region_start, snd_region_end, res);
-                res
+                fst_region_start < snd_region_end && snd_region_start < fst_region_end
             },
             _ => false
         }
