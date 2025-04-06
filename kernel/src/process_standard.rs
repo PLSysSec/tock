@@ -558,10 +558,6 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             return Err(Error::InactiveApp);
         }
         let app_break = self.app_memory_break().map_err(|_| Error::KernelError)?;
-        // VTOCK Bug: No check here and used offset... 
-        // guess it doesn't matter too much because the pointer doesn't seem to be 
-        // used and is checked but this is still UB and should be prevented
-        // at the very least wrapping offset should be used
         let new_break = app_break.wrapping_offset(increment);
         self.brk(new_break)
     }
@@ -575,7 +571,12 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         self.app_memory_allocator
             .map_or(Err(Error::KernelError), |am| {
                 am.update_app_memory(new_break)?;
-                Ok(am.app_break())
+                // VTOCK Note:
+                // The natural thing here seems to be to expose the actual 
+                // end of the heap to the process. However, doing this crashes
+                // apps as they seem to use the value returned here to immediately 
+                // read/write to memory.
+                Ok(new_break)
             })
     }
 
