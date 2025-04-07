@@ -1209,7 +1209,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                     // 1_usize << tz
                     let res = power_of_two(tz);
                     assume_pow2(res);
-                    assume_half_max(res * 8); // VTOCK:TODO:RJ: why?
+                    assume_half_max(res * 8); // VTOCK:TODO:RJ:EXPLAIN?
                     res
                 } else {
                     // This case means `start` is 0.
@@ -1499,13 +1499,13 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         // first allocate flash
         if flash_start.as_usize() == 0
             || flash_size == 0
-            || flash_size <  32 // VTOCK:TODO:RJ:needed for create_region below
+            || flash_size <  32 // VTOCK:TODO:RJ:required for create_region below
             || flash_start.as_usize() > (u32::MAX / 2 + 1) as usize
             || flash_size > (u32::MAX / 2 + 1) as usize
         {
             return Err(AllocateAppMemoryError::FlashError);
         }
-        assume_pow2(flash_size); // VTOCK:TODO:RJ:needed for create_region below
+        assume_pow2(flash_size); // VTOCK:TODO:RJ:required for create_region below, put into if-test above?
 
         let region = self
             .create_region(
@@ -1633,7 +1633,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         let num_enabled_subregions0 = min_usize(num_enabled_subregions, 8);
         let num_enabled_subregions1 = num_enabled_subregions.saturating_sub(8);
 
-        assume(1 <= num_enabled_subregions0); // VTOCK:TODO:RJ:why is this true?
+        assume(1 <= num_enabled_subregions0); // VTOCK:TODO:RJ:EXPLAIN?
         let region0 = CortexMRegion::new(
             FluxPtr::from(region_start),
             num_enabled_subregions0 * subregion_size,
