@@ -220,7 +220,7 @@ pub trait MPU {
         Permissions[@perms],
         &mut Self::MpuConfig,
     ) -> Option<Region>
-        requires 32 <= minsz && minsz <= u32::MAX / 2 + 1 && memsz <= u32::MAX / 2 + 1 && memstart <= u32::MAX / 2 + 1
+        requires 32 <= minsz && minsz <= u32::MAX / 2 + 1 && pow2(minsz) && memsz <= u32::MAX / 2 + 1 && memstart <= u32::MAX / 2 + 1
     )]
     fn allocate_region(
         &self,

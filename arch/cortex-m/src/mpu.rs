@@ -1008,6 +1008,7 @@ impl CortexMRegion {
             }
         requires
             rsize >= 32 &&
+            pow2(rsize) &&
             (subregions => rsize >= 256) &&
             rsize <= u32::MAX / 2 + 1
     )]
@@ -1105,9 +1106,31 @@ impl CortexMRegion {
 #[flux_rs::sig(fn (r:usize) requires half_max(r))]
 fn assert_half_max(_r: usize) {}
 
+#[flux_rs::sig(fn (r:usize) requires pow2(r))]
+fn assert_pow2(_r: usize) {}
+
+#[flux_rs::sig(fn (r:usize) requires octet(r))]
+fn assert_octet(_r: usize) {}
+
 #[flux_rs::trusted]
 #[flux_rs::sig(fn (r:usize) ensures half_max(r))]
 fn assume_half_max(_r: usize) {}
+
+#[flux_rs::trusted]
+#[flux_rs::sig(fn (r:usize) ensures pow2(r))]
+fn assume_pow2(_r: usize) {}
+
+#[flux_rs::trusted]
+#[flux_rs::sig(fn (r:usize, k:usize) requires (pow2(r) && pow2(k) && k < r) ensures pow2(r / k))]
+fn theorem_pow2_div(_r: usize, k: usize) {}
+
+#[flux_rs::trusted]
+#[flux_rs::sig(fn (r:usize, k:usize) requires (pow2(r) && pow2(k)) ensures pow2(r * k))]
+fn theorem_pow2_mul(_r: usize, k: usize) {}
+
+#[flux_rs::trusted]
+#[flux_rs::sig(fn (r:usize) ensures (pow2(r) => octet(r)))]
+fn theorem_pow2_octet(_n: usize) {}
 
 impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
     #[flux_rs::sig(
@@ -1127,7 +1150,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                 r.asize >= minsz &&
                 (size == minsz => start == r.astart && size == r.asize)
             }>
-        requires 32 <= minsz && minsz <= u32::MAX / 2 + 1 && size <= u32::MAX / 2 + 1 && start <= u32::MAX / 2 + 1
+        requires 32 <= minsz && pow2(minsz) && minsz <= u32::MAX / 2 + 1 && size <= u32::MAX / 2 + 1 && start <= u32::MAX / 2 + 1
     )]
     #[flux_rs::opts(solver = "z3")]
     fn create_region(
@@ -1139,6 +1162,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
         permissions: mpu::Permissions,
         config: &CortexMConfig,
     ) -> Option<CortexMRegion> {
+        assume_pow2(MIN_REGION_SIZE);
         // Check that no previously allocated regions overlap the unallocated memory.
         for region in config.regions_iter() {
             if region.overlaps(unallocated_memory_start, unallocated_memory_size) {
@@ -1159,6 +1183,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
         if size < MIN_REGION_SIZE {
             size = MIN_REGION_SIZE;
         }
+        // assert_pow2(size);
 
         // Physical MPU region (might be larger than logical region if some subregions are disabled)
         let mut region_start = start;
@@ -1181,6 +1206,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                     // Find the largest power of two that divides `start`
                     // 1_usize << tz
                     let res = power_of_two(tz);
+                    assume_pow2(res);
                     assume_half_max(res * 8); // VTOCK:TODO:RJ: why?
                     res
                 } else {
@@ -1196,15 +1222,22 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                     //     return None
                     // }
                     let mut ceil = math::closest_power_of_two_usize(size);
+                    assume_pow2(ceil);
                     if ceil < 256 {
+                        assume_pow2(256);
                         ceil = 256
                     }
+                    // assert_pow2(ceil);
+                    theorem_pow2_div(ceil, 8);
                     ceil / 8
                 }
             };
 
             // Once we have a subregion size, we get a region size by
             // multiplying it by the number of subregions per region.
+            // assert_pow2(subregion_size);
+            assume_pow2(8);
+            theorem_pow2_mul(subregion_size, 8);
             let underlying_region_size = subregion_size * 8;
 
             // Finally, we calculate the region base by finding the nearest
@@ -1234,7 +1267,9 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
 
                 region_start = underlying_region_start;
                 region_size = underlying_region_size;
-                assert_half_max(region_size);
+                // assert_half_max(region_size);
+                // assert_pow2(region_size);
+                // assert_octet(region_size);
                 subregions = Some((min_subregion, max_subregion));
             } else {
                 // In this case, we can't use subregions to solve the alignment
@@ -1246,11 +1281,14 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                     return None;
                 }
                 size = math::closest_power_of_two_usize(size);
+                assume_pow2(size);
                 start += size - (start % size);
 
                 region_start = start;
                 region_size = size;
-                assert_half_max(region_size);
+                // assert_half_max(region_size);
+                // assert_pow2(region_size);
+                // assert_octet(region_size);
             }
         }
 
@@ -1262,7 +1300,10 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
         if region_size > u32::MAX as usize {
             return None;
         }
-        assert_half_max(region_size);
+        //assert_half_max(region_size);
+        //assert_pow2(region_size);
+        theorem_pow2_octet(region_size);
+        assert_octet(region_size);
 
         Some(CortexMRegion::new(
             FluxPtr::from(start),
@@ -1347,7 +1388,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         mpu::Permissions[@perms],
         config: &strg CortexMConfig[@old_c],
     ) -> Option<mpu::Region>
-        requires 32 <= minsz && minsz <= u32::MAX / 2 + 1 && memsz <= u32::MAX / 2 + 1 && memstart <= u32::MAX / 2 + 1
+        requires 32 <= minsz && minsz <= u32::MAX / 2 + 1 && pow2(minsz) && memsz <= u32::MAX / 2 + 1 && memstart <= u32::MAX / 2 + 1
         ensures config: CortexMConfig
     )]
     fn allocate_region(
@@ -1460,6 +1501,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         {
             return Err(AllocateAppMemoryError::FlashError);
         }
+        assume_pow2(flash_size); // VTOCK:TODO:RJ:needed for create_region below
 
         let region = self
             .create_region(
@@ -1496,13 +1538,17 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         // Size must be a power of two, so:
         // https://www.youtube.com/watch?v=ovo6zwv6DX4.
         let mut memory_size_po2 = math::closest_power_of_two_usize(memory_size);
+        assume_pow2(memory_size_po2);
         let exponent = math::log_base_two_u32_usize(memory_size_po2);
+        assume((exponent < 9 || memory_size_po2 >= 256));
 
         // // Check for compliance with the constraints of the MPU.
         if exponent < 9 {
             // Region sizes must be 256 bytes or larger to support subregions.
             // Since we are using two regions, and each must be at least 256
             // bytes, we need the entire memory region to be at least 512 bytes.
+            // RJ: by the above reasoning, shouldn't test be exponent <= 9 ?
+            assume_pow2(512);
             memory_size_po2 = 512;
         } else if exponent > 32 {
             // Region sizes must be 4GB or smaller.
@@ -1511,7 +1557,11 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
 
         // Region size is the actual size the MPU region will be set to, and is
         // half of the total power of two size we are allocating to the app.
+        assume_pow2(2); // duh.
+        assume_pow2(4);
+        theorem_pow2_div(memory_size_po2, 2);
         let mut region_size = memory_size_po2 / 2;
+        assert_pow2(region_size);
 
         // The region should start as close as possible to the start of the
         // unallocated memory.
@@ -1557,6 +1607,8 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         if subregions_enabled_end > kernel_memory_break {
             memory_size_po2 *= 2;
             region_size *= 2;
+            assume_pow2(2);
+            theorem_pow2_mul(region_size, 2);
 
             if region_start % region_size != 0 {
                 region_start += region_size - (region_start % region_size);
@@ -1701,6 +1753,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         assume(region_size % 8 == 0);
         assume(region_start + region_size * 2 >= kernel_memory_break.as_usize());
         assume(region_start % region_size == 0);
+        assume_pow2(region_size); // VTOCK:TODO:RJ added to above preconditions
 
         let app_memory_break = app_memory_break.as_usize();
         let kernel_memory_break = kernel_memory_break.as_usize();

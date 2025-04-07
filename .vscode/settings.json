@@ -3,5 +3,11 @@
     "editor.defaultFormatter": "rust-lang.rust-analyzer",
     "editor.formatOnSave": true,
     "rust-analyzer.server.extraEnv": {},
-    "rust-analyzer.check.allTargets": false
+    "rust-analyzer.check.allTargets": false, 
+    "rust-analyzer.check.overrideCommand": [
+      "cargo",
+      "flux",
+      "--workspace",
+      "--message-format=json-diagnostic-rendered-ansi"
+    ]
 }
