@@ -23,6 +23,7 @@ use crate::collections::ring_buffer::RingBuffer;
 use crate::config;
 use crate::debug;
 use crate::errorcode::ErrorCode;
+use crate::hil::hw_debug::CycleCounter;
 use crate::kernel::Kernel;
 use crate::platform::chip::Chip;
 use crate::platform::mpu::{self};
@@ -555,12 +556,15 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
     }
 
     fn brk(&self, new_break: FluxPtrU8Mut) -> Result<FluxPtrU8Mut, Error> {
+        let dwt = self.chip.dwt();
+        dwt.reset();
+        dwt.start();
         // Do not modify an inactive process.
         if !self.is_running() {
             return Err(Error::InactiveApp);
         }
 
-        self.app_memory_allocator
+        let res = self.app_memory_allocator
             .map_or(Err(Error::KernelError), |am| {
                 am.update_app_memory(new_break)?;
                 // VTOCK Note:
@@ -569,7 +573,12 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
                 // apps as they seem to use the value returned here to immediately
                 // read/write to memory.
                 Ok(new_break)
-            })
+            });
+        dwt.stop();
+        let count = dwt.count();
+        crate::debug!("[EVAL] brk {:?}", count);
+
+        res
     }
 
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -752,6 +761,9 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         size: usize,
         align: usize,
     ) -> Result<(), ()> {
+        let dwt = self.chip.dwt();
+        dwt.reset();
+        dwt.start();
         // Do not modify an inactive process.
         if !self.is_running() {
             return Err(());
@@ -792,7 +804,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
 
         // Use the shared grant allocator function to actually allocate memory.
         // Returns `None` if the allocation cannot be created.
-        if let Some(grant_ptr) = self.allocate_in_grant_region_internal(size, align) {
+        let res = if let Some(grant_ptr) = self.allocate_in_grant_region_internal(size, align) {
             // Update the grant pointer to the address of the new allocation.
             self.grant_pointers.map_or(Err(()), |grant_pointers| {
                 // Implement `grant_pointers[grant_num] = grant_ptr` without a
@@ -811,7 +823,11 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         } else {
             // Could not allocate the memory for the grant region.
             Err(())
-        }
+        };
+        dwt.stop();
+        let count = dwt.count();
+        crate::debug!("[EVAL] allocate_grant {:?}", count);
+        res
     }
 
     fn allocate_custom_grant(
@@ -1304,6 +1320,9 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         index: usize,
     ) -> Result<(Option<&'static dyn Process>, &'a mut [u8]), (ProcessLoadError, &'a mut [u8])>
     {
+        let dwt = chip.dwt();
+        dwt.reset();
+        dwt.start();
         let process_name = pb.header.get_package_name();
         let process_ram_requested_size = pb.header.get_minimum_app_ram_size() as usize;
 
@@ -1721,6 +1740,9 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             }));
             Ok::<(), ProcessLoadError>(())
         });
+        dwt.stop();
+        let count = dwt.count();
+        crate::debug!("[EVAL] create {}", count);
         // Return the process object and a remaining memory for processes slice.
         Ok((Some(process), unused_memory))
     }
@@ -1734,6 +1756,10 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // invalidate any stored `ProcessId`s that point to the old version of
         // the process. However, the process has not moved locations in the
         // processes array, so we copy the existing index.
+        let dwt = self.chip.dwt();
+        dwt.reset();
+        dwt.start();
+
         let old_index = self.process_id.get().index;
         let new_identifier = self.kernel.create_process_identifier();
         self.process_id
@@ -1844,14 +1870,18 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             .wrapping_add(self.header.get_init_function_offset() as usize)
             .as_usize();
 
-        self.enqueue_task(Task::FunctionCall(FunctionCall {
+        let res = self.enqueue_task(Task::FunctionCall(FunctionCall {
             source: FunctionCallSource::Kernel,
             pc: init_fn,
             argument0: app_start,
             argument1: app_breaks.memory_start.as_usize(),
             argument2: app_breaks.memory_size,
             argument3: app_breaks.app_break.as_usize(),
-        }))
+        }));
+        dwt.stop();
+        let count = dwt.count();
+        crate::debug!("[EVAL] reset {}", count);
+        res
     }
 
     #[flux_rs::trusted] // https://github.com/flux-rs/flux/issues/782

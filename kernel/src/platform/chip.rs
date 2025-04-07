@@ -23,6 +23,7 @@ pub trait Chip {
     /// chips may have various custom requirements.
     type UserspaceKernelBoundary: syscall::UserspaceKernelBoundary;
     type MPU: IntoCortexMPU;
+    type DWT: crate::hil::hw_debug::CycleCounter;
 
     /// The kernel calls this function to tell the chip to check for all pending
     /// interrupts and to correctly dispatch them to the peripheral drivers for
@@ -38,6 +39,8 @@ pub trait Chip {
 
     /// Returns a reference to the implementation for the MPU on this chip.
     fn mpu(&self) -> &Self::MPU;
+
+    fn dwt(&self) -> &Self::DWT;
 
     /// Returns a reference to the implementation for the interface between
     /// userspace and kernelspace.
