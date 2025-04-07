@@ -8,6 +8,7 @@
 
 use core::cell::Cell;
 use core::cmp;
+use core::cmp::min;
 use core::fmt;
 use core::num::NonZeroUsize;
 
@@ -1228,6 +1229,7 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
                         ceil = 256
                     }
                     // assert_pow2(ceil);
+                    assume_pow2(8);
                     theorem_pow2_div(ceil, 8);
                     ceil / 8
                 }
@@ -1388,7 +1390,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         mpu::Permissions[@perms],
         config: &strg CortexMConfig[@old_c],
     ) -> Option<mpu::Region>
-        requires 32 <= minsz && minsz <= u32::MAX / 2 + 1 && pow2(minsz) && memsz <= u32::MAX / 2 + 1 && memstart <= u32::MAX / 2 + 1
+        requires 32 <= minsz && minsz <= u32::MAX / 2 + 1 && memsz <= u32::MAX / 2 + 1 && memstart <= u32::MAX / 2 + 1
         ensures config: CortexMConfig
     )]
     fn allocate_region(
@@ -1400,6 +1402,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         config: &mut CortexMConfig,
     ) -> Option<mpu::Region> {
         assert(32 <= min_region_size);
+        assume_pow2(min_region_size); // VTOCK:TODO:RJ this _should_ be a precondition BUT then we need it on the trait method, which then tickles the extern problem...
         let region_num = config.unused_region_number()?;
         let region = self.create_region(
             region_num,
@@ -1538,7 +1541,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         // Size must be a power of two, so:
         // https://www.youtube.com/watch?v=ovo6zwv6DX4.
         let mut memory_size_po2 = math::closest_power_of_two_usize(memory_size);
-        assume_pow2(memory_size_po2);
+        assume_pow2(memory_size_po2); // cannot put in postcondition of closest_power_of_two due to extern-spec-panic(!)
         let exponent = math::log_base_two_u32_usize(memory_size_po2);
         assume((exponent < 9 || memory_size_po2 >= 256));
 
@@ -1629,7 +1632,7 @@ impl<const MIN_REGION_SIZE: usize> mpu::MPU for MPU<MIN_REGION_SIZE> {
         let num_enabled_subregions0 = min_usize(num_enabled_subregions, 8);
         let num_enabled_subregions1 = num_enabled_subregions.saturating_sub(8);
 
-        assume(1 <= num_enabled_subregions0); // VTOCK:TODO:RJ:why?
+        assume(1 <= num_enabled_subregions0); // VTOCK:TODO:RJ:why is this true?
         let region0 = CortexMRegion::new(
             FluxPtr::from(region_start),
             num_enabled_subregions0 * subregion_size,
