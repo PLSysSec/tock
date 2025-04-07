@@ -774,6 +774,7 @@ impl CortexMRegion {
         requires
             rsize >= 32 &&
             (rsize >= 256) &&
+            pow2(rsize) &&
             rsize <= u32::MAX / 2 + 1
     )]
     #[flux_rs::trusted] // VTOCK:TODO:RJ:TODO
@@ -919,7 +920,6 @@ impl CortexMRegion {
             rsize == asize &&
             rstart == astart &&
             rsize >= 32 &&
-            octet(rsize) &&
             pow2(rsize) &&
             rsize <= u32::MAX / 2 + 1
     )]
@@ -932,6 +932,7 @@ impl CortexMRegion {
         // subregions: Option<(usize, usize)>,
         permissions: mpu::Permissions,
     ) -> CortexMRegion {
+        theorem_pow2_octet(region_size);
         // Base address register
         let base_address = Self::base_address_register(region_start, region_num);
         // Attributes register
@@ -1130,7 +1131,7 @@ fn theorem_pow2_div(_r: usize, k: usize) {}
 fn theorem_pow2_mul(_r: usize, k: usize) {}
 
 #[flux_rs::trusted]
-#[flux_rs::sig(fn (r:usize) ensures (pow2(r) => octet(r)))]
+#[flux_rs::sig(fn (r:usize) requires pow2(r) ensures octet(r))]
 fn theorem_pow2_octet(_n: usize) {}
 
 impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
