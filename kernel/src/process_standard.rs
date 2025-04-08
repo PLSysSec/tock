@@ -526,7 +526,6 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         });
     }
 
-    #[flux_rs::trusted] // VR: Fixpoint encoding error
     fn setup_mpu(&self) {
         self.app_memory_allocator
             .map(|am| match self.chip.mpu().into_cortex_mpu() {
