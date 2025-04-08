@@ -670,7 +670,6 @@ impl AppMemoryAllocator {
     }
 
     #[flux_rs::sig(fn (&Self, _) -> MpuConfiguredCapability)]
-    // {c: mpu_configured_for(c.start, c.brk) })]
     pub(crate) fn configure_mpu<const NUM_REGIONS: usize>(&self, mpu: &MPU<NUM_REGIONS>) -> MpuConfiguredCapability {
         mpu.configure_mpu(&self.regions, &self.breaks);
         MpuConfiguredCapability::new(self.memory_start(), self.app_break())
