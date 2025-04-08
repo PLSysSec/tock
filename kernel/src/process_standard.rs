@@ -530,9 +530,9 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         self.app_memory_allocator
             .map(|am| match self.chip.mpu().into_cortex_mpu() {
                 allocator::CortexMpuTypes::Sixteen(mpu) => {
-                    mpu.configure_mpu(&am.regions, am.breaks())
+                    am.configure_mpu(mpu)
                 }
-                allocator::CortexMpuTypes::Eight(mpu) => mpu.configure_mpu(&am.regions, am.breaks()),
+                allocator::CortexMpuTypes::Eight(mpu) => am.configure_mpu(mpu)
             });
     }
 
@@ -1058,7 +1058,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         }
     }
 
-    #[flux_rs::trusted(reason = "assignment might be unsafe (https://github.com/flux-rs/flux/issues/782)")]
+    #[flux_rs::sig(fn (&Self) -> Option<syscall::ContextSwitchReason>)]
     fn switch_to(&self) -> Option<syscall::ContextSwitchReason> {
         // Cannot switch to an invalid process
         if !self.is_running() {
@@ -1083,19 +1083,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
 
         // If the UKB implementation passed us a stack pointer, update our
         // debugging state. This is completely optional.
-        if let Some(sp) = stack_pointer {
-            self.debug.map(|debug| {
-                match debug.app_stack_min_pointer {
-                    None => debug.app_stack_min_pointer = Some(sp),
-                    Some(asmp) => {
-                        // Update max stack depth if needed.
-                        if sp < asmp {
-                            debug.app_stack_min_pointer = Some(sp);
-                        }
-                    }
-                }
-            });
-        }
+        self.update_debug_sp(stack_pointer);
 
         switch_reason
     }
@@ -1866,6 +1854,23 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             argument2: app_breaks.memory_size,
             argument3: app_breaks.app_break.as_usize(),
         }))
+    }
+
+    #[flux_rs::trusted] // https://github.com/flux-rs/flux/issues/782
+    fn update_debug_sp(&self, stack_pointer: Option<FluxPtrU8>) {
+        if let Some(sp) = stack_pointer {
+            self.debug.map(|debug| {
+                match debug.app_stack_min_pointer {
+                    None => debug.app_stack_min_pointer = Some(sp),
+                    Some(asmp) => {
+                        // Update max stack depth if needed.
+                        if sp < asmp {
+                            debug.app_stack_min_pointer = Some(sp);
+                        }
+                    }
+                }
+            });
+        }
     }
 
     /// Checks if the buffer represented by the passed in base pointer and size

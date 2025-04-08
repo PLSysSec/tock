@@ -207,11 +207,6 @@ impl AppMemoryAllocator {
         regions
     }
 
-    #[flux_rs::sig(fn (&Self[@app]) -> &AppBreaks{b: app_regions_correct(app.regions, b)})]
-    pub(crate) fn breaks(&self) -> &AppBreaks {
-        &self.breaks
-    }
-
     #[flux_rs::sig(fn (&Self[@b]) -> FluxPtrU8[b.breaks.flash_start])]
     pub(crate) fn flash_start(&self) -> FluxPtrU8 {
         self.breaks.flash_start
@@ -670,5 +665,9 @@ impl AppMemoryAllocator {
         self.breaks.app_break = FluxPtrU8::from(new_app_break);
         self.regions.set(RAM_REGION_NUMBER, new_region);
         Ok(())
+    }
+
+    pub(crate) fn configure_mpu<const NUM_REGIONS: usize>(&self, mpu: &MPU<NUM_REGIONS>) {
+        mpu.configure_mpu(&self.regions, &self.breaks);
     }
 }

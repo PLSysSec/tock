@@ -901,21 +901,31 @@ impl CortexMRegion {
 }
 
 impl<const NUM_REGIONS: usize> MPU<NUM_REGIONS> {
-    // #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: enable(mpu.ctrl)})]
+
+    #[flux_rs::sig(fn () -> FieldValueU32<Control::Register>{ctrl: enable(ctrl.value)})]
+    fn enable_mpu_ctrl_bits() -> FieldValueU32<Control::Register> {
+        Control::ENABLE::SET() + Control::HFNMIENA::CLEAR() + Control::PRIVDEFENA::SET()
+    }
+
+    #[flux_rs::sig(fn () -> FieldValueU32<Control::Register>{ctrl: !enable(ctrl.value)})]
+    fn disable_mpu_ctrl_bits() -> FieldValueU32<Control::Register> {
+        Control::ENABLE::CLEAR()
+    }
+
     pub(crate) fn enable_app_mpu(&self) {
         // Enable the MPU, disable it during HardFault/NMI handlers, and allow
         // privileged code access to all unprotected memory.
-        let bits = Control::ENABLE::SET() + Control::HFNMIENA::CLEAR() + Control::PRIVDEFENA::SET();
+        let bits = Self::enable_mpu_ctrl_bits();
         self.registers.ctrl.write(bits.into_inner());
     }
 
-    // #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: !enable(mpu.ctrl)})]
     pub(crate) fn disable_app_mpu(&self) {
         // The MPU is not enabled for privileged mode, so we don't have to do
         // anything
+        let bits = Self::disable_mpu_ctrl_bits();
         self.registers
             .ctrl
-            .write(Control::ENABLE::CLEAR().into_inner());
+            .write(bits.into_inner());
     }
 
     fn number_total_regions(&self) -> usize {
