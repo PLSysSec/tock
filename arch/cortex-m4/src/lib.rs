@@ -54,6 +54,8 @@ impl cortexm::CortexMVariant for CortexM4 {
     unsafe fn switch_to_user(
         _user_stack: *const usize,
         _process_regs: &mut [usize; 8],
+        mpu_configured_capability: MpuConfiguredCapability,
+        mpu_enabled_capability: MpuEnabledCapability,
     ) -> *const usize {
         unimplemented!()
     }
