@@ -22,6 +22,7 @@ use crate::utilities::registers::{ReadOnly, ReadWrite};
 use crate::utilities::StaticRef;
 use flux_support::register_bitfields;
 use flux_support::*;
+use flux_support::capability::*;
 use tock_registers::interfaces::{Readable, Writeable};
 
 use super::AppBreaks;
@@ -120,6 +121,9 @@ flux_rs::defs! {
         ) &&
         perms_match_exactly(rasr.value, perms)
     }
+
+    fn mpu_is_configured() -> bool;
+    fn mpu_is_enabled() -> bool;
 }
 
 // VTOCK-TODO: supplementary proof?
@@ -912,11 +916,12 @@ impl<const NUM_REGIONS: usize> MPU<NUM_REGIONS> {
         Control::ENABLE::CLEAR()
     }
 
-    pub(crate) fn enable_app_mpu(&self) {
+    pub(crate) fn enable_app_mpu(&self) -> MpuEnabledCapability {
         // Enable the MPU, disable it during HardFault/NMI handlers, and allow
         // privileged code access to all unprotected memory.
         let bits = Self::enable_mpu_ctrl_bits();
         self.registers.ctrl.write(bits.into_inner());
+        MpuEnabledCapability {}
     }
 
     pub(crate) fn disable_app_mpu(&self) {

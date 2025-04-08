@@ -3,6 +3,8 @@ use core::{fmt::Display, ptr::NonNull};
 use cortexm_mpu::CortexMRegion;
 use flux_support::{max_ptr, max_usize, FluxPtrU8, FluxPtrU8Mut, RArray};
 
+use flux_support::capability::*;
+
 use crate::{
     platform::mpu,
     process::{Error, ProcessCustomGrantIdentifier},
@@ -667,7 +669,10 @@ impl AppMemoryAllocator {
         Ok(())
     }
 
-    pub(crate) fn configure_mpu<const NUM_REGIONS: usize>(&self, mpu: &MPU<NUM_REGIONS>) {
+    #[flux_rs::sig(fn (&Self, _) -> MpuConfiguredCapability)]
+    // {c: mpu_configured_for(c.start, c.brk) })]
+    pub(crate) fn configure_mpu<const NUM_REGIONS: usize>(&self, mpu: &MPU<NUM_REGIONS>) -> MpuConfiguredCapability {
         mpu.configure_mpu(&self.regions, &self.breaks);
+        MpuConfiguredCapability::new(self.memory_start(), self.app_break())
     }
 }
