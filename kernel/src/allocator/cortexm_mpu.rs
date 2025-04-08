@@ -28,6 +28,17 @@ use tock_registers::interfaces::{Readable, Writeable};
 use super::AppBreaks;
 use super::MIN_REGION_SIZE;
 
+/* extern specs have to live here because the defs for these specs are defined here */
+
+#[flux_rs::extern_spec]
+impl usize {
+    #[flux_rs::sig(fn (num: usize) -> usize{r: r >= num && pow2(r) && half_max(r)} requires half_max(num))]
+    fn next_power_of_two(self) -> usize;
+
+    #[flux_rs::sig(fn (num: usize) -> bool[pow2(num)])]
+    fn is_power_of_two(self) -> bool;
+}
+
 /* a bunch of theorems and proof code */
 
 #[flux_rs::sig(fn (r:usize) requires half_max(r))]
@@ -56,7 +67,7 @@ fn theorem_pow2_div(_r: usize, k: usize) {}
 fn theorem_pow2_mul(_r: usize, k: usize) {}
 
 #[flux_rs::trusted]
-#[flux_rs::sig(fn (r:usize) requires pow2(r) ensures octet(r))]
+#[flux_rs::sig(fn (r:usize) requires pow2(r) && r >= 8 ensures octet(r))]
 fn theorem_pow2_octet(_n: usize) {}
 
 #[flux_rs::reveal(octet, first_subregion_from_logical)]
@@ -257,6 +268,19 @@ flux_rs::defs! {
 
 /* bunch of code */
 
+#[flux_rs::trusted(reason = "VR: SMT hanging - BRUH!")]
+#[flux_rs::reveal(aligned)]
+#[flux_rs::sig(fn (start: usize, size: usize) -> usize{r: r >= start && aligned(r, size)} requires size > 0)]
+fn align(start: usize, size: usize) -> usize {
+    start + size - (start % size)
+}
+
+#[flux_rs::reveal(aligned)]
+#[flux_rs::sig(fn (start: usize, size: usize) -> bool[aligned(start, size)] requires size > 0)]
+fn is_aligned(start: usize, size: usize) -> bool {
+    start % size == 0
+}
+
 // VTOCK-TODO: supplementary proof?
 #[flux_rs::sig(fn(n: u32{n <= 32}) -> usize {r: r > 0 && (r > 2 => r % 8 == 0) && r % 2 == 0 && r <= u32::MAX})]
 #[flux_rs::trusted(reason = "math support (bitwise arithmetic fact)")]
@@ -428,8 +452,7 @@ impl<const NUM_REGIONS: usize> MPU<NUM_REGIONS> {
 
     // Function useful for boards where the bootloader sets up some
     // MPU configuration that conflicts with Tock's configuration:
-    // #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{mpu: mpu.ctrl & 0x00000001 == 0 })]
-    pub(crate) unsafe fn clear_mpu(&mut self) {
+    pub(crate) unsafe fn clear_mpu(&self) {
         self.registers
             .ctrl
             .write(Control::ENABLE::CLEAR().into_inner());
@@ -569,7 +592,7 @@ impl PartialEq<mpu::Region> for CortexMRegion {
 
 #[flux_rs::trusted] // Bitwise arithmetic
 #[flux_rs::sig(fn(num: u32) -> u32{r: (r < 32) && (num > 1 => r > 0) && (pow2(num) => (bv32(num) == exp2(bv32(r))))})]
-pub fn log_base_two(num: u32) -> u32 {
+fn log_base_two(num: u32) -> u32 {
     if num == 0 {
         0
     } else {
@@ -597,14 +620,16 @@ fn usize_to_u32(n: usize) -> u32 {
 }
 
 #[flux_rs::sig(
-    fn (po2_start: usize, min_size: usize) -> Option<usize{r: r >= min_size && r % 8 == 0 && po2_start % r == 0 }>
+    fn (po2_start: usize, min_size: usize) -> Option<usize{size: 
+        size >= min_size && pow2(size) && aligned(po2_start, size) && octet(size) 
+    }>
         requires 
-            min_size <= u32::MAX / 2 + 1 &&
+            half_max(min_size) &&
             po2_start < u32::MAX &&
             min_size >= 256
 )]
-// #[flux_rs::trusted(reason = "VR: unexpressible?")]
-// VR: I'm not sure if it's possible to what this function does. 
+#[flux_rs::trusted(reason = "VR: unexpressible?")]
+// VR: I'm not sure if it's possible to write a spec for what this function does. 
 // Here is a pen / paper proof.
 // Case split on po2_aligned_start = 0
 // . case 1 => if po2_aligned_start = 0, everything aligns with 0 so we just return the next pow2 
@@ -650,6 +675,36 @@ fn next_aligned_power_of_two(po2_aligned_start: usize, min_size: usize) -> Optio
     }
 }
 
+#[flux_rs::trusted(reason = "See next_aligned_power_of_two - same reasoning")]
+#[flux_rs::sig(fn (start: usize, size: usize) -> Option<usize{rsize: aligned(start, rsize) && pow2(rsize) && rsize >= 32}>)]
+fn smallest_aligned_power_of_two(start: usize, size: usize) -> Option<usize> {
+    // Which (power-of-two) subregion size would align with the start
+    // address?
+    //
+    // We find this by taking smallest binary substring of the start
+    // address with exactly one bit:
+    //
+    //      1 << (start.trailing_zeros())
+    let tz = start.trailing_zeros();
+    if tz < 32 {
+        // Find the largest power of two that divides `start`
+        // 1_usize << tz
+        let res = power_of_two(tz);
+        if res < 32 {
+            None
+        } else {
+            Some(res)
+        }
+    } else {
+        // This case means `start` is 0.
+        let mut ceil = size.next_power_of_two();
+        if ceil < 256 {
+            ceil = 256
+        }
+        Some(ceil / 8)
+    }
+}
+
 impl CortexMRegion {
 
     #[flux_rs::sig(
@@ -692,7 +747,7 @@ impl CortexMRegion {
         size = size.next_power_of_two();
 
         // region size must be aligned to start
-        start += size - (start % size);
+        start = align(start, size);
 
         // calculate subregions
         let subregion_size = size / 8;
@@ -756,8 +811,6 @@ impl CortexMRegion {
             next_aligned_power_of_two(po2_aligned_start.as_usize(), min_region_size)?;
 
         if underlying_region_size > available_size
-            // we cannot align to the start with the computed region size so we must fail
-            || underlying_region_size < po2_aligned_start.as_usize()
             || underlying_region_size > (u32::MAX / 2 + 1) as usize
         {
             return None;
@@ -795,6 +848,7 @@ impl CortexMRegion {
                 r.astart == start &&
                 r.astart + r.asize == start + size
             }>
+            requires region_no < 8
     )]
     pub(crate) fn create_exact_region(
         region_number: usize,
@@ -807,7 +861,7 @@ impl CortexMRegion {
             return None;
         }
 
-        if start % size == 0 {
+        if is_aligned(start.as_usize(), size) {
             // we can just create a region
             Some(CortexMRegion::new_no_srd(
                 start,
@@ -818,32 +872,15 @@ impl CortexMRegion {
                 permissions,
             ))
         } else {
-            // Which (power-of-two) subregion size would align with the start
-            // address?
-            //
-            // We find this by taking smallest binary substring of the start
-            // address with exactly one bit:
-            //
-            //      1 << (start.trailing_zeros())
-            let subregion_size = {
-                let tz = start.trailing_zeros();
-                if tz < 32 {
-                    // Find the largest power of two that divides `start`
-                    // 1_usize << tz
-                    power_of_two(tz)
-                } else {
-                    // This case means `start` is 0.
-                    let mut ceil = size.next_power_of_two();
-                    if ceil < 256 {
-                        ceil = 256
-                    }
-                    ceil / 8
-                }
-            };
+            let subregion_size = smallest_aligned_power_of_two(start.as_usize(), size)?;
+
+            theorem_pow2_octet(subregion_size);
 
             // Once we have a subregion size, we get a region size by
             // multiplying it by the number of subregions per region.
             let underlying_region_size = subregion_size * 8;
+
+            assert(is_aligned(start.as_usize(), underlying_region_size));
 
             // check overflows
             if underlying_region_size > (u32::MAX / 2 + 1) as usize {
@@ -855,7 +892,7 @@ impl CortexMRegion {
             let underlying_region_start =
                 start.as_usize() - (start.as_usize() % underlying_region_size);
 
-            if size % subregion_size != 0 {
+            if !is_aligned(size, subregion_size) {
                 // the size needs to grow but we don't have space
                 return None;
             }
@@ -977,14 +1014,17 @@ impl CortexMRegion {
         ) -> CortexMRegion {r:
                 r.astart == astart &&
                 r.asize == asize &&
+                r.rstart == rstart &&
+                r.rsize == rsize &&
                 r.region_no == no &&
                 r.perms == perms &&
                 r.set
             }
         requires
             rsize >= 32 &&
-            (rsize >= 256) &&
+            rsize >= 256 &&
             pow2(rsize) &&
+            aligned(rstart, rsize) &&
             rsize <= u32::MAX / 2 + 1
     )]
     #[flux_rs::trusted] // VTOCK:TODO:RJ:TODO
@@ -1045,6 +1085,8 @@ impl CortexMRegion {
         ) -> CortexMRegion {r:
                 r.astart == astart &&
                 r.asize == asize &&
+                r.rstart == rstart &&
+                r.rsize == rsize &&
                 r.region_no == no &&
                 r.perms == perms &&
                 r.set
