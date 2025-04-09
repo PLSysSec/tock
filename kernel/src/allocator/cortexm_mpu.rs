@@ -38,45 +38,53 @@ impl usize {
     #[flux_rs::sig(fn (num: usize) -> bool[pow2(num)])]
     fn is_power_of_two(self) -> bool;
 
-    #[sig(fn(num: usize{num <= u32::MAX}) -> u32{r: r <= 32 && (num > 0 => r < 32) && aligned(num, to_pow2(r))})]
+    #[sig(fn(num: usize{num <= u32::MAX}) -> u32{r: r <= 32 && (num > 0 => r < 32) && aligned(num, to_pow2(r)) && (aligned(num, 2) => r > 0)})]
     fn trailing_zeros(self) -> u32;
 }
 
 /* a bunch of theorems and proof code */
 
-#[flux_rs::reveal(aligned)]
+#[flux_rs::trusted(reason = "math")]
 #[flux_rs::sig(fn (usize[@x], usize[@y]) requires x == 0 && y > 0 ensures aligned(x, y))]
 fn theorem_aligned0(_x: usize, _y: usize) {}
 
-#[flux_rs::trusted]
+#[flux_rs::trusted(reason = "math")]
 #[flux_rs::sig(fn (usize[@x], usize[@y], usize[@z]) requires aligned(x, y) && pow2(y) && pow2(z) && y * z >= x ensures aligned(x, y * z))]
 fn theorem_aligned_mul(_x: usize, _y: usize, _z: usize) {}
 
-#[flux_rs::trusted]
-#[flux_rs::sig(fn (usize[@n]) requires n <= 32 ensures pow2(to_pow2(n)))]
+#[flux_rs::trusted(reason = "math")]
+#[flux_rs::sig(fn (x: usize) requires x > 0 ensures to_pow2(x) > 1)]
+fn theorem_to_pow2_gt1(x: usize) {}
+
+#[flux_rs::trusted(reason = "math")]
+#[flux_rs::sig(fn (usize[@n]) requires n < 32 ensures pow2(to_pow2(n)))]
 fn theorem_to_pow2_is_pow2(_n: usize) {}
 
-#[flux_rs::trusted]
-#[flux_rs::sig(fn (x:usize, y:usize) requires pow2(x) && pow2(y) ensures (x >= y => pow2((x + y - 1) / y)) && (x < y => (x + y - 1) / y == 0))]
+#[flux_rs::trusted(reason = "math")]
+#[flux_rs::sig(fn (x: usize, y: usize) requires pow2(x) && pow2(y) && x >= y ensures aligned(x, y) && (x + y - 1) / y == x / y)]
+fn theorem_pow2_ge_aligned(_x: usize, _y: usize) {}
+
+#[flux_rs::trusted(reason = "math")]
+#[flux_rs::sig(fn (x:usize, y:usize) requires pow2(x) && pow2(y) && x > 1 && y > 1 ensures (x >= y => pow2((x + y - 1) / y)) && (x < y => (x + y - 1) / y == 0))]
 fn theorem_pow2_div_ceil(_x: usize, _y: usize) {}
 
-#[flux_rs::trusted]
+#[flux_rs::trusted(reason = "math")]
 #[flux_rs::sig(fn (r:usize, k:usize) requires (pow2(r) && pow2(k) && k < r) ensures pow2(r / k))]
 fn theorem_pow2_div(_r: usize, k: usize) {}
 
-#[flux_rs::trusted]
+#[flux_rs::trusted(reason = "math")]
 #[flux_rs::sig(fn (r:usize, k:usize) requires (pow2(r) && pow2(k)) ensures pow2(r * k))]
 fn theorem_pow2_mul(_r: usize, k: usize) {}
 
-#[flux_rs::trusted]
+#[flux_rs::trusted(reason = "math")]
 #[flux_rs::sig(fn (r:usize) requires pow2(r) && r >= 8 ensures octet(r))]
 fn theorem_pow2_octet(_n: usize) {}
 
-#[flux_rs::trusted]
+#[flux_rs::trusted(reason = "math")]
 #[flux_rs::sig(fn (r:usize) requires octet(r) ensures 8 * (r / 8) == r)]
 fn theorem_div_octet(_n: usize) {}
 
-#[flux_rs::trusted]
+#[flux_rs::trusted(reason = "math")]
 #[flux_rs::sig(fn (x: usize, y: usize) requires y >= 32 && pow2(y) && aligned(x, y) ensures first_five_bits(bv32(x)) == 0)]
 fn theorem_aligned_value_ge32_lowest_five_bits0(x: usize, y: usize) {}
 
@@ -610,27 +618,37 @@ fn usize_to_u32(n: usize) -> u32 {
 
 #[flux_rs::sig(
     fn (start: usize, min_size: usize) -> Option<usize{size: 
-        size >= min_size && pow2(size) && aligned(start, size) && octet(size) 
+        size >= min_size && pow2(size) && aligned(start, size) && octet(size)
     }>
     requires 
         half_max(min_size) &&
         min_size >= 256
 )]
-fn next_aligned_power_of_two(start: usize, min_size: usize) -> Option<usize> {
+// Should only be called with a start that aligns to a po2 
+fn next_aligned_power_of_two(po2_aligned_start: usize, min_size: usize) -> Option<usize> {
+
     // if start is 0 everything aligns
-    if start == 0 {
+    if po2_aligned_start == 0 {
         let size = min_size.next_power_of_two();
-        theorem_aligned0(start,size);
+        theorem_aligned0(po2_aligned_start,size);
         theorem_pow2_octet(size);
         return Some(size);
     }
 
+    if !is_aligned(po2_aligned_start, 2) {
+        return None;
+    }
+
     // Find the largest power of 2 that divides start evenly
     // VTOCK TODO: Should just be usize stuff
-    assume(start <= u32::MAX as usize);
-    let mut trailing_zeros = start.trailing_zeros() as usize;
+    assume(po2_aligned_start <= u32::MAX as usize);
+    let mut trailing_zeros = po2_aligned_start.trailing_zeros() as usize;
+    assert(trailing_zeros > 0);
+
     let largest_pow2_divisor = power_of_two(usize_to_u32(trailing_zeros));
     theorem_to_pow2_is_pow2(trailing_zeros);
+    theorem_to_pow2_gt1(trailing_zeros);
+    assert(largest_pow2_divisor > 1);
 
     // Start with the minimum required size, rounded up to the next power of 2
     let min_power = min_size.next_power_of_two();
@@ -642,13 +660,39 @@ fn next_aligned_power_of_two(start: usize, min_size: usize) -> Option<usize> {
     let res = largest_pow2_divisor * multiplier;
     theorem_pow2_mul(largest_pow2_divisor, multiplier);
 
-    if res < start {
+    if res < po2_aligned_start {
         return None
     } else {
         theorem_pow2_octet(res);
-        theorem_aligned_mul(start, largest_pow2_divisor, multiplier);
+        theorem_aligned_mul(po2_aligned_start, largest_pow2_divisor, multiplier);
         Some(res)
     }
+}
+
+fn min_aligned_subregion_size(start: usize, size: usize) -> usize {
+    // Which (power-of-two) subregion size would align with the start
+    // address?
+    //
+    // We find this by taking smallest binary substring of the start
+    // address with exactly one bit:
+    //
+    //      1 << (start.trailing_zeros())
+    let tz = start.trailing_zeros();
+    // if start is odd, then tz = 0
+    if tz < 32 {
+        // Find the largest power of two that divides `start`
+        // 1_usize << tz
+        power_of_two(tz) // and we return 1 here
+    } else {
+        // This case means `start` is 0.
+        let mut ceil = size.next_power_of_two();
+        if ceil < 256 {
+            ceil = 256
+        }
+        ceil / 8
+    }
+}
+
 }
 
 impl CortexMRegion {
@@ -670,7 +714,7 @@ impl CortexMRegion {
             r.astart + r.asize <= available_start + available_size &&
             r.asize >= region_size
         }>
-        requires region_number < 16
+        requires region_number < 16 
     )]
     pub(crate) fn create_bounded_region(
         region_number: usize,
@@ -810,7 +854,6 @@ impl CortexMRegion {
             }>
             requires region_no < 16
     )]
-    #[flux_rs::trusted(reason = "VR TODO: hanging")]
     pub(crate) fn create_exact_region(
         region_number: usize,
         start: FluxPtrU8,
@@ -833,21 +876,43 @@ impl CortexMRegion {
                 permissions,
             ))
         } else {
-            let min_size = flux_support::max_usize(size, 256);
-            let underlying_region_start = start.as_usize();
-            let underlying_region_size = next_aligned_power_of_two(start.as_usize(), min_size)?;
+            let subregion_size = min_aligned_subregion_size(start, size);
+            // Once we have a subregion size, we get a region size by
+            // multiplying it by the number of subregions per region.
+            let underlying_region_size = subregion_size * 8;
 
             // check overflows
             if underlying_region_size > (u32::MAX / 2 + 1) as usize {
                 return None;
             }
 
-            theorem_pow2_octet(underlying_region_size);
-            theorem_div_octet(underlying_region_size);
+            // Finally, we calculate the region base by finding the nearest
+            // address below `start` that aligns with the region size.
+            let underlying_region_start =
+                start.as_usize() - (start.as_usize() % underlying_region_size);
 
-            let subregion_size = underlying_region_size / 8;
-            let num_subregions = size.div_ceil(subregion_size);
-            assert(num_subregions <= 8);
+            if size % subregion_size != 0 {
+                // the size needs to grow but we don't have space
+                return None;
+            }
+
+            let end = start.as_usize() + size;
+            let underlying_region_end = underlying_region_start + underlying_region_size;
+
+            // To use subregions, the region must be at least 256 bytes. Also, we need
+            // the amount of left over space in the region after `start` to be at least as
+            // large as the memory region we want to cover.
+            if subregion_size < 32 || underlying_region_end < end {
+                return None;
+            }
+            // The index of the first subregion to activate is the number of
+            // regions between `region_start` (MPU) and `start` (memory).
+            let min_subregion = (start.as_usize() - underlying_region_start) / subregion_size;
+
+            // The index of the last subregion to activate is the number of
+            // regions that fit in `len`, plus the `min_subregion`, minus one
+            // (because subregions are zero-indexed).
+            let max_subregion = min_subregion + size / subregion_size - 1;
 
             Some(CortexMRegion::new_with_srd(
                 start,
@@ -855,8 +920,8 @@ impl CortexMRegion {
                 FluxPtr::from(underlying_region_start),
                 underlying_region_size,
                 region_number,
-                0,
-                num_subregions - 1,
+                min_subregion,
+                max_subregion,
                 permissions,
             ))
         }
