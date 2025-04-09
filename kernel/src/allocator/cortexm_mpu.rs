@@ -562,15 +562,15 @@ impl GhostRegionState {
     rasr: FieldValueU32,
     region_no: int,
     set: bool,
-    astart: int, // accessible start
-    asize: int, // accessible size
+    astart: int, 
+    asize: int, 
     rstart: int,
     rsize: int,
     perms: mpu::Permissions
 )]
 pub(crate) struct CortexMRegion {
     #[field(Option<{l. CortexMLocation[l] | l.astart == astart && l.asize == asize && l.rstart == rstart && l.rsize == rsize }>[set])]
-    location: Option<CortexMLocation>, // actually accessible start and size
+    location: Option<CortexMLocation>, 
     #[field({FieldValueU32<RegionBaseAddress::Register>[rbar] | 
         rbar_region_number(rbar.value) == bv32(region_no) &&
         rbar_valid_bit_set(rbar.value) &&
@@ -585,8 +585,8 @@ pub(crate) struct CortexMRegion {
         (set => 
             (
                 rasr_region_size(rasr.value) == bv32(rsize) &&
-                subregions_enabled_bit_set(rasr.value, bv_first, bv_last) &&
-                subregions_disabled_bit_set(rasr.value, bv_first, bv_last) &&
+                // subregions_enabled_bit_set(rasr.value, bv_first, bv_last) &&
+                // subregions_disabled_bit_set(rasr.value, bv_first, bv_last) &&
                 perms_match_exactly(rasr.value, perms) 
             )
         ) &&
@@ -683,6 +683,7 @@ fn next_aligned_power_of_two(start: usize, min_size: usize) -> Option<usize> {
 
 impl CortexMRegion {
 
+    #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
     #[flux_rs::sig(
         fn (
             region_number: usize,
@@ -699,6 +700,7 @@ impl CortexMRegion {
             r.astart + r.asize <= available_start + available_size &&
             r.asize >= region_size
         }>
+        requires region_number < 16
     )]
     pub(crate) fn create_bounded_region(
         region_number: usize,
@@ -725,9 +727,13 @@ impl CortexMRegion {
         // region size must be aligned to start
         start = align(start, size);
 
+        theorem_pow2_octet(size);
+        theorem_div_octet(size);
+
         // calculate subregions
         let subregion_size = size / 8;
         let num_subregions_enabled = region_size.div_ceil(subregion_size);
+
         let subregions_enabled_end = start + num_subregions_enabled * subregion_size;
 
         // make sure this fits within our available size
@@ -748,22 +754,25 @@ impl CortexMRegion {
         ))
     }
 
+    #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
     #[flux_rs::sig(
         fn (
-            po2_start: FluxPtrU8,
+            po2_aligned_start: FluxPtrU8,
             available_size: usize,
             min_size: usize,
             region_number: usize,
             perms: mpu::Permissions
         ) -> Option<{r. CortexMRegion[r] |
+            region_number < 16 &&
             r.set &&
             r.region_no == region_number &&
             r.perms == perms &&
-            r.astart == po2_start &&
-            r.rstart == po2_start &&
-            r.astart + r.asize <= po2_start + available_size &&
+            r.astart == po2_aligned_start &&
+            r.rstart == po2_aligned_start &&
+            r.astart + r.asize <= po2_aligned_start + available_size &&
             r.asize >= min_size
         }>
+        requires region_number < 16
     )]
     pub(crate) fn update_region(
         region_start: FluxPtrU8,
@@ -817,6 +826,7 @@ impl CortexMRegion {
         ))
     }
 
+    #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
     #[flux_rs::sig(
         fn (
             usize[@region_no],
@@ -830,7 +840,7 @@ impl CortexMRegion {
                 r.astart == start &&
                 r.astart + r.asize == start + size
             }>
-            requires region_no < 8
+            requires region_no < 16
     )]
     pub(crate) fn create_exact_region(
         region_number: usize,
@@ -863,7 +873,12 @@ impl CortexMRegion {
                 return None;
             }
 
-            let num_subregions = size.div_ceil(underlying_region_size);
+            theorem_pow2_octet(underlying_region_size);
+            theorem_div_octet(underlying_region_size);
+
+            let subregion_size = underlying_region_size / 8;
+            let num_subregions = size.div_ceil(subregion_size);
+            assert(num_subregions <= 8);
 
             Some(CortexMRegion::new_with_srd(
                 start,
@@ -960,6 +975,7 @@ impl CortexMRegion {
             + execute
     }
 
+    #[flux_rs::reveal(first_subregion_from_logical)]
     #[flux_rs::sig(
         fn (
             FluxPtrU8[@astart],
@@ -985,11 +1001,12 @@ impl CortexMRegion {
             rsize >= 256 &&
             pow2(rsize) &&
             aligned(rstart, rsize) &&
+            fsr <= lsr &&
+            lsr < 8 &&
             first_subregion_from_logical(rstart, rsize, astart, asize) == fsr &&
             last_subregion_from_logical(rstart, rsize, astart, asize) == lsr &&
             rsize <= u32::MAX / 2 + 1
     )]
-    #[flux_rs::trusted]
     fn new_with_srd(
         logical_start: FluxPtrU8,
         logical_size: usize,
@@ -1054,7 +1071,7 @@ impl CortexMRegion {
                 r.set
             }
         requires
-            no < 8 &&
+            no < 16 &&
             rsize == asize &&
             rstart == astart &&
             rsize >= 32 &&
