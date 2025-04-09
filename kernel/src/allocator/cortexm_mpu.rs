@@ -65,7 +65,7 @@ fn theorem_to_pow2_is_pow2(_n: usize) {}
 fn theorem_pow2_ge_aligned(_x: usize, _y: usize) {}
 
 #[flux_rs::trusted(reason = "math")]
-#[flux_rs::sig(fn (x:usize, y:usize) requires pow2(x) && pow2(y) && x > 1 && y > 1 ensures (x >= y => pow2((x + y - 1) / y)) && (x < y => (x + y - 1) / y == 0))]
+#[flux_rs::sig(fn (x:usize, y:usize) requires pow2(x) && pow2(y) && x > 1 && y > 1 ensures (x >= y => pow2((x + y - 1) / y)) && (x < y => (x + y - 1) / y == 1))]
 fn theorem_pow2_div_ceil(_x: usize, _y: usize) {}
 
 #[flux_rs::trusted(reason = "math")]
