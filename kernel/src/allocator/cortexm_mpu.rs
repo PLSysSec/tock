@@ -69,6 +69,10 @@ fn theorem_pow2_ge_aligned(_x: usize, _y: usize) {}
 fn theorem_pow2_div_ceil(_x: usize, _y: usize) {}
 
 #[flux_rs::trusted(reason = "math")]
+#[flux_rs::sig(fn () ensures pow2(1))]
+fn theorem_pow2_one() {}
+
+#[flux_rs::trusted(reason = "math")]
 #[flux_rs::sig(fn (r:usize, k:usize) requires (pow2(r) && pow2(k) && k < r) ensures pow2(r / k))]
 fn theorem_pow2_div(_r: usize, k: usize) {}
 
@@ -655,6 +659,7 @@ fn next_aligned_power_of_two(po2_aligned_start: usize, min_size: usize) -> Optio
 
     // Find the smallest power of 2 that's >= min_power and a multiple of largest_pow2_divisor
     let multiplier = (min_power + largest_pow2_divisor - 1) / largest_pow2_divisor;
+    theorem_pow2_one();
     theorem_pow2_div_ceil(min_power, largest_pow2_divisor);
 
     let res = largest_pow2_divisor * multiplier;
@@ -691,8 +696,6 @@ fn min_aligned_subregion_size(start: usize, size: usize) -> usize {
         }
         ceil / 8
     }
-}
-
 }
 
 impl CortexMRegion {
@@ -876,7 +879,7 @@ impl CortexMRegion {
                 permissions,
             ))
         } else {
-            let subregion_size = min_aligned_subregion_size(start, size);
+            let subregion_size = min_aligned_subregion_size(start.as_usize(), size);
             // Once we have a subregion size, we get a region size by
             // multiplying it by the number of subregions per region.
             let underlying_region_size = subregion_size * 8;
