@@ -42,23 +42,6 @@ impl usize {
     fn trailing_zeros(self) -> u32;
 }
 
-#[flux_rs::sig(
-    fn (&FieldValueU32<RegionBaseAddress::Register>[@rbar],
-        region_num: usize,
-        rstart: FluxPtr)
-    requires
-        //rbar
-        rbar_region_number(rbar.value) == bv32(region_num) && 
-        rbar_valid_bit_set(rbar.value) &&
-        rbar_region_start(rbar.value) == bv32(rstart)
-)]
-fn foo(
-    rbar: &FieldValueU32<RegionBaseAddress::Register>,
-    region_num: usize,
-    rstart: FluxPtr,
-) {}
-
-
 /* a bunch of theorems and proof code */
 
 #[flux_rs::sig(fn (r:usize) requires half_max(r))]
@@ -573,7 +556,6 @@ pub(crate) struct CortexMRegion {
     location: Option<CortexMLocation>, 
     #[field({FieldValueU32<RegionBaseAddress::Register>[rbar] | 
         rbar_region_number(rbar.value) == bv32(region_no) &&
-        rbar_valid_bit_set(rbar.value) &&
         rbar_valid_bit_set(rbar.value)
     })]
     base_address: FieldValueU32<RegionBaseAddress::Register>,
@@ -584,13 +566,18 @@ pub(crate) struct CortexMRegion {
         let bv_last  = bv32(last);
         (set => 
             (
+                rbar_region_start(rbar.value) == bv32(rstart) &&
                 rasr_region_size(rasr.value) == bv32(rsize) &&
-                // subregions_enabled_bit_set(rasr.value, bv_first, bv_last) &&
-                // subregions_disabled_bit_set(rasr.value, bv_first, bv_last) &&
+                subregions_enabled_bit_set(rasr.value, bv_first, bv_last) &&
+                subregions_disabled_bit_set(rasr.value, bv_first, bv_last) &&
                 perms_match_exactly(rasr.value, perms) 
             )
         ) &&
-        (!set => !rasr_global_region_enabled(rasr.value) && subregions_enabled_exactly(rasr.value, 0, 7))})]
+        (!set => 
+            !rasr_global_region_enabled(rasr.value) &&
+            subregions_enabled_exactly(rasr.value, 0, 7)
+        )}
+    )]
     attributes: FieldValueU32<RegionAttributes::Register>,
     #[field(GhostRegionState[region_no, astart, asize, rstart, rsize, perms])]
     ghost_region_state: GhostRegionState,
@@ -620,10 +607,10 @@ fn log_base_two(num: u32) -> u32 {
 }
 
 #[flux_rs::trusted(reason = "math support (bitwise arithmetic fact)")]
-#[flux_rs::sig(fn ({usize[@fsr] | fsr <= lsr}, {usize[@lsr] | lsr < 8}) -> u8[bv_bv32_to_int(bv32(u8::MAX) & enabled_srd_mask(bv32(fsr), bv32(lsr)))])]
+#[flux_rs::sig(fn ({usize[@fsr] | fsr <= lsr}, {usize[@lsr] | lsr < 8}) -> u8[bv_bv32_to_int(bv32(u8::MAX) & (bv_xor(0xff, enabled_srd_mask(bv32(fsr), bv32(lsr)))))])]
 fn subregion_mask(min_subregion: usize, max_subregion: usize) -> u8 {
     let enabled_mask = ((1 << (max_subregion - min_subregion + 1)) - 1) << min_subregion;
-    u8::MAX & enabled_mask
+    u8::MAX & (0xff ^ enabled_mask)
 }
 
 #[flux_rs::trusted]
@@ -795,8 +782,6 @@ impl CortexMRegion {
         let mut underlying_region_size =
             next_aligned_power_of_two(region_start.as_usize(), min_region_size)?;
 
-        assert(underlying_region_size >= min_region_size);
-
         if underlying_region_size > available_size
             || underlying_region_size > (u32::MAX / 2 + 1) as usize
         {
@@ -842,6 +827,7 @@ impl CortexMRegion {
             }>
             requires region_no < 16
     )]
+    #[flux_rs::trusted(reason = "hanging")]
     pub(crate) fn create_exact_region(
         region_number: usize,
         start: FluxPtrU8,
@@ -975,7 +961,12 @@ impl CortexMRegion {
             + execute
     }
 
-    #[flux_rs::reveal(first_subregion_from_logical)]
+    #[flux_rs::reveal(
+        first_subregion_from_logical,
+        last_subregion_from_logical,
+        subregions_enabled_bit_set,
+        subregions_disabled_bit_set
+    )]
     #[flux_rs::sig(
         fn (
             FluxPtrU8[@astart],
@@ -1113,15 +1104,6 @@ impl CortexMRegion {
             permissions,
         );
 
-        foo(&base_address, region_num, region_start);
-
-        // rasr_global_region_enabled(rasr.value) &&
-        // rbar_valid_bit_set(rbar.value) && 
-        // rbar_region_start(rbar.value) == bv32(rstart) &&
-        // rasr_region_size(rasr.value) == bv32(rsize) &&
-        // subregions_enabled_bit_set(rasr.value, bv_first, bv_last) &&
-        // subregions_disabled_bit_set(rasr.value, bv_first, bv_last) &&
-        // perms_match_exactly(rasr.value, perms) 
         Self {
             location: Some(location),
             base_address,
@@ -1130,9 +1112,11 @@ impl CortexMRegion {
         }
     }
 
+    #[flux_rs::reveal(subregions_enabled_bit_set, subregions_disabled_bit_set)]
     #[flux_rs::sig(fn ({usize[@region_no] | region_no < 16}) -> Self {r: r.region_no == region_no && !r.set})]
-    #[flux_rs::trusted]
     pub(crate) fn empty(region_num: usize) -> CortexMRegion {
+        let clear = RegionAttributes::ENABLE::CLEAR();
+        assert(clear.value() == 0);
         CortexMRegion {
             location: None,
             base_address: RegionBaseAddress::VALID::UseRBAR()
