@@ -44,29 +44,12 @@ impl usize {
 
 /* a bunch of theorems and proof code */
 
-#[flux_rs::sig(fn (r:usize) requires half_max(r))]
-fn assert_half_max(_r: usize) {}
-
-#[flux_rs::sig(fn (r:usize) requires pow2(r))]
-fn assert_pow2(_r: usize) {}
-
-#[flux_rs::sig(fn (r:usize) requires octet(r))]
-fn assert_octet(_r: usize) {}
-
-#[flux_rs::trusted]
-#[flux_rs::sig(fn (r:usize) ensures half_max(r))]
-fn assume_half_max(_r: usize) {}
-
-#[flux_rs::trusted]
-#[flux_rs::sig(fn (r:usize) ensures pow2(r))]
-fn assume_pow2(_r: usize) {}
-
-#[flux_rs::trusted]
-#[flux_rs::sig(fn (usize[@x], usize[@y]) requires x == 0 ensures aligned(x, y))]
+#[flux_rs::reveal(aligned)]
+#[flux_rs::sig(fn (usize[@x], usize[@y]) requires x == 0 && y > 0 ensures aligned(x, y))]
 fn theorem_aligned0(_x: usize, _y: usize) {}
 
 #[flux_rs::trusted]
-#[flux_rs::sig(fn (usize[@x], usize[@y], usize[@z]) requires aligned(x, y) && y * z >= x ensures aligned(x, y * z))]
+#[flux_rs::sig(fn (usize[@x], usize[@y], usize[@z]) requires aligned(x, y) && pow2(y) && pow2(z) && y * z >= x ensures aligned(x, y * z))]
 fn theorem_aligned_mul(_x: usize, _y: usize, _z: usize) {}
 
 #[flux_rs::trusted]
@@ -827,7 +810,7 @@ impl CortexMRegion {
             }>
             requires region_no < 16
     )]
-    #[flux_rs::trusted(reason = "hanging")]
+    #[flux_rs::trusted(reason = "VR TODO: hanging")]
     pub(crate) fn create_exact_region(
         region_number: usize,
         start: FluxPtrU8,
