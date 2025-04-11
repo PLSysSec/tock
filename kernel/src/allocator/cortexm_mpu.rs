@@ -694,7 +694,6 @@ impl CortexMRegion {
         permissions: mpu::Permissions,
     ) -> Option<CortexMRegion> {
         // creates a region with region_start and region_end = region_start + region_size within available start + available size
-
         let mut start = available_start.as_usize();
         let mut size = region_size;
 
@@ -716,6 +715,7 @@ impl CortexMRegion {
 
         // calculate subregions
         let subregion_size = size / 8;
+
         let num_subregions_enabled = region_size.div_ceil(subregion_size);
 
         let subregions_enabled_end = start + num_subregions_enabled * subregion_size;
