@@ -674,12 +674,7 @@ pub trait Process {
     ///
     /// It is not valid to call this function when the process is inactive (i.e.
     /// the process will not run again).
-    fn add_mpu_region(
-        &self,
-        unallocated_memory_start: FluxPtrU8Mut,
-        unallocated_memory_size: usize,
-        min_region_size: usize,
-    ) -> Option<mpu::Region>;
+    fn add_mpu_region(&self, start: FluxPtrU8Mut, size: usize) -> Option<mpu::Region>;
 
     // grants
 
@@ -824,16 +819,16 @@ pub trait Process {
     fn get_addresses(&self) -> Result<ProcessAddresses, ()>;
 
     /// Flash start
-    fn get_flash_start(&self) -> usize;
+    fn get_flash_start(&self) -> Option<usize>;
 
     /// Flash End
-    fn get_flash_end(&self) -> usize;
+    fn get_flash_end(&self) -> Option<usize>;
 
     /// SRAM Start
-    fn get_sram_start(&self) -> usize;
+    fn get_sram_start(&self) -> Option<usize>;
 
     /// SRAM End
-    fn get_sram_end(&self) -> usize;
+    fn get_sram_end(&self) -> Option<usize>;
 
     /// Return process state information related to the size in memory of
     /// various process data structures.
