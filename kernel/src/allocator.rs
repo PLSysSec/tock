@@ -286,7 +286,7 @@ impl<M: mpu::MPU> AppMemoryAllocator<M> {
         .ok_or(AllocateAppMemoryError::FlashError)?;
         app_regions[FLASH_REGION_NUMBER] = flash_region;
 
-        let ideal_region_size = cmp::min(min_memory_size, initial_app_memory_size);
+        let ideal_region_size = cmp::max(min_memory_size, initial_app_memory_size);
         let ram_region = M::create_bounded_region(
             RAM_REGION_NUMBER,
             unallocated_memory_start,
