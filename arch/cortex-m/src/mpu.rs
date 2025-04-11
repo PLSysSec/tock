@@ -135,7 +135,7 @@ const MPU_BASE_ADDRESS: StaticRef<MpuRegisters> =
 /// There should only be one instantiation of this object as it represents
 /// real hardware.
 ///
-pub struct MPU<const MIN_REGION_SIZE: usize, const NUM_REGIONS: usize> {
+pub struct MPU<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> {
     /// MMIO reference to MPU registers.
     registers: StaticRef<MpuRegisters>,
     /// Monotonically increasing counter for allocated regions, used
@@ -147,7 +147,7 @@ pub struct MPU<const MIN_REGION_SIZE: usize, const NUM_REGIONS: usize> {
     hardware_is_configured_for: OptionalCell<NonZeroUsize>,
 }
 
-impl<const MIN_REGION_SIZE: usize, const NUM_REGIONS: usize> MPU<MIN_REGION_SIZE, NUM_REGIONS> {
+impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> MPU<NUM_REGIONS, MIN_REGION_SIZE> {
     pub const unsafe fn new() -> Self {
         Self {
             registers: MPU_BASE_ADDRESS,
@@ -495,8 +495,8 @@ fn next_aligned_power_of_two(po2_aligned_start: usize, min_size: usize) -> Optio
     }
 }
 
-impl<const MIN_REGION_SIZE: usize, const NUM_REGIONS: usize> mpu::MPU
-    for MPU<MIN_REGION_SIZE, NUM_REGIONS>
+impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> mpu::MPU
+    for MPU<NUM_REGIONS, MIN_REGION_SIZE>
 {
     type Region = CortexMRegion;
 
