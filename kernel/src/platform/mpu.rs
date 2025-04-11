@@ -152,7 +152,7 @@ pub trait MPU {
     ///
     /// This function must enable the permission restrictions on the various
     /// regions protected by the MPU.
-    fn enable_app_mpu(&mut self);
+    fn enable_app_mpu(&self);
 
     /// Disables the MPU for userspace apps.
     ///
@@ -162,7 +162,7 @@ pub trait MPU {
     /// platforms the MPU rules apply to privileged code as well, and therefore
     /// some of the MPU configuration must be disabled for the kernel to effectively
     /// manage processes.
-    fn disable_app_mpu(&mut self);
+    fn disable_app_mpu(&self);
 
     /// Returns the maximum number of regions supported by the MPU.
     fn number_total_regions(&self) -> usize;
@@ -213,10 +213,10 @@ impl MPU for () {
     type Region = MpuRegionDefault;
 
     #[flux_rs::sig(fn (self: &strg Self) ensures self: Self)]
-    fn enable_app_mpu(&mut self) {}
+    fn enable_app_mpu(&self) {}
 
     #[flux_rs::sig(fn (self: &strg Self) ensures self: Self)]
-    fn disable_app_mpu(&mut self) {}
+    fn disable_app_mpu(&self) {}
 
     fn number_total_regions(&self) -> usize {
         0

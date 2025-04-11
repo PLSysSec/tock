@@ -40,24 +40,6 @@ impl AppBreaks {
     pub(crate) fn app_break(&self) -> FluxPtrU8 {
         self.app_break
     }
-    pub(crate) fn high_water_mark(&self) -> FluxPtrU8 {
-        self.high_water_mark
-    }
-    pub(crate) fn kernel_break(&self) -> FluxPtrU8 {
-        self.high_water_mark()
-    }
-    #[flux_rs::trusted]
-    pub(crate) fn process_ram_size(&self) -> usize {
-        self.app_break.as_usize() - self.memory_start.as_usize()
-    }
-    fn in_app_ram_memory(&self, start: FluxPtrU8, end: FluxPtrU8) -> bool {
-        end >= start && start >= self.memory_start && end <= self.app_break
-    }
-    fn in_app_flash_memory(&self, start: FluxPtrU8, end: FluxPtrU8) -> bool {
-        end >= start
-            && start >= self.flash_start
-            && end <= self.flash_start.wrapping_add(self.flash_size)
-    }
 }
 
 const RAM_REGION_NUMBER: usize = 0;

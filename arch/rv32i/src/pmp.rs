@@ -8,7 +8,7 @@ use core::num::NonZeroUsize;
 use core::ops::Range;
 
 use crate::csr;
-use flux_support::*;
+use flux_support::FluxPtrU8;
 use kernel::platform::mpu;
 use kernel::utilities::cells::OptionalCell;
 use kernel::utilities::registers::{register_bitfields, LocalRegisterCopy};
@@ -441,7 +441,7 @@ pub trait TORUserPMP<const MAX_REGIONS: usize> {
     /// To disable a region, set its configuration to [`TORUserPMPCFG::OFF`]. In
     /// this case, the start and end addresses are ignored and can be set to
     /// arbitrary values.
-    fn configure_pmp(&self, regions: &[PMPUserRegion]) -> Result<(), ()>;
+    fn configure_pmp(&self, regions: &[PMPUserRegion; MAX_REGIONS]) -> Result<(), ()>;
 
     /// Enable the user-mode memory protection.
     ///
@@ -487,10 +487,10 @@ pub struct PMPUserMPUConfig<const MAX_REGIONS: usize> {
 
 #[derive(Clone, Copy)]
 pub struct PMPUserRegion {
-    region_number: usize,
-    tor: TORUserPMPCFG,
-    start: *const u8,
-    end: *const u8,
+    pub region_number: usize,
+    pub tor: TORUserPMPCFG,
+    pub start: *const u8,
+    pub end: *const u8,
 }
 
 impl PMPUserRegion {
@@ -505,6 +505,10 @@ impl PMPUserRegion {
 }
 
 impl mpu::RegionDescriptor for PMPUserRegion {
+    fn region_num(&self) -> usize {
+        self.region_number
+    }
+
     fn accessible_start(&self) -> Option<FluxPtrU8> {
         Some(FluxPtrU8::from(self.start as *mut u8))
     }
@@ -607,7 +611,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
     // type MpuConfig = PMPUserMPUConfig<MAX_REGIONS>;
     type Region = PMPUserRegion;
 
-    fn enable_app_mpu(&mut self) {
+    fn enable_app_mpu(&self) {
         // TODO: This operation may fail when the PMP is not exclusively used
         // for userspace. Instead of panicing, we should handle this case more
         // gracefully and return an error in the `MPU` trait. Process
@@ -617,7 +621,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         self.pmp.enable_user_pmp().unwrap()
     }
 
-    fn disable_app_mpu(&mut self) {
+    fn disable_app_mpu(&self) {
         self.pmp.disable_user_pmp()
     }
 
@@ -625,48 +629,29 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         self.pmp.available_regions()
     }
 
-    // fn new_config(&self) -> Option<Self::MpuConfig> {
-    //     let id = self.config_count.get();
-    //     self.config_count.set(id.checked_add(1)?);
-
-    //     Some(PMPUserMPUConfig {
-    //         id,
-    //         regions: [(
-    //             TORUserPMPCFG::OFF,
-    //             core::ptr::null::<u8>(),
-    //             core::ptr::null::<u8>(),
-    //         ); MAX_REGIONS],
-    //         is_dirty: Cell::new(true),
-    //         app_memory_region: OptionalCell::empty(),
-    //     })
-    // }
-
-    // fn reset_config(&self, config: &mut Self::MpuConfig) {
-    //     config.regions.iter_mut().for_each(|region| {
-    //         *region = (
-    //             TORUserPMPCFG::OFF,
-    //             core::ptr::null::<u8>(),
-    //             core::ptr::null::<u8>(),
-    //         )
-    //     });
-    //     config.app_memory_region.clear();
-    //     config.is_dirty.set(true);
-    // }
-
-    fn new_region(
-        &self,
+    fn create_exact_region(
         region_num: usize,
-        unallocated_memory_start: FluxPtr,
-        unallocated_memory_size: usize,
-        min_region_size: usize,
+        start: FluxPtrU8,
+        size: usize,
         permissions: mpu::Permissions,
     ) -> Option<PMPUserRegion> {
-        // Now, meet the PMP TOR region constraints. For this, start with the
+        // logic for create_bounded_region is exactly the same here
+        Self::create_bounded_region(region_num, start, size, size, permissions)
+    }
+
+    fn create_bounded_region(
+        region_number: usize,
+        available_start: FluxPtrU8,
+        available_size: usize,
+        region_size: usize,
+        permissions: mpu::Permissions,
+    ) -> Option<Self::Region> {
+        // Meet the PMP TOR region constraints. For this, start with the
         // provided start address and size, transform them to meet the
         // constraints, and then check that we're still within the bounds of the
         // provided values:
-        let mut start = usize::from(unallocated_memory_start);
-        let mut size = min_region_size;
+        let mut start = available_start.as_usize();
+        let mut size = region_size;
 
         // Region start always has to align to 4 bytes. Round up to a 4 byte
         // boundary if required:
@@ -689,7 +674,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         // allocation constraints, namely ensure that
         //
         //     start + size <= unallocated_memory_start + unallocated_memory_size
-        if start + size > (usize::from(unallocated_memory_start)) + unallocated_memory_size {
+        if start + size > available_start.as_usize() + available_size {
             // We're overflowing the provided memory region, can't make
             // allocation. Normally, we'd abort here.
             //
@@ -714,198 +699,58 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
                 mpu::Permissions::ExecuteOnly => false,
             };
 
-            if writeable
-                || (start + size
-                    > (usize::from(unallocated_memory_start)) + unallocated_memory_size + 3)
-            {
+            if writeable || (start + size > available_start.as_usize() + available_size + 3) {
                 return None;
             }
         }
 
         Some(PMPUserRegion::new(
-            region_num,
+            region_number,
             permissions.into(),
             start as *const u8,
             (start + size) as *const u8,
         ))
     }
 
-    // fn remove_memory_region(
-    //     &self,
-    //     region: mpu::Region,
-    //     config: &mut Self::MpuConfig,
-    // ) -> Result<(), ()> {
-    //     let index = config
-    //         .regions
-    //         .iter()
-    //         .enumerate()
-    //         .find(|(_i, r)| {
-    //             // `start as usize + size` in lieu of a safe pointer offset method
-    //             r.0 != TORUserPMPCFG::OFF
-    //                 && r.1 == u8::from(region.start_address()) as *const u8
-    //                 && r.2 == (usize::from(region.start_address()) + region.size()) as *const u8
-    //         })
-    //         .map(|(i, _)| i)
-    //         .ok_or(())?;
+    fn update_region(
+        region_start: FluxPtrU8,
+        available_size: usize,
+        region_size: usize,
+        region_number: usize,
+        permissions: mpu::Permissions,
+    ) -> Option<Self::Region> {
+        let mut end = region_start.as_usize() + region_size;
+        // Ensure that the requested app_memory_break complies with PMP
+        // alignment constraints, namely that the region's end address is 4 byte
+        // aligned:
+        if end % 4 != 0 {
+            end += 4 - (end % 4);
+        }
 
-    //     config.regions[index].0 = TORUserPMPCFG::OFF;
-    //     config.is_dirty.set(true);
+        // Check if there is space for this region
+        if end > region_start.as_usize() + available_size {
+            return None;
+        }
 
-    //     Ok(())
-    // }
+        // If we're not out of memory, reutrn the region
+        Some(PMPUserRegion::new(
+            region_number,
+            permissions.into(),
+            region_start.unsafe_as_ptr(),
+            end as *const u8,
+        ))
+    }
 
-    // // VTOCK TODO: allocate flash here
-    // fn allocate_app_memory_regions(
-    //     &self,
-    //     unallocated_memory_start: FluxPtr,
-    //     unallocated_memory_size: usize,
-    //     min_memory_size: usize,
-    //     initial_app_memory_size: usize,
-    //     initial_kernel_memory_size: usize,
-    //     flash_start: FluxPtr,
-    //     flash_size: usize,
-    //     config: &mut Self::MpuConfig,
-    // ) -> Result<mpu::AllocatedAppBreaksAndSize, mpu::AllocateAppMemoryError> {
-    //     // An app memory region can only be allocated once per `MpuConfig`.
-    //     // If we already have one, abort:
-    //     if config.app_memory_region.is_some() {
-    //         return Err(mpu::AllocateAppMemoryError::HeapError);
-    //     }
+    fn configure_mpu(&self, config: &[Self::Region; 8]) {
+        let mut ac_config: [Self::Region; MAX_REGIONS] =
+            core::array::from_fn(|i| <Self::Region as mpu::RegionDescriptor>::default(i));
 
-    //     // Find a free region slot. If we don't have one, abort early:
-    //     let region_num = config
-    //         .regions
-    //         .iter()
-    //         .enumerate()
-    //         .find(|(_i, (pmpcfg, _, _))| *pmpcfg == TORUserPMPCFG::OFF)
-    //         .map(|(i, _)| i)
-    //         .ok_or(mpu::AllocateAppMemoryError::HeapError)?;
+        // copy config over
+        for i in 0..8 {
+            ac_config[i] = config[i];
+        }
 
-    //     // Now, meet the PMP TOR region constraints for the region specified by
-    //     // `initial_app_memory_size` (which is the part of the region actually
-    //     // protected by the PMP). For this, start with the provided start
-    //     // address and size, transform them to meet the constraints, and then
-    //     // check that we're still within the bounds of the provided values:
-    //     let mut start = usize::from(unallocated_memory_start);
-    //     let mut pmp_region_size = initial_app_memory_size;
-
-    //     // Region start always has to align to 4 bytes. Round up to a 4 byte
-    //     // boundary if required:
-    //     if start % 4 != 0 {
-    //         start += 4 - (start % 4);
-    //     }
-
-    //     // Region size always has to align to 4 bytes. Round up to a 4 byte
-    //     // boundary if required:
-    //     if pmp_region_size % 4 != 0 {
-    //         pmp_region_size += 4 - (pmp_region_size % 4);
-    //     }
-
-    //     // Regions must be at least 4 bytes in size.
-    //     if pmp_region_size < 4 {
-    //         pmp_region_size = 4;
-    //     }
-
-    //     // We need to provide a memory block that fits both the initial app and
-    //     // kernel memory sections, and is `min_memory_size` bytes
-    //     // long. Calculate the length of this block with our new PMP-aliged
-    //     // size:
-    //     let memory_block_size = max_usize(
-    //         min_memory_size,
-    //         pmp_region_size + initial_kernel_memory_size,
-    //     );
-
-    //     // Now, check to see whether the adjusted start and size still meet the
-    //     // allocation constraints, namely ensure that
-    //     //
-    //     //     start + memory_block_size
-    //     //         <= unallocated_memory_start + unallocated_memory_size
-    //     //
-    //     // , which ensures the PMP constraints didn't push us over the bounds of
-    //     // the provided memory region, and we can fit the entire allocation as
-    //     // requested by the kernel:
-    //     if start + memory_block_size
-    //         > (usize::from(unallocated_memory_start)) + unallocated_memory_size
-    //     {
-    //         // Overflowing the provided memory region, can't make allocation:
-    //         return Err(mpu::AllocateAppMemoryError::HeapError);
-    //     }
-
-    //     // Finally, check that this new region does not overlap with any
-    //     // existing configured userspace region:
-    //     for region in config.regions.iter() {
-    //         if region.0 != TORUserPMPCFG::OFF
-    //             && region_overlaps(region, start as *const u8, memory_block_size)
-    //         {
-    //             return Err(mpu::AllocateAppMemoryError::HeapError);
-    //         }
-    //     }
-
-    //     // All checks passed, store region allocation, indicate the
-    //     // app_memory_region, and mark config as dirty:
-    //     config.regions[region_num] = (
-    //         mpu::Permissions::ReadWriteOnly.into(),
-    //         start as *const u8,
-    //         (start + pmp_region_size) as *const u8,
-    //     );
-    //     config.is_dirty.set(true);
-    //     config.app_memory_region.replace(region_num);
-
-    //     Ok(mpu::AllocatedAppBreaksAndSize {
-    //         breaks: mpu::AllocatedAppBreaks {
-    //             memory_start: FluxPtr::from(start),
-    //             app_break: FluxPtr::from(start + pmp_region_size),
-    //         },
-    //         memory_size: memory_block_size,
-    //     })
-    // }
-
-    // // VTOCK TODO: check flash is set
-    // fn update_app_memory_regions(
-    //     &self,
-    //     _mem_start: FluxPtrU8,
-    //     _old_app_memory_break: FluxPtrU8,
-    //     app_memory_break: FluxPtrU8Mut,
-    //     kernel_memory_break: FluxPtrU8Mut,
-    //     flash_start: FluxPtr,
-    //     flash_size: usize,
-    //     config: &mut Self::MpuConfig,
-    // ) -> Result<mpu::AllocatedAppBreaks, ()> {
-    //     let region_num = config.app_memory_region.get().ok_or(())?;
-
-    //     let mut app_memory_break = app_memory_break as FluxPtr;
-    //     let kernel_memory_break = kernel_memory_break as FluxPtr;
-
-    //     // Ensure that the requested app_memory_break complies with PMP
-    //     // alignment constraints, namely that the region's end address is 4 byte
-    //     // aligned:
-    //     if app_memory_break % 4 != 0 {
-    //         app_memory_break += 4 - (app_memory_break % 4);
-    //     }
-
-    //     // Check if the app has run out of memory:
-    //     if app_memory_break > kernel_memory_break {
-    //         return Err(());
-    //     }
-
-    //     // If we're not out of memory, update the region configuration
-    //     // accordingly:
-    //     config.regions[region_num].0 = mpu::Permissions::ReadWriteOnly.into();
-    //     config.regions[region_num].2 = u8::from(app_memory_break) as *const u8;
-    //     config.is_dirty.set(true);
-
-    //     Ok(mpu::AllocatedAppBreaks {
-    //         memory_start: FluxPtr::from(config.regions[region_num].1 as *mut u8),
-    //         app_break: app_memory_break,
-    //     })
-    // }
-
-    fn configure_mpu(&mut self, config: &[Self::Region]) {
-        // if !self.last_configured_for.contains(&config.id) || config.is_dirty.get() {
-        self.pmp.configure_pmp(config).unwrap();
-        // config.is_dirty.set(false);
-        // self.last_configured_for.set(config.id);
-        // }
+        self.pmp.configure_pmp(&ac_config).unwrap();
     }
 }
 
@@ -1253,7 +1098,7 @@ pub mod simple {
         // `u32::from_be_bytes` and then cast to usize, as it manages to compile
         // on 64-bit systems as well. However, this implementation will not work
         // on RV64I systems, due to the changed pmpcfgX CSR layout.
-        fn configure_pmp(&self, regions: &[PMPUserRegion]) -> Result<(), ()> {
+        fn configure_pmp(&self, regions: &[PMPUserRegion; MPU_REGIONS]) -> Result<(), ()> {
             // Could use `iter_array_chunks` once that's stable.
             let mut regions_iter = regions.iter();
             let mut i = 0;
@@ -1626,7 +1471,7 @@ pub mod kernel_protection {
         // `u32::from_be_bytes` and then cast to usize, as it manages to compile
         // on 64-bit systems as well. However, this implementation will not work
         // on RV64I systems, due to the changed pmpcfgX CSR layout.
-        fn configure_pmp(&self, regions: &[PMPUserRegion]) -> Result<(), ()> {
+        fn configure_pmp(&self, regions: &[PMPUserRegion; MPU_REGIONS]) -> Result<(), ()> {
             // Could use `iter_array_chunks` once that's stable.
             let mut regions_iter = regions.iter();
             let mut i = 0;
@@ -2008,7 +1853,7 @@ pub mod kernel_protection_mml_epmp {
         // `u32::from_be_bytes` and then cast to usize, as it manages to compile
         // on 64-bit systems as well. However, this implementation will not work
         // on RV64I systems, due to the changed pmpcfgX CSR layout.
-        fn configure_pmp(&self, regions: &[PMPUserRegion]) -> Result<(), ()> {
+        fn configure_pmp(&self, regions: &[PMPUserRegion; MPU_REGIONS]) -> Result<(), ()> {
             // Configure all of the regions' addresses and store their pmpcfg octets
             // in our shadow storage. If the user PMP is already enabled, we further
             // apply this configuration (set the pmpcfgX CSRs) by running

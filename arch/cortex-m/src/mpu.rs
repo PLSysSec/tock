@@ -5,17 +5,19 @@
 
 //! Implementation of the memory protection unit for the Cortex-M0+, Cortex-M3,
 //! Cortex-M4, and Cortex-M7
-
 use core::cell::Cell;
 use core::cmp;
 use core::fmt;
 use core::num::NonZeroUsize;
+use kernel::utilities::StaticRef;
 
 use flux_support::register_bitfields;
 use flux_support::*;
 use kernel::platform::mpu;
 use kernel::utilities::cells::OptionalCell;
 use kernel::utilities::math;
+use kernel::utilities::registers::interfaces::{Readable, Writeable};
+use kernel::utilities::registers::{FieldValue, ReadOnly, ReadWrite};
 
 /// MPU Registers for the Cortex-M3, Cortex-M4 and Cortex-M7 families
 /// Described in section 4.5 of
@@ -133,7 +135,7 @@ const MPU_BASE_ADDRESS: StaticRef<MpuRegisters> =
 /// There should only be one instantiation of this object as it represents
 /// real hardware.
 ///
-pub struct MPU<const MIN_REGION_SIZE: usize> {
+pub struct MPU<const MIN_REGION_SIZE: usize, const NUM_REGIONS: usize> {
     /// MMIO reference to MPU registers.
     registers: StaticRef<MpuRegisters>,
     /// Monotonically increasing counter for allocated regions, used
@@ -145,7 +147,7 @@ pub struct MPU<const MIN_REGION_SIZE: usize> {
     hardware_is_configured_for: OptionalCell<NonZeroUsize>,
 }
 
-impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
+impl<const MIN_REGION_SIZE: usize, const NUM_REGIONS: usize> MPU<MIN_REGION_SIZE, NUM_REGIONS> {
     pub const unsafe fn new() -> Self {
         Self {
             registers: MPU_BASE_ADDRESS,
@@ -157,7 +159,9 @@ impl<const MIN_REGION_SIZE: usize> MPU<MIN_REGION_SIZE> {
     // Function useful for boards where the bootloader sets up some
     // MPU configuration that conflicts with Tock's configuration:
     pub unsafe fn clear_mpu(&self) {
-        self.registers.ctrl.write(Control::ENABLE::CLEAR());
+        self.registers
+            .ctrl
+            .write(Control::ENABLE::CLEAR().into_inner());
     }
 }
 
@@ -496,18 +500,21 @@ impl<const MIN_REGION_SIZE: usize, const NUM_REGIONS: usize> mpu::MPU
 {
     type Region = CortexMRegion;
 
-    fn enable_app_mpu(&mut self) {
+    fn enable_app_mpu(&self) {
         self.registers.ctrl.write(
-            Control::ENABLE::SET() + Control::HFNMIENA::CLEAR() + Control::PRIVDEFENA::SET(),
+            (Control::ENABLE::SET() + Control::HFNMIENA::CLEAR() + Control::PRIVDEFENA::SET())
+                .into_inner(),
         );
     }
 
-    fn disable_app_mpu(&mut self) {
-        self.registers.ctrl.write(Control::ENABLE::CLEAR());
+    fn disable_app_mpu(&self) {
+        self.registers
+            .ctrl
+            .write(Control::ENABLE::CLEAR().into_inner());
     }
 
     fn number_total_regions(&self) -> usize {
-        self.registers.mpu_type.read(Type::DREGION()) as usize
+        self.registers.mpu_type.read(Type::DREGION().into_inner()) as usize
     }
 
     fn create_bounded_region(
@@ -528,7 +535,7 @@ impl<const MIN_REGION_SIZE: usize, const NUM_REGIONS: usize> mpu::MPU
         }
 
         // size must be >= 256 and a power of two for subregions
-        size = cmp::max_usize(size, 256);
+        size = cmp::max(size, 256);
         size = size.next_power_of_two();
 
         // region size must be aligned to start
@@ -599,7 +606,7 @@ impl<const MIN_REGION_SIZE: usize, const NUM_REGIONS: usize> mpu::MPU
             region_start,
             underlying_region_size,
             region_number,
-            (0, num_subregions_enabled - 1),
+            Some((0, num_subregions_enabled - 1)),
             permissions,
         ))
     }
@@ -615,7 +622,7 @@ impl<const MIN_REGION_SIZE: usize, const NUM_REGIONS: usize> mpu::MPU
             return None;
         }
 
-        if is_aligned(start.as_usize(), size) {
+        if start.as_usize() % size == 0 {
             // we can just create a region
             Some(CortexMRegion::new(
                 start,
@@ -656,7 +663,7 @@ impl<const MIN_REGION_SIZE: usize, const NUM_REGIONS: usize> mpu::MPU
                 FluxPtr::from(underlying_region_start),
                 underlying_region_size,
                 region_number,
-                (0, num_subregions_enabled - 1),
+                Some((0, num_subregions_enabled - 1)),
                 permissions,
             ))
         }
@@ -664,15 +671,19 @@ impl<const MIN_REGION_SIZE: usize, const NUM_REGIONS: usize> mpu::MPU
 
     fn configure_mpu(&self, config: &[CortexMRegion; 8]) {
         for region in config.iter() {
-            self.registers.rbar.write(region.base_address());
-            self.registers.rasr.write(region.attributes());
+            self.registers
+                .rbar
+                .write(region.base_address().into_inner());
+            self.registers.rasr.write(region.attributes().into_inner());
         }
         // cannot have unused regions
         if NUM_REGIONS > 8 {
             for i in 8..NUM_REGIONS {
                 let region = CortexMRegion::empty(i);
-                self.registers.rbar.write(region.base_address());
-                self.registers.rasr.write(region.attributes());
+                self.registers
+                    .rbar
+                    .write(region.base_address().into_inner());
+                self.registers.rasr.write(region.attributes().into_inner());
             }
         }
     }

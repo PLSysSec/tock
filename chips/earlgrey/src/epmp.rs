@@ -933,42 +933,50 @@ impl<const HANDOVER_CONFIG_CHECK: bool, DBG: EPMPDebugConfig>
         TOR_USER_REGIONS
     }
 
-    fn user_configure_pmp_region<const TOR_USER_REGIONS: usize>(
+    fn user_configure_pmp<const TOR_USER_REGIONS: usize>(
         &self,
-        region: &PMPUserRegion,
+        regions: &[PMPUserRegion; TOR_USER_REGIONS],
     ) -> Result<(), ()> {
-        // Configure pmp region and store region pmpcfg octets
+        // Configure all of the regions' addresses and store their pmpcfg octets
         // in our shadow storage. If the user PMP is already enabled, we further
         // apply this configuration (set the pmpcfgX CSRs) by running
         // `enable_user_pmp`:
-        // The ePMP in MML mode does not support read-write-execute
-        // regions. If such a region is to be configured, abort. As this
-        // loop here only modifies the shadow state, we can simply abort and
-        // return an error. We don't make any promises about the ePMP state
-        // if the configuration files, but it is still being activated with
-        // `enable_user_pmp`:
-        if region.tor.get()
-            == <TORUserPMPCFG as From<mpu::Permissions>>::from(mpu::Permissions::ReadWriteExecute)
-                .get()
+        for (i, (region, shadow_user_pmpcfg)) in regions
+            .iter()
+            .zip(self.shadow_user_pmpcfgs.iter())
+            .enumerate()
         {
-            return Err(());
-        }
+            // The ePMP in MML mode does not support read-write-execute
+            // regions. If such a region is to be configured, abort. As this
+            // loop here only modifies the shadow state, we can simply abort and
+            // return an error. We don't make any promises about the ePMP state
+            // if the configuration files, but it is still being activated with
+            // `enable_user_pmp`:
+            if region.tor.get()
+                == <TORUserPMPCFG as From<mpu::Permissions>>::from(
+                    mpu::Permissions::ReadWriteExecute,
+                )
+                .get()
+            {
+                return Err(());
+            }
 
-        // Set the CSR addresses for this region (if its not OFF, in which
-        // case the hardware-configured addresses are irrelevant):
-        if region.tor != TORUserPMPCFG::OFF {
-            csr::CSR.pmpaddr_set(
-                DBG::TOR_USER_ENTRIES_OFFSET + (i * 2) + 0,
-                (region.start as usize).overflowing_shr(2).0,
-            );
-            csr::CSR.pmpaddr_set(
-                DBG::TOR_USER_ENTRIES_OFFSET + (i * 2) + 1,
-                (region.end as usize).overflowing_shr(2).0,
-            );
-        }
+            // Set the CSR addresses for this region (if its not OFF, in which
+            // case the hardware-configured addresses are irrelevant):
+            if region.tor != TORUserPMPCFG::OFF {
+                csr::CSR.pmpaddr_set(
+                    DBG::TOR_USER_ENTRIES_OFFSET + (i * 2) + 0,
+                    (region.start as usize).overflowing_shr(2).0,
+                );
+                csr::CSR.pmpaddr_set(
+                    DBG::TOR_USER_ENTRIES_OFFSET + (i * 2) + 1,
+                    (region.end as usize).overflowing_shr(2).0,
+                );
+            }
 
-        // Store the region's pmpcfg octet:
-        shadow_user_pmpcfg.set(region.tor);
+            // Store the region's pmpcfg octet:
+            shadow_user_pmpcfg.set(region.tor);
+        }
 
         // If the PMP is currently active, apply the changes to the CSRs:
         if self.user_pmp_enabled.get() {
@@ -1140,7 +1148,7 @@ impl<const HANDOVER_CONFIG_CHECK: bool> TORUserPMP<{ TOR_USER_REGIONS_DEBUG_ENAB
 
     fn configure_pmp(
         &self,
-        regions: &[(TORUserPMPCFG, *const u8, *const u8); TOR_USER_REGIONS_DEBUG_ENABLE],
+        regions: &[PMPUserRegion; TOR_USER_REGIONS_DEBUG_ENABLE],
     ) -> Result<(), ()> {
         self.user_configure_pmp::<TOR_USER_REGIONS_DEBUG_ENABLE>(regions)
     }
@@ -1170,7 +1178,7 @@ impl<const HANDOVER_CONFIG_CHECK: bool> TORUserPMP<{ TOR_USER_REGIONS_DEBUG_DISA
 
     fn configure_pmp(
         &self,
-        regions: &[(TORUserPMPCFG, *const u8, *const u8); TOR_USER_REGIONS_DEBUG_DISABLE],
+        regions: &[PMPUserRegion; TOR_USER_REGIONS_DEBUG_DISABLE],
     ) -> Result<(), ()> {
         self.user_configure_pmp::<TOR_USER_REGIONS_DEBUG_DISABLE>(regions)
     }
