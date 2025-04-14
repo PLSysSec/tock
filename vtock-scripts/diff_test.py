@@ -116,6 +116,7 @@ TESTS_TO_RUN = [
 
 
 if __name__ == "__main__":
+    os.system(f"cd {LIBTOCKC_DIR} && git fetch && git checkout vtock-benchmarks")
     serial_port = "/dev/cu.usbmodem0010502398691"
     vtock_output = run_tests(INSTRUMENTED_VTOCK_DIR, serial_port, TESTS_TO_RUN)
     tock_output = run_tests(INSTRUMENTED_TOCK_DIR, serial_port, TESTS_TO_RUN)
