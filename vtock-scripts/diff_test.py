@@ -80,13 +80,17 @@ def run_tests(kernel_path, serial_port, tests_to_run):
 
 
 def compare_outputs(vtock_output, tock_output):
-   for test in vtock_output:
+    print("Comparing Outputs!")
+    print()
+    for test in vtock_output:
         vtock_test_output = "\n".join(vtock_output[test]).strip()
         tock_test_output = "\n".join(tock_output[test]).strip()
         if vtock_test_output != tock_test_output:
             print(f"Diff in {test}") 
             print(f"VTock output:\n{vtock_test_output}")
             print(f"Tock output:\n{tock_test_output}")
+            print()
+            print()
 
 
 TESTS_TO_RUN = [
