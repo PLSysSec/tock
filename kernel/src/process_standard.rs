@@ -546,10 +546,17 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
     }
 
     fn add_mpu_region(&self, start: FluxPtrU8, size: usize) -> Option<mpu::Region> {
-        self.app_memory_allocator.and_then(|am| {
+        let dwt = self.chip.dwt();
+        dwt.reset();
+        dwt.start();
+        let res = self.app_memory_allocator.and_then(|am| {
             am.allocate_ipc_region(start, size, mpu::Permissions::ReadWriteOnly)
                 .ok()
-        })
+        });
+        dwt.stop();
+        let count = dwt.count();
+        crate::debug!("[EVAL] add_mpu_region: {}", count);
+        res
     }
 
     fn sbrk(&self, increment: isize) -> Result<FluxPtrU8Mut, Error> {
@@ -1784,10 +1791,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // invalidate any stored `ProcessId`s that point to the old version of
         // the process. However, the process has not moved locations in the
         // processes array, so we copy the existing index.
-        let dwt = self.chip.dwt();
-        dwt.reset();
-        dwt.start();
-
         let old_index = self.process_id.get().index;
         let new_identifier = self.kernel.create_process_identifier();
         self.process_id
@@ -1898,18 +1901,14 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             .wrapping_add(self.header.get_init_function_offset() as usize)
             .as_usize();
 
-        let res = self.enqueue_task(Task::FunctionCall(FunctionCall {
+        self.enqueue_task(Task::FunctionCall(FunctionCall {
             source: FunctionCallSource::Kernel,
             pc: init_fn,
             argument0: app_start,
             argument1: app_breaks.memory_start.as_usize(),
             argument2: app_breaks.memory_size,
             argument3: app_breaks.app_break.as_usize(),
-        }));
-        dwt.stop();
-        let count = dwt.count();
-        crate::debug!("[EVAL] reset {}", count);
-        res
+        }))
     }
 
     #[flux_rs::trusted] // https://github.com/flux-rs/flux/issues/782
