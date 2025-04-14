@@ -529,13 +529,20 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
     }
 
     fn setup_mpu(&self) -> MpuConfiguredCapability {
-        self.app_memory_allocator
+        let dwt = self.chip.dwt();
+        dwt.reset();
+        dwt.start();
+        let res = self.app_memory_allocator
             .map_or(Err(()), |am| match self.chip.mpu().into_cortex_mpu() {
                 allocator::CortexMpuTypes::Sixteen(mpu) => {
                     Ok(am.configure_mpu(mpu))
             }
                 allocator::CortexMpuTypes::Eight(mpu) => Ok(am.configure_mpu(mpu))
-            }).expect("Fatal kernel bug in setting up MPU - cannot branch to process as it would be unsafe")
+            }).expect("Fatal kernel bug in setting up MPU - cannot branch to process as it would be unsafe");
+        dwt.stop();
+        let count = dwt.count();
+        crate::debug!("[EVAL] setup_mpu: {}", count);
+        res
     }
 
     fn add_mpu_region(&self, start: FluxPtrU8, size: usize) -> Option<mpu::Region> {
@@ -587,6 +594,9 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         buf_start_addr: FluxPtrU8Mut,
         size: usize,
     ) -> Result<ReadWriteProcessBuffer, ErrorCode> {
+        let dwt = self.chip.dwt();
+        dwt.reset();
+        dwt.start();
         if !self.is_running() {
             // Do not operate on an inactive process
             return Err(ErrorCode::FAIL);
@@ -595,7 +605,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         // A process is allowed to pass any pointer if the buffer length is 0,
         // as to revoke kernel access to a memory region without granting access
         // to another one
-        if size == 0 {
+        let res = if size == 0 {
             // Clippy complains that we're dereferencing a pointer in a public
             // and safe function here. While we are not dereferencing the
             // pointer here, we pass it along to an unsafe function, which is as
@@ -640,7 +650,11 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             // above, as we must ensure that this `ReadWriteProcessBuffer` will
             // be the only reference to this memory.
             Ok(unsafe { ReadWriteProcessBuffer::new(buf_start_addr, size, self.processid()) })
-        }
+        };
+        dwt.stop();
+        let count = dwt.count();
+        crate::debug!("[EVAL] build_readwrite_process_buffer: {}", count);
+        res
     }
 
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -649,6 +663,9 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         buf_start_addr: FluxPtrU8Mut,
         size: usize,
     ) -> Result<ReadOnlyProcessBuffer, ErrorCode> {
+        let dwt = self.chip.dwt();
+        dwt.reset();
+        dwt.start();
         if !self.is_running() {
             // Do not operate on an inactive process
             return Err(ErrorCode::FAIL);
@@ -657,7 +674,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         // A process is allowed to pass any pointer if the buffer length is 0,
         // as to revoke kernel access to a memory region without granting access
         // to another one
-        if size == 0 {
+        let res = if size == 0 {
             // Clippy complains that we're dereferencing a pointer in a public
             // and safe function here. While we are not dereferencing the
             // pointer here, we pass it along to an unsafe function, which is as
@@ -723,7 +740,11 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             // above, as we must ensure that this `ReadOnlyProcessBuffer` will
             // be the only reference to this memory.
             Ok(unsafe { ReadOnlyProcessBuffer::new(buf_start_addr, size, self.processid()) })
-        }
+        };
+        dwt.stop();
+        let count = dwt.count();
+        crate::debug!("[EVAL] build_readonly_process_buffer: {}", count);
+        res
     }
 
     unsafe fn set_byte(&self, mut addr: FluxPtrU8Mut, value: u8) -> Result<bool, ()> {
@@ -835,6 +856,9 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         size: usize,
         align: usize,
     ) -> Result<(ProcessCustomGrantIdentifier, NonNull<u8>), ()> {
+        let dwt = self.chip.dwt();
+        dwt.reset();
+        dwt.start();
         // Do not modify an inactive process.
         if !self.is_running() {
             return Err(());
@@ -846,8 +870,12 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
 
         // Use the shared grant allocator function to actually allocate memory.
         // Returns `None` if the allocation cannot be created.
-        self.app_memory_allocator
-            .map_or(Err(()), |am| am.allocate_custom_grant(size, align))
+        let res = self.app_memory_allocator
+            .map_or(Err(()), |am| am.allocate_custom_grant(size, align));
+        dwt.stop();
+        let count = dwt.count();
+        crate::debug!("[EVAL] allocate_custom_grant {:?}", count);
+        res
     }
 
     fn enter_grant(&self, grant_num: usize) -> Result<NonNull<u8>, Error> {
