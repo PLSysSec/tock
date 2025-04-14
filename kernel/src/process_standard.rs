@@ -541,7 +541,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             }).expect("Fatal kernel bug in setting up MPU - cannot branch to process as it would be unsafe");
         dwt.stop();
         let count = dwt.count();
-        crate::debug!("[EVAL] setup_mpu: {}", count);
+        crate::debug!("[EVAL] setup_mpu {}", count);
         res
     }
 
@@ -555,7 +555,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         });
         dwt.stop();
         let count = dwt.count();
-        crate::debug!("[EVAL] add_mpu_region: {}", count);
+        crate::debug!("[EVAL] add_mpu_region {}", count);
         res
     }
 
@@ -660,7 +660,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         };
         dwt.stop();
         let count = dwt.count();
-        crate::debug!("[EVAL] build_readwrite_process_buffer: {}", count);
+        crate::debug!("[EVAL] build_readwrite_process_buffer {}", count);
         res
     }
 
@@ -750,7 +750,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         };
         dwt.stop();
         let count = dwt.count();
-        crate::debug!("[EVAL] build_readonly_process_buffer: {}", count);
+        crate::debug!("[EVAL] build_readonly_process_buffer {}", count);
         res
     }
 
