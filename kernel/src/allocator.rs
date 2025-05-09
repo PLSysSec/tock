@@ -45,12 +45,12 @@ impl AppBreaks {
 const RAM_REGION_NUMBER: usize = 0;
 const FLASH_REGION_NUMBER: usize = 1;
 
-pub(crate) struct AppMemoryAllocator<M: mpu::MPU> {
+pub(crate) struct AppMemoryAllocator<R: RegionDescriptor + Display + Copy> {
     pub breaks: AppBreaks,
-    pub regions: [M::Region; 8],
+    pub regions: [R; 8],
 }
 
-impl<M: mpu::MPU> Display for AppMemoryAllocator<M> {
+impl<R: RegionDescriptor + Display + Copy> Display for AppMemoryAllocator<R> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "\r\n MPU")?;
         for region in self.regions.iter() {
@@ -60,7 +60,7 @@ impl<M: mpu::MPU> Display for AppMemoryAllocator<M> {
     }
 }
 
-impl<M: mpu::MPU> AppMemoryAllocator<M> {
+impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
     pub(crate) fn flash_start(&self) -> FluxPtrU8 {
         self.breaks.flash_start
     }
@@ -91,13 +91,13 @@ impl<M: mpu::MPU> AppMemoryAllocator<M> {
         self.breaks.kernel_break
     }
 
-    fn new_regions() -> [<M as mpu::MPU>::Region; 8] {
-        core::array::from_fn(|i| <M as mpu::MPU>::Region::default(i))
+    fn new_regions() -> [R; 8] {
+        core::array::from_fn(|i| R::default(i))
     }
 
     pub(crate) fn reset(&mut self) {
         for (i, r) in self.regions.iter_mut().enumerate() {
-            *r = <M as mpu::MPU>::Region::default(i)
+            *r = R::default(i)
         }
     }
 
@@ -228,7 +228,7 @@ impl<M: mpu::MPU> AppMemoryAllocator<M> {
         None
     }
 
-    fn any_overlaps(&self, region: &M::Region) -> bool {
+    fn any_overlaps(&self, region: &R) -> bool {
         for ex_region in self.regions.iter() {
             if ex_region.overlaps(region) {
                 return true;
@@ -237,7 +237,7 @@ impl<M: mpu::MPU> AppMemoryAllocator<M> {
         return false;
     }
 
-    pub(crate) fn allocate_ipc_region(
+    pub(crate) fn allocate_ipc_region<M: mpu::MPU<Region = R>>(
         &mut self,
         start: FluxPtrU8,
         size: usize,
@@ -265,7 +265,7 @@ impl<M: mpu::MPU> AppMemoryAllocator<M> {
         Ok(mpu::Region::new(start, size))
     }
 
-    pub(crate) fn allocate_app_memory(
+    pub(crate) fn allocate_app_memory<M: mpu::MPU<Region = R>>(
         unallocated_memory_start: FluxPtrU8,
         unallocated_memory_size: usize,
         min_memory_size: usize,
@@ -340,7 +340,10 @@ impl<M: mpu::MPU> AppMemoryAllocator<M> {
         })
     }
 
-    pub(crate) fn update_app_memory(&mut self, new_app_break: FluxPtrU8Mut) -> Result<(), Error> {
+    pub(crate) fn update_app_memory<M: mpu::MPU<Region = R>>(
+        &mut self,
+        new_app_break: FluxPtrU8Mut,
+    ) -> Result<(), Error> {
         let memory_start = self.breaks.memory_start();
         let high_water_mark = self.breaks.high_water_mark;
         let kernel_break = self.kernel_break();
@@ -376,7 +379,7 @@ impl<M: mpu::MPU> AppMemoryAllocator<M> {
         Ok(())
     }
 
-    pub(crate) fn configure_mpu(&self, mpu: &M) {
+    pub(crate) fn configure_mpu<M: mpu::MPU<Region = R>>(&self, mpu: &M) {
         mpu.configure_mpu(&self.regions);
     }
 }

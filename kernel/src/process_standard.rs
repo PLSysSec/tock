@@ -158,7 +158,7 @@ pub struct ProcessStandard<'a, C: 'static + Chip> {
     // breaks and corresponding configuration
     // refinement says that these are the same
     // breaks_and_config: MapCell<BreaksAndMPUConfig<C>>,
-    app_memory_allocator: MapCell<AppMemoryAllocator<<C as Chip>::MPU>>,
+    app_memory_allocator: MapCell<AppMemoryAllocator<<<C as Chip>::MPU as mpu::MPU>::Region>>,
 
     /// Reference to the slice of `GrantPointerEntry`s stored in the process's
     /// memory reserved for the kernel. These driver numbers are zero and
@@ -536,7 +536,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
 
     fn add_mpu_region(&self, start: FluxPtrU8, size: usize) -> Option<mpu::Region> {
         self.app_memory_allocator.and_then(|am| {
-            am.allocate_ipc_region(start, size, mpu::Permissions::ReadWriteOnly)
+            am.allocate_ipc_region::<<C as Chip>::MPU>(start, size, mpu::Permissions::ReadWriteOnly)
                 .ok()
         })
     }
@@ -559,7 +559,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
 
         self.app_memory_allocator
             .map_or(Err(Error::KernelError), |am| {
-                am.update_app_memory(new_break)?;
+                am.update_app_memory::<<C as Chip>::MPU>(new_break)?;
                 // VTOCK Note:
                 // The natural thing here seems to be to expose the actual
                 // end of the heap to the process. However, doing this crashes
@@ -1436,7 +1436,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
 
         // Initialize MPU region configuration.
 
-        let app_memory_alloc = match AppMemoryAllocator::allocate_app_memory(
+        let app_memory_alloc = match AppMemoryAllocator::allocate_app_memory::<<C as Chip>::MPU>(
             remaining_mem_ptrs.start,
             remaining_mem_ptrs.len,
             min_total_memory_size,
@@ -1783,7 +1783,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let initial_kernel_memory_size =
             grant_ptrs_offset + Self::CALLBACKS_OFFSET + Self::PROCESS_STRUCT_OFFSET;
 
-        let maybe_app_mem_alloc = AppMemoryAllocator::allocate_app_memory(
+        let maybe_app_mem_alloc = AppMemoryAllocator::allocate_app_memory::<<C as Chip>::MPU>(
             app_breaks.memory_start(),
             app_breaks.memory_size(),
             min_process_memory_size,
@@ -1792,7 +1792,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             app_breaks.flash_start(),
             app_breaks.flash_size(),
         );
-        let app_mem_alloc: AppMemoryAllocator<<C as Chip>::MPU> = match maybe_app_mem_alloc {
+        let app_mem_alloc: AppMemoryAllocator<<<C as Chip>::MPU as mpu::MPU>::Region> = match maybe_app_mem_alloc {
             Ok(breaks_and_size) => breaks_and_size,
             Err(allocator::AllocateAppMemoryError::FlashError) => {
                 return Err(ErrorCode::FAIL);
