@@ -1064,13 +1064,20 @@ impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> mpu::MPU
             region_size: usize,
             perms: mpu::Permissions
         ) -> Option<{r. CortexMRegion[r] |
-            r.set &&
-            r.region_no == region_number &&
-            r.perms == perms &&
-            r.astart >= available_start &&
-            r.astart == r.rstart &&
-            r.astart + r.asize <= available_start + available_size &&
-            r.asize >= region_size
+            <CortexMRegion as RegionDescriptor>::is_set(r) &&
+            <CortexMRegion as RegionDescriptor>::rnum(r) == region_number &&
+            <CortexMRegion as RegionDescriptor>::perms(r) == permissions && 
+            <CortexMRegion as RegionDescriptor>::astart(r) >= available_start &&
+            <CortexMRegion as RegionDescriptor>::astart(r) == <CortexMRegion as RegionDescriptor>::rstart(r) &&
+            <CortexMRegion as RegionDescriptor>::astart(r) + <CortexMRegion as RegionDescriptor>::asize(r) <= available_start + available_size &&
+            <CortexMRegion as RegionDescriptor>::asize(r) >= region_size
+            // r.set &&
+            // r.region_no == region_number &&
+            // r.perms == perms &&
+            // r.astart >= available_start &&
+            // r.astart == r.rstart &&
+            // r.astart + r.asize <= available_start + available_size &&
+            // r.asize >= region_size
         }>
         requires region_number < 16 
     )]
@@ -1135,16 +1142,25 @@ impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> mpu::MPU
             region_number: usize,
             perms: mpu::Permissions
         ) -> Option<{r. CortexMRegion[r] |
-            region_number < 16 &&
-            r.set &&
-            r.region_no == region_number &&
-            r.perms == perms &&
-            r.astart == po2_aligned_start &&
-            r.rstart == po2_aligned_start &&
-            r.astart + r.asize <= po2_aligned_start + available_size &&
-            r.asize >= min_size
+
+            <CortexMRegion as RegionDescriptor>::is_set(r) &&
+            <CortexMRegion as RegionDescriptor>::rnum(r) == region_number &&
+            <CortexMRegion as RegionDescriptor>::perms(r) == permissions && 
+            <CortexMRegion as RegionDescriptor>::perms(r) == permissions &&
+            <CortexMRegion as RegionDescriptor>::astart(r) == region_start &&
+            <CortexMRegion as RegionDescriptor>::rstart(r) == region_start &&
+            <CortexMRegion as RegionDescriptor>::astart(r) + <CortexMRegion as RegionDescriptor>::asize(r) <= region_start + available_size &&
+            <CortexMRegion as RegionDescriptor>::asize(r)  >= region_size
+            // region_number < 16 &&
+            // r.set &&
+            // r.region_no == region_number &&
+            // r.perms == perms &&
+            // r.astart == po2_aligned_start &&
+            // r.rstart == po2_aligned_start &&
+            // r.astart + r.asize <= po2_aligned_start + available_size &&
+            // r.asize >= min_size
         }>
-        requires region_number < 16
+        // requires region_number < 16
     )]
     fn update_region(
         region_start: FluxPtrU8,
@@ -1204,13 +1220,18 @@ impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> mpu::MPU
             usize[@size],
             mpu::Permissions[@perms],
         ) -> Option<{r. CortexMRegion[r] | 
-                r.set &&
-                r.region_no == region_no &&
-                r.perms == perms &&
-                r.astart == start &&
-                r.astart + r.asize == start + size
+                <CortexMRegion as RegionDescriptor>::is_set(r) &&
+                <CortexMRegion as RegionDescriptor>::rnum(r) == region_number &&
+                <CortexMRegion as RegionDescriptor>::perms(r) == permissions &&
+                <CortexMRegion as RegionDescriptor>::astart(r) == start &&
+                <CortexMRegion as RegionDescriptor>::astart(r) + <CortexMRegion as RegionDescriptor>::asize(r) == start + size
+                // r.set &&
+                // r.region_no == region_no &&
+                // r.perms == perms &&
+                // r.astart == start &&
+                // r.astart + r.asize == start + size
             }>
-            requires region_no < 16
+            // requires region_no < 16
     )]
     fn create_exact_region(
         region_number: usize,
