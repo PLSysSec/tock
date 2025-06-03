@@ -546,11 +546,12 @@ impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> mpu::MPU
 {
     type Region = CortexMRegion;
 
-    fn enable_app_mpu(&self) {
+    fn enable_app_mpu(&self) -> MpuEnabledCapability {
         self.registers.ctrl.write(
             (Control::ENABLE::SET() + Control::HFNMIENA::CLEAR() + Control::PRIVDEFENA::SET())
                 .into_inner(),
         );
+        MpuEnabledCapability {}
     }
 
     fn disable_app_mpu(&self) {

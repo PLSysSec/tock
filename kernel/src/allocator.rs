@@ -1,5 +1,6 @@
 use core::{cmp, fmt::Display, ptr::NonNull};
 
+use flux_support::capability::*;
 use flux_support::{max_ptr, max_usize, FluxPtrU8, FluxPtrU8Mut};
 
 use crate::{
@@ -379,7 +380,24 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         Ok(())
     }
 
-    pub(crate) fn configure_mpu<M: mpu::MPU<Region = R>>(&self, mpu: &M) {
+    pub(crate) fn configure_mpu<M: mpu::MPU<Region = R>>(
+        &self,
+        mpu: &M,
+    ) -> MpuConfiguredCapability {
         mpu.configure_mpu(&self.regions);
+        MpuConfiguredCapability::new(self.memory_start(), self.app_break())
+    }
+
+    pub(crate) unsafe fn set_byte(&self, mut addr: FluxPtrU8Mut, value: u8) -> bool {
+        let end = addr.wrapping_add(1);
+        if self.in_app_ram_memory(addr, end) {
+            // We verify that this will only write process-accessible memory,
+            // but this can still be undefined behavior if something else holds
+            // a reference to this memory.
+            *addr = value;
+            true
+        } else {
+            false
+        }
     }
 }

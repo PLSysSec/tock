@@ -38,16 +38,6 @@ impl From<usize> for FluxPtr {
 
 impl From<NonNull<u8>> for FluxPtr {
     #[flux_rs::sig(fn (value: NonNull<u8>) -> FluxPtr[value])]
-    #[flux_rs::trusted]
-    fn from(value: NonNull<u8>) -> Self {
-        FluxPtr {
-            inner: value.as_ptr(),
-        }
-    }
-}
-
-impl From<NonNull<u8>> for FluxPtr {
-    #[flux_rs::sig(fn (value: NonNull<u8>) -> FluxPtr[value])]
     #[flux_rs::trusted(reason = "flux wrappers")]
     fn from(value: NonNull<u8>) -> Self {
         FluxPtr {

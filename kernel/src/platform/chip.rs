@@ -3,8 +3,7 @@
 // Copyright Tock Contributors 2022.
 
 //! Interfaces for implementing microcontrollers in Tock.
-use crate::allocator::IntoCortexMPU;
-use crate::syscall;
+use crate::{platform::mpu, syscall};
 use core::fmt::Write;
 
 /// Interface for individual MCUs.
@@ -22,7 +21,7 @@ pub trait Chip {
     /// this specific chip. Likely this is architecture specific, but individual
     /// chips may have various custom requirements.
     type UserspaceKernelBoundary: syscall::UserspaceKernelBoundary;
-    type MPU: IntoCortexMPU;
+    type MPU: mpu::MPU;
 
     /// The kernel calls this function to tell the chip to check for all pending
     /// interrupts and to correctly dispatch them to the peripheral drivers for

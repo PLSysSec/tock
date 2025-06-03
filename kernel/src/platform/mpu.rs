@@ -5,6 +5,7 @@
 //! Interface for configuring the Memory Protection Unit.
 
 use core::fmt::{self, Display};
+use flux_support::capability::*;
 #[allow(clippy::wildcard_imports)]
 use flux_support::*;
 
@@ -152,10 +153,9 @@ pub trait MPU {
     ///
     /// This function must enable the permission restrictions on the various
     /// regions protected by the MPU.
-    fn enable_app_mpu(&self);
+    fn enable_app_mpu(&self) -> MpuEnabledCapability;
 
-    /// Disables the MPU for userspace apps.
-    ///
+    /// Disables the MPU for userspace apps.  ///
     /// This function must disable any access control that was previously setup
     /// for an app if it will interfere with the kernel.
     /// This will be called before the kernel starts to execute as on some
@@ -213,7 +213,9 @@ impl MPU for () {
     type Region = MpuRegionDefault;
 
     #[flux_rs::sig(fn (self: &strg Self) ensures self: Self)]
-    fn enable_app_mpu(&self) {}
+    fn enable_app_mpu(&self) -> MpuEnabledCapability {
+        MpuEnabledCapability {}
+    }
 
     #[flux_rs::sig(fn (self: &strg Self) ensures self: Self)]
     fn disable_app_mpu(&self) {}

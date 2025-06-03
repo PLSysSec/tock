@@ -13,7 +13,6 @@ use core::fmt::Write;
 use core::num::NonZeroU32;
 use core::ptr::NonNull;
 use core::{mem, str};
-use core::{mem, str};
 #[allow(clippy::wildcard_imports)]
 use flux_support::*;
 use flux_support::capability::*;
@@ -26,7 +25,7 @@ use crate::debug;
 use crate::errorcode::ErrorCode;
 use crate::kernel::Kernel;
 use crate::platform::chip::Chip;
-use crate::platform::mpu::{self};
+use crate::platform::mpu::{self, MPU};
 use crate::process::BinaryVersion;
 use crate::process::ProcessBinary;
 use crate::process::{Error, FunctionCall, FunctionCallSource, Process, Task};
@@ -528,12 +527,10 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         });
     }
 
-    fn setup_mpu(&self) {
+    fn setup_mpu(&self) -> MpuConfiguredCapability {
         self.app_memory_allocator
-            .map_or(Err(()), |am| {
-                am.configure_mpu(self.chip.mpu());
-                Ok(())
-            }).expect("Fatal kernel bug in setting up MPU - cannot branch to process as it would be unsafe")
+            .map_or(Err(()), |am| Ok(am.configure_mpu(self.chip.mpu())))
+            .expect("Fatal kernel bug in setting up MPU - cannot branch to process as it would be unsafe")
     }
 
     fn add_mpu_region(&self, start: FluxPtrU8, size: usize) -> Option<mpu::Region> {
@@ -1053,7 +1050,8 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         }
     }
 
-    fn switch_to(&self) -> Option<syscall::ContextSwitchReason> {
+    fn switch_to(&self, mpu_configured: MpuConfiguredCapability, mpu_enabled: MpuEnabledCapability) -> Option<syscall::ContextSwitchReason> {
+        // Cannot switch to an invalid process
         if !self.is_running() {
             return None;
         }
@@ -1063,19 +1061,11 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
                 // Switch to the process. We guarantee that the memory pointers
                 // we pass are valid, ensuring this context switch is safe.
                 // Therefore we encapsulate the `unsafe`.
-                let memory_start = match self.mem_start() {
-                    Some(m) => m,
-                    None => return (None, None)
-                };
-                let app_brk = match self.app_memory_break() {
-                    Ok(b) => b,
-                    Err(_) => return (None, None)
-                };
                 unsafe {
                     let (switch_reason, optional_stack_pointer) = self
                         .chip
                         .userspace_kernel_boundary()
-                        .switch_to_process(memory_start, app_brk, stored_state);
+                        .switch_to_process(mpu_configured, mpu_enabled, stored_state);
                     (Some(switch_reason), optional_stack_pointer)
                 }
             });
@@ -1124,7 +1114,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
                     .flash_start()
                     .wrapping_add(self.header.get_protected_size() as usize)
                     .as_usize(),
-                flash_integrity_end: FluxPtrU8::from(am.flash_start().as_usize() + self.header.get_binary_end() as usize),
+                flash_integrity_end: am.flash_start().as_usize() + self.header.get_binary_end() as usize,
                 flash_end: am.flash_end().as_usize(),
                 sram_start: am.memory_start().as_usize(),
                 sram_app_brk: am.app_break().as_usize(),
@@ -1221,7 +1211,6 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         // for a fixed address, then just generating a .lst file is fine.
 
         let _ = self.debug.map_or(None, |debug| {
-        let _ = self.debug.map_or(None, |debug| {
             if debug.fixed_address_flash.is_some() {
                 // Fixed addresses, can just run `make lst`.
                 let _ = writer.write_fmt(format_args!(
@@ -1248,7 +1237,6 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
                 ));
             }
             Some(())
-            Some(())
         });
     }
 
@@ -1264,24 +1252,16 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
 
     fn get_flash_start(&self) -> Option<usize> {
         Some(self.flash_start()?.as_usize())
-    fn get_flash_start(&self) -> Option<usize> {
-        Some(self.flash_start()?.as_usize())
     }
 
-    fn get_flash_end(&self) -> Option<usize> {
-        Some(self.flash_end()?.as_usize())
     fn get_flash_end(&self) -> Option<usize> {
         Some(self.flash_end()?.as_usize())
     }
 
     fn get_sram_start(&self) -> Option<usize> {
         Some(self.mem_start()?.as_usize())
-    fn get_sram_start(&self) -> Option<usize> {
-        Some(self.mem_start()?.as_usize())
     }
 
-    fn get_sram_end(&self) -> Option<usize> {
-        Some(self.mem_end()?.as_usize())
     fn get_sram_end(&self) -> Option<usize> {
         Some(self.mem_end()?.as_usize())
     }
@@ -1453,11 +1433,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             initial_kernel_memory_size,
             flash_ptrs.start,
             flash_ptrs.len,
-            flash_ptrs.start,
-            flash_ptrs.len,
         ) {
             Ok(bnsz) => bnsz,
-            Err(allocator::AllocateAppMemoryError::FlashError) => {
             Err(allocator::AllocateAppMemoryError::FlashError) => {
                 if config::CONFIG.debug_load_processes {
                     debug!(
@@ -1806,7 +1783,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         );
         let app_mem_alloc: AppMemoryAllocator<<<C as Chip>::MPU as mpu::MPU>::Region> = match maybe_app_mem_alloc {
             Ok(breaks_and_size) => breaks_and_size,
-            Err(allocator::AllocateAppMemoryError::FlashError) => {
+            Err(allocator::AllocateAppMemoryError::FlashError) |
             Err(allocator::AllocateAppMemoryError::FlashError) => {
                 return Err(ErrorCode::FAIL);
             }
