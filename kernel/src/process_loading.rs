@@ -185,7 +185,6 @@ pub fn load_processes<C: Chip>(
 /// creation.
 #[inline(always)]
 #[flux_rs::trusted(reason = "ICE: expected array or slice type `checker.rs:1188`")]
-#[flux_rs::trusted(reason = "ICE: expected array or slice type `checker.rs:1188`")]
 fn load_processes_from_flash<C: Chip>(
     kernel: &'static Kernel,
     chip: &'static C,
