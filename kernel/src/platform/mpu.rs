@@ -312,7 +312,7 @@ pub trait MPU {
     /// # Arguments
     ///
     /// - `region`: MPU region to be configured
-    fn configure_mpu(&self, regions: &[Self::Region; 8]);
+    fn configure_mpu(&self, regions: &RArray<Self::Region>);
 }
 
 // /// Implement default MPU trait for unit.
@@ -431,5 +431,5 @@ impl MPU for () {
         })
     }
 
-    fn configure_mpu(&self, _config: &[Self::Region; 8]) {}
+    fn configure_mpu(&self, _config: &RArray<Self::Region>) {}
 }

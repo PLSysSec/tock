@@ -1,7 +1,7 @@
 use core::{cmp, fmt::Display, ptr::NonNull};
 
 use flux_support::capability::*;
-use flux_support::{max_ptr, max_usize, FluxPtrU8, FluxPtrU8Mut};
+use flux_support::{max_ptr, max_usize, FluxPtrU8, FluxPtrU8Mut, RArray};
 
 use crate::{
     platform::mpu::{self, RegionDescriptor},
@@ -9,20 +9,133 @@ use crate::{
     utilities::math,
 };
 
+flux_rs::defs! {
+
+    // fn region_can_access(region: RegionDescriptor, start: int, end: int, perms: mpu::Permissions) -> bool {
+    //     // region set
+    //     region.set &&
+    //     // region's accesible block contains the start..end (exclusive) checked
+    //     start >= region.astart &&
+    //     end <= region.astart + region.asize &&
+    //     // and perms are correct
+    //     region.perms == perms
+    // }
+
+    // fn region_cant_access_at_all(region: CortexMRegion, start: int, end: int) -> bool {
+    //     // WHY is this different than !region_can_access:
+    //     //  1. We don't want to talk about permissions at all here - it shouldn't be allocated at all
+    //     //  2. region_can_access talks about everything from start..(start + size) being
+    //     //  included in one region. However, here we want to say that there is no subslice of
+    //     //  start..(start + size) that is accessible via the current region we are looking at
+    //     let region_start = region.astart;
+    //     let region_end = region.astart + region.asize;
+    //     // Either the region is not set
+    //     !region.set ||
+    //     // or NO slice of start..(start + size) is included in the region
+    //     // i.e. the start..end is entirely before the region start
+    //     !(region_start < start && start < region_end)
+    // }
+
+    // fn app_can_access_flash_exactly(regions: RArray<CortexMRegion>, fstart: int, fend: int) -> bool {
+    //     let flash_region = map_select(regions, FLASH_REGION_NUMBER);
+    //     region_can_access(flash_region, fstart, fend, mpu::Permissions { r: true, w: false, x: true }) &&
+    //     region_cant_access_at_all(flash_region, 0, fstart - 1) &&
+    //     region_cant_access_at_all(flash_region, fend + 1, u32::MAX)
+    // }
+
+    // fn app_can_access_ram_exactly(regions: RArray<CortexMRegion>, astart: int, aend: int) -> bool {
+    //     let ram_region = map_select(regions, RAM_REGION_NUMBER);
+    //     region_can_access(ram_region, astart, aend, mpu::Permissions { r: true, w: true, x: false }) &&
+    //     region_cant_access_at_all(ram_region, 0, astart - 1) &&
+    //     region_cant_access_at_all(ram_region, aend + 1, u32::MAX)
+    // }
+
+    // fn app_regions_cant_access_at_all(regions: RArray<CortexMRegion>, start: int, end: int) -> bool {
+    //     forall i in 0..8 {
+    //         region_cant_access_at_all(map_select(regions, i), start, end)
+    //     }
+    // }
+
+    // fn app_regions_not_set(regions: RArray<CortexMRegion>) -> bool {
+    //     forall i in 0..8 {
+    //         let region = map_select(regions, i);
+    //         !region.set
+    //     }
+
+    // }
+
+    // fn regions_overlap(region1: CortexMRegion, region2: CortexMRegion) -> bool {
+    //     if region1.set && region2.set {
+    //         let fst_region_start = region1.rstart;
+    //         let fst_region_end = region1.rstart + region1.rsize;
+    //         let snd_region_start = region2.rstart;
+    //         let snd_region_end = region2.rstart + region2.rsize;
+    //         fst_region_start < snd_region_end && snd_region_start < fst_region_end
+    //     } else {
+    //         false
+    //     }
+    // }
+
+    // fn no_region_overlaps_app_block(regions: RArray<CortexMRegion>, mem_start: int, mem_end: int) -> bool {
+    //     forall i in 1..8 {
+    //         let region = map_select(regions, i);
+    //         let region_start = region.astart;
+    //         let region_end = region.astart + region.asize;
+    //         !region.set || !(mem_start < region_end && region_start < mem_end)
+    //     }
+    // }
+
+    // fn app_regions_correct(regions: RArray<CortexMRegion>, breaks: AppBreaks) -> bool {
+    //     app_can_access_flash_exactly(regions, breaks.flash_start, breaks.flash_start + breaks.flash_size) &&
+    //     app_can_access_ram_exactly(regions, breaks.memory_start, breaks.app_break) &&
+    //     no_region_overlaps_app_block(regions, breaks.memory_start, breaks.memory_start + breaks.memory_size)
+    // }
+
+    // fn rnum(region: CortexMRegion) -> int { region.region_no}
+    // fn rbar(region: CortexMRegion) -> bitvec<32>{ region.rbar.value }
+    // fn rasr(region: CortexMRegion) -> bitvec<32> { region.rasr.value }
+
+    // fn set(region: CortexMRegion) -> bool { region.set }
+    // fn astart(region: CortexMRegion) -> int { region.astart }
+    // fn asize(region: CortexMRegion) -> int { region.asize }
+}
+
 pub(crate) enum AllocateAppMemoryError {
     HeapError,
     FlashError,
 }
 
 #[derive(Clone, Copy)]
+#[flux_rs::refined_by(
+    memory_start: int,
+    memory_size: int,
+    app_break: int, 
+    high_water_mark: int, 
+    kernel_break: int, 
+    flash_start: int, 
+    flash_size: int
+)]
+#[flux_rs::invariant(memory_start + memory_size <= u32::MAX)]
+#[flux_rs::invariant(kernel_break < memory_start + memory_size)]
+#[flux_rs::invariant(flash_start + flash_size < memory_start)]
+#[flux_rs::invariant(app_break >= high_water_mark)]
+#[flux_rs::invariant(app_break <= kernel_break)]
+#[flux_rs::invariant(high_water_mark >= memory_start)]
 pub(crate) struct AppBreaks {
-    memory_start: FluxPtrU8,
-    memory_size: usize,
-    app_break: FluxPtrU8,
-    high_water_mark: FluxPtrU8,
-    kernel_break: FluxPtrU8,
-    flash_start: FluxPtrU8,
-    flash_size: usize,
+    #[field(FluxPtrU8[memory_start])]
+    pub memory_start: FluxPtrU8,
+    #[field(usize[memory_size])]
+    pub memory_size: usize,
+    #[field(FluxPtrU8[app_break])]
+    pub app_break: FluxPtrU8,
+    #[field(FluxPtrU8[high_water_mark])]
+    pub high_water_mark: FluxPtrU8,
+    #[field(FluxPtrU8[kernel_break])]
+    pub kernel_break: FluxPtrU8,
+    #[field(FluxPtrU8[flash_start])]
+    pub flash_start: FluxPtrU8,
+    #[field(usize[flash_size])]
+    pub flash_size: usize,
 }
 
 impl AppBreaks {
@@ -46,9 +159,15 @@ impl AppBreaks {
 const RAM_REGION_NUMBER: usize = 0;
 const FLASH_REGION_NUMBER: usize = 1;
 
+#[flux_rs::refined_by(
+    regions: Map<int, R>, 
+    breaks: AppBreaks
+)]
 pub(crate) struct AppMemoryAllocator<R: RegionDescriptor + Display + Copy> {
+    #[field(AppBreaks[breaks])]
     pub breaks: AppBreaks,
-    pub regions: [R; 8],
+    #[field(RArray<R>[regions])]
+    pub regions: RArray<R>
 }
 
 impl<R: RegionDescriptor + Display + Copy> Display for AppMemoryAllocator<R> {
@@ -92,8 +211,9 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         self.breaks.kernel_break
     }
 
-    fn new_regions() -> [R; 8] {
-        core::array::from_fn(|i| R::default(i))
+    fn new_regions() -> RArray<R> {
+        let arr : [R; 8] = core::array::from_fn(|i| R::default(i));
+        RArray::new(arr)
     }
 
     pub(crate) fn reset(&mut self) {
@@ -221,7 +341,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
 
     fn next_available_ipc_idx(&self) -> Option<usize> {
         for i in 0..8 {
-            let region = self.regions[i];
+            let region = self.regions.get(i);
             if i != FLASH_REGION_NUMBER && i != RAM_REGION_NUMBER && !region.is_set() {
                 return Some(i);
             }
@@ -260,7 +380,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             return Err(());
         }
 
-        self.regions[region_idx] = region;
+        self.regions.set(region_idx, region);
         let start = region.accessible_start().ok_or(())?;
         let size = region.accessible_size().ok_or(())?;
         Ok(mpu::Region::new(start, size))
@@ -285,7 +405,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             mpu::Permissions::ReadExecuteOnly,
         )
         .ok_or(AllocateAppMemoryError::FlashError)?;
-        app_regions[FLASH_REGION_NUMBER] = flash_region;
+        app_regions.set(FLASH_REGION_NUMBER, flash_region);
 
         let ideal_region_size = cmp::max(min_memory_size, initial_app_memory_size);
         let ram_region = M::create_bounded_region(
@@ -320,7 +440,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             return Err(AllocateAppMemoryError::HeapError);
         }
 
-        app_regions[RAM_REGION_NUMBER] = ram_region;
+        app_regions.set(RAM_REGION_NUMBER, ram_region);
         let kernel_break = memory_start
             .wrapping_add(total_block_size)
             .wrapping_sub(initial_kernel_memory_size);
@@ -376,7 +496,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             return Err(Error::OutOfMemory);
         }
         self.breaks.app_break = FluxPtrU8::from(new_app_break);
-        self.regions[RAM_REGION_NUMBER] = new_region;
+        self.regions.set(RAM_REGION_NUMBER, new_region);
         Ok(())
     }
 

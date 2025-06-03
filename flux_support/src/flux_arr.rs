@@ -5,7 +5,6 @@ use core::slice::{Iter, IterMut};
 pub struct RArray<T: Copy> {
     arr: [T; 8],
 }
-
 impl<T: Copy> RArray<T> {
     #[flux_rs::trusted]
     #[flux_rs::sig(fn (arr: [T; 8]) -> Self)]
