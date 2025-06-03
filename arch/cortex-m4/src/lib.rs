@@ -11,10 +11,6 @@
 use core::fmt::Write;
 use flux_support::capability::*;
 
-pub mod mpu {
-    pub type MPU = kernel::allocator::MPU<8>;
-}
-
 pub use cortexm::dwt;
 pub use cortexm::initialize_ram_jump_to_main;
 pub use cortexm::nvic;
