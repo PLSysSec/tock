@@ -35,6 +35,7 @@ pub use crate::process_policies::ProcessFaultPolicy;
 pub use crate::process_printer::{ProcessPrinter, ProcessPrinterContext};
 pub use crate::process_standard::ProcessStandard;
 
+use flux_support::capability::*;
 /// Userspace process identifier.
 ///
 /// This is an opaque type that can be used to represent a running process on
@@ -644,7 +645,7 @@ pub trait Process {
     /// accessible memory. However, to avoid undefined behavior the caller needs
     /// to ensure that no other references exist to the process's memory before
     /// calling this function.
-    unsafe fn set_byte(&self, addr: FluxPtrU8Mut, value: u8) -> Result<bool, ()>;
+    fn set_byte(&self, addr: FluxPtrU8Mut, value: u8) -> Result<bool, ()>;
 
     /// Return the permissions for this process for a given `driver_num`.
     ///
@@ -666,7 +667,7 @@ pub trait Process {
     ///
     /// It is not valid to call this function when the process is inactive (i.e.
     /// the process will not run again).
-    fn setup_mpu(&self);
+    fn setup_mpu(&self) -> MpuConfiguredCapability;
 
     /// Allocate a new MPU region for the process that is at least
     /// `min_region_size` bytes and lies within the specified stretch of
@@ -812,7 +813,11 @@ pub trait Process {
     ///
     /// This will return `None` if the process is inactive and cannot be
     /// switched to.
-    fn switch_to(&self) -> Option<syscall::ContextSwitchReason>;
+    fn switch_to(
+        &self,
+        mpu_configured: MpuConfiguredCapability,
+        mpu_enabled: MpuEnabledCapability,
+    ) -> Option<syscall::ContextSwitchReason>;
 
     /// Return process state information related to the location in memory of
     /// various process data structures.
@@ -1115,7 +1120,7 @@ pub struct ProcessAddresses {
     /// is covered by integrity; the integrity region is [flash_start -
     /// flash_integrity_end). Footers are stored in the flash after
     /// flash_integrity_end.
-    pub flash_integrity_end: FluxPtrU8Mut,
+    pub flash_integrity_end: usize,
     /// The address immediately after the end of the region allocated for this
     /// process in nonvolatile memory.
     pub flash_end: usize,

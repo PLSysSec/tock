@@ -11,6 +11,7 @@
 use core::cell::Cell;
 use core::ptr::NonNull;
 
+use crate::allocator::IntoCortexMPU;
 use crate::capabilities;
 use crate::config;
 use crate::debug;
@@ -20,7 +21,6 @@ use crate::grant::{AllowRoSize, AllowRwSize, Grant, UpcallSize};
 use crate::ipc;
 use crate::memop;
 use crate::platform::chip::Chip;
-use crate::platform::mpu::MPU;
 use crate::platform::platform::ContextSwitchCallback;
 use crate::platform::platform::KernelResources;
 use crate::platform::platform::{ProcessFault, SyscallDriverLookup, SyscallFilter};
@@ -133,7 +133,6 @@ impl Kernel {
     where
         F: FnOnce(&dyn process::Process) -> R,
     {
-        // unimplemented!()
         match self.get_process(processid) {
             Some(process) => closure(process),
             None => default,
@@ -187,7 +186,6 @@ impl Kernel {
     }
 
     /// Returns an iterator over all processes loaded by the kernel.
-    #[flux_rs::trusted] // cannot infer substitution (filter map)
     pub(crate) fn get_process_iter(
         &self,
     ) -> core::iter::FilterMap<
@@ -552,12 +550,19 @@ impl Kernel {
                     resources
                         .context_switch_callback()
                         .context_switch_hook(process);
-                    process.setup_mpu();
-                    chip.mpu().enable_app_mpu();
+                    let mpu_configured_capability = process.setup_mpu();
+                    let mpu_enabled_capability = match chip.mpu().into_cortex_mpu() {
+                        crate::allocator::CortexMpuTypes::Sixteen(mpu) => mpu.enable_app_mpu(),
+                        crate::allocator::CortexMpuTypes::Eight(mpu) => mpu.enable_app_mpu(),
+                    };
                     scheduler_timer.arm();
-                    let context_switch_reason = process.switch_to();
+                    let context_switch_reason =
+                        process.switch_to(mpu_configured_capability, mpu_enabled_capability);
                     scheduler_timer.disarm();
-                    chip.mpu().disable_app_mpu();
+                    match chip.mpu().into_cortex_mpu() {
+                        crate::allocator::CortexMpuTypes::Sixteen(mpu) => mpu.disable_app_mpu(),
+                        crate::allocator::CortexMpuTypes::Eight(mpu) => mpu.disable_app_mpu(),
+                    };
 
                     // Now the process has returned back to the kernel. Check
                     // why and handle the process as appropriate.

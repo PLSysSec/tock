@@ -13,8 +13,10 @@ use core::fmt::Write;
 use core::num::NonZeroU32;
 use core::ptr::NonNull;
 use core::{mem, str};
+use core::{mem, str};
 #[allow(clippy::wildcard_imports)]
 use flux_support::*;
+use flux_support::capability::*;
 
 use crate::allocator::{self, AppMemoryAllocator};
 use crate::collections::queue::Queue;
@@ -548,6 +550,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         }
         let app_break = self.app_memory_break().map_err(|_| Error::KernelError)?;
         let new_break = app_break.wrapping_offset(increment);
+        let new_break = app_break.wrapping_offset(increment);
         self.brk(new_break)
     }
 
@@ -714,16 +717,10 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         }
     }
 
-    unsafe fn set_byte(&self, mut addr: FluxPtrU8Mut, value: u8) -> Result<bool, ()> {
-        if self.in_app_owned_memory(addr, 1)? {
-            // We verify that this will only write process-accessible memory,
-            // but this can still be undefined behavior if something else holds
-            // a reference to this memory.
-            *addr = value;
-            Ok(true)
-        } else {
-            Ok(false)
-        }
+    fn set_byte(&self, addr: FluxPtrU8Mut, value: u8) -> Result<bool, ()> {
+        self.app_memory_allocator.map_or(Err(()), |am| {
+            unsafe { Ok(am.set_byte(addr, value)) }
+        })
     }
 
     fn grant_is_allocated(&self, grant_num: usize) -> Option<bool> {
@@ -1224,6 +1221,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         // for a fixed address, then just generating a .lst file is fine.
 
         let _ = self.debug.map_or(None, |debug| {
+        let _ = self.debug.map_or(None, |debug| {
             if debug.fixed_address_flash.is_some() {
                 // Fixed addresses, can just run `make lst`.
                 let _ = writer.write_fmt(format_args!(
@@ -1237,6 +1235,8 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
                 // PIC, need to specify the addresses.
                 let sram_start = self.mem_start()?.as_usize();
                 let flash_start = self.flash_start()?.as_usize();
+                let sram_start = self.mem_start()?.as_usize();
+                let flash_start = self.flash_start()?.as_usize();
                 let flash_init_fn = flash_start + self.header.get_init_function_offset() as usize;
 
                 let _ = writer.write_fmt(format_args!(
@@ -1247,6 +1247,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
                     sram_start, flash_init_fn
                 ));
             }
+            Some(())
             Some(())
         });
     }
@@ -1263,16 +1264,24 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
 
     fn get_flash_start(&self) -> Option<usize> {
         Some(self.flash_start()?.as_usize())
+    fn get_flash_start(&self) -> Option<usize> {
+        Some(self.flash_start()?.as_usize())
     }
 
+    fn get_flash_end(&self) -> Option<usize> {
+        Some(self.flash_end()?.as_usize())
     fn get_flash_end(&self) -> Option<usize> {
         Some(self.flash_end()?.as_usize())
     }
 
     fn get_sram_start(&self) -> Option<usize> {
         Some(self.mem_start()?.as_usize())
+    fn get_sram_start(&self) -> Option<usize> {
+        Some(self.mem_start()?.as_usize())
     }
 
+    fn get_sram_end(&self) -> Option<usize> {
+        Some(self.mem_end()?.as_usize())
     fn get_sram_end(&self) -> Option<usize> {
         Some(self.mem_end()?.as_usize())
     }
@@ -1444,8 +1453,11 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             initial_kernel_memory_size,
             flash_ptrs.start,
             flash_ptrs.len,
+            flash_ptrs.start,
+            flash_ptrs.len,
         ) {
             Ok(bnsz) => bnsz,
+            Err(allocator::AllocateAppMemoryError::FlashError) => {
             Err(allocator::AllocateAppMemoryError::FlashError) => {
                 if config::CONFIG.debug_load_processes {
                     debug!(
@@ -1794,6 +1806,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         );
         let app_mem_alloc: AppMemoryAllocator<<<C as Chip>::MPU as mpu::MPU>::Region> = match maybe_app_mem_alloc {
             Ok(breaks_and_size) => breaks_and_size,
+            Err(allocator::AllocateAppMemoryError::FlashError) => {
             Err(allocator::AllocateAppMemoryError::FlashError) => {
                 return Err(ErrorCode::FAIL);
             }

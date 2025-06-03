@@ -291,7 +291,7 @@ pub struct CortexMRegion {
     region_number: usize,
     #[field({FieldValueU32<RegionBaseAddress::Register>[rbar] | set => region(value(rbar)) == bv32(region_no)})]
     base_address: FieldValueU32<RegionBaseAddress::Register>,
-    #[field({FieldValueU32<RegionAttributes::Register>[rasr] | (set => can_access_exactly(rasr, rbar, astart, asize, perms)) && (!set => !region_enable(value(rasr)))})]
+    #[field({FieldValueU32<RegionAttributes::Register>[rasr] | (set => can_access_exactly(rasr, rbar, rstart, rsize, astart, asize, perms)) && (!set => !rbar_global_region_enabled(rasr.value))})]
     attributes: FieldValueU32<RegionAttributes::Register>,
     #[field(GhostRegionState[astart, asize, rstart, rsize, perms])]
     ghost_region_state: GhostRegionState,
@@ -308,6 +308,25 @@ impl PartialEq<mpu::Region> for CortexMRegion {
              }| { addr == other.start_address() && size == other.size() },
         )
     }
+}
+
+#[flux_rs::trusted]
+#[flux_rs::sig(fn (u8[@mask], usize[@i]) -> u8[bv_bv32_to_int(xor(bv32(mask), bv32(1) << bv32(i)))])]
+fn xor_mask(mask: u8, i: usize) -> u8 {
+    mask ^ (1 << i)
+}
+
+#[flux_rs::trusted]
+#[flux_rs::sig(fn ({usize[@fsr] | fsr <= lsr}, {usize[@lsr] | lsr < 8}) -> u8[bv_bv32_to_int(bv32(u8::MAX) & enabled_srd_mask(bv32(fsr), bv32(lsr)))])]
+fn subregion_mask(min_subregion: usize, max_subregion: usize) -> u8 {
+    let enabled_mask = ((1 << (max_subregion - min_subregion + 1)) - 1) << min_subregion;
+    u8::MAX & enabled_mask
+}
+
+#[flux_rs::trusted]
+#[flux_rs::sig(fn (region_start: FluxPtrU8) -> u32[bv_bv32_to_int(bv32(region_start) >> 5)])]
+fn region_start_rs32(region_start: FluxPtrU8) -> u32 {
+    region_start.as_u32() >> 5
 }
 
 impl mpu::RegionDescriptor for CortexMRegion {
@@ -355,10 +374,8 @@ impl CortexMRegion {
         logical_size: usize,
         region_start: FluxPtrU8,
         region_size: usize,
-        region_num: usize,
-        subregions: Option<(usize, usize)>,
-        permissions: mpu::Permissions,
-    ) -> CortexMRegion {
+        permissions: mpu::Permissions
+    ) -> FieldValueU32<RegionAttributes::Register> {
         // Determine access and execute permissions
         let (access, execute) = match permissions {
             mpu::Permissions::ReadWriteExecute => (
@@ -382,29 +399,58 @@ impl CortexMRegion {
                 RegionAttributes::XN::Enable(),
             ),
         };
-
-        // Base address register
-        let base_address = RegionBaseAddress::ADDR().val((region_start.as_u32()) >> 5)
-            + RegionBaseAddress::VALID::UseRBAR()
-            + RegionBaseAddress::REGION().val(region_num as u32);
-
-        let size_value = math::log_base_two_u32_usize(region_size) - 1;
+        // let size_value = math::log_base_two_u32_usize(region_size) - 1;
+        let size_value = math::log_base_two(region_size as u32) - 1;
 
         // Attributes register
-        let mut attributes = RegionAttributes::ENABLE::SET()
+        RegionAttributes::ENABLE::SET()
             + RegionAttributes::SIZE().val(size_value)
             + access
-            + execute;
+            + execute
+    }
+
+    #[flux_rs::sig(
+        fn (
+            FluxPtrU8[@astart],
+            usize[@asize],
+            FluxPtrU8[@rstart], 
+            usize[@rsize],
+            usize[@no],
+            Option<(usize,usize)>[@subregions], 
+            mpu::Permissions[@perms]
+        ) -> CortexMRegion {r: 
+                r.astart == astart &&
+                r.asize == asize &&
+                r.region_no == no &&
+                r.perms == perms &&
+                r.set  
+            }
+        requires 
+            rsize >= 32 &&
+            (subregions => rsize >= 256) &&
+            rsize <= u32::MAX / 2 + 1
+    )]
+    fn new(
+        logical_start: FluxPtrU8,
+        logical_size: usize,
+        region_start: FluxPtrU8,
+        region_size: usize,
+        region_num: usize,
+        subregions: Option<(usize, usize)>,
+        permissions: mpu::Permissions,
+    ) -> CortexMRegion {
+
+        // Base address register
+        let base_address = Self::base_address_register(region_start, region_num);
+        // Attributes register
+        let mut attributes = Self::attributes_register_no_srd(region_size, permissions);
 
         // If using subregions, add a subregion mask. The mask is a 8-bit
         // bitfield where `0` indicates that the corresponding subregion is enabled.
         // To compute the mask, we start with all subregions disabled and enable
         // the ones in the inclusive range [min_subregion, max_subregion].
         if let Some((min_subregion, max_subregion)) = subregions {
-            let mask = (min_subregion..=max_subregion).fold(u8::MAX, |res, i| {
-                // Enable subregions bit by bit (1 ^ 1 == 0)
-                res ^ (1 << i)
-            });
+            let mask = subregion_mask(min_subregion, max_subregion);
             attributes += RegionAttributes::SRD().val(mask as u32);
         }
 

@@ -9,9 +9,10 @@
 #![no_std]
 
 use core::fmt::Write;
+use flux_support::capability::*;
 
 pub mod mpu {
-    pub type MPU = cortexm::mpu::MPU<8, 32>;
+    pub type MPU = kernel::allocator::MPU<8>;
 }
 
 pub use cortexm::dwt;
@@ -38,14 +39,23 @@ impl cortexm::CortexMVariant for CortexM4 {
     unsafe fn switch_to_user(
         user_stack: *const usize,
         process_regs: &mut [usize; 8],
+        mpu_configured_capability: MpuConfiguredCapability,
+        mpu_enabled_capability: MpuEnabledCapability,
     ) -> *const usize {
-        cortexv7m::switch_to_user_arm_v7m(user_stack, process_regs)
+        cortexv7m::switch_to_user_arm_v7m(
+            user_stack,
+            process_regs,
+            mpu_configured_capability,
+            mpu_enabled_capability,
+        )
     }
 
     #[cfg(not(all(target_arch = "arm", target_os = "none")))]
     unsafe fn switch_to_user(
         _user_stack: *const usize,
         _process_regs: &mut [usize; 8],
+        mpu_configured_capability: MpuConfiguredCapability,
+        mpu_enabled_capability: MpuEnabledCapability,
     ) -> *const usize {
         unimplemented!()
     }
