@@ -152,6 +152,7 @@ impl RegionDescriptor for MpuRegionDefault {
         }
     }
 
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<Permissions[<Self as RegionDescriptor>::perms(r)]>[<Self as RegionDescriptor>::is_set(r)])]
     fn perms(&self) -> Option<Permissions> {
         self.perms
     }
@@ -247,7 +248,7 @@ pub trait MPU {
         <<Self as MPU>::Region as RegionDescriptor>::rnum(r) == region_number &&
         <<Self as MPU>::Region as RegionDescriptor>::astart(r) >= available_start &&
         <<Self as MPU>::Region as RegionDescriptor>::astart(r) == <<Self as MPU>::Region as RegionDescriptor>::rstart(r) &&
-        <<Self as MPU>::Region as RegionDescriptor>::astart(r) + <<Self as MPU>::Region as RegionDescriptor>::asize(r) >= available_start + available_size &&
+        <<Self as MPU>::Region as RegionDescriptor>::astart(r) + <<Self as MPU>::Region as RegionDescriptor>::asize(r) <= available_start + available_size &&
         <<Self as MPU>::Region as RegionDescriptor>::asize(r) >= region_size
     }>)]
     fn create_bounded_region(
@@ -271,7 +272,7 @@ pub trait MPU {
         <<Self as MPU>::Region as RegionDescriptor>::astart(r) == region_start &&
         <<Self as MPU>::Region as RegionDescriptor>::rstart(r) == region_start &&
         <<Self as MPU>::Region as RegionDescriptor>::astart(r) + <<Self as MPU>::Region as RegionDescriptor>::asize(r) <= region_start + available_size &&
-        <<Self as MPU>::Region as RegionDescriptor>::astart(r)  >= region_size
+        <<Self as MPU>::Region as RegionDescriptor>::asize(r)  >= region_size
     }>)]
     fn update_region(
         region_start: FluxPtrU8,
@@ -342,7 +343,7 @@ impl MPU for () {
         <MpuRegionDefault as RegionDescriptor>::perms(r) == permissions && 
         <MpuRegionDefault as RegionDescriptor>::astart(r) >= available_start &&
         <MpuRegionDefault as RegionDescriptor>::astart(r) == <MpuRegionDefault as RegionDescriptor>::rstart(r) &&
-        <MpuRegionDefault as RegionDescriptor>::astart(r) + <MpuRegionDefault as RegionDescriptor>::asize(r) >= available_start + available_size &&
+        <MpuRegionDefault as RegionDescriptor>::astart(r) + <MpuRegionDefault as RegionDescriptor>::asize(r) <= available_start + available_size &&
         <MpuRegionDefault as RegionDescriptor>::asize(r) >= region_size
     }>)]
     fn create_bounded_region(
@@ -379,7 +380,7 @@ impl MPU for () {
         <MpuRegionDefault as RegionDescriptor>::astart(r) == region_start &&
         <MpuRegionDefault as RegionDescriptor>::rstart(r) == region_start &&
         <MpuRegionDefault as RegionDescriptor>::astart(r) + <MpuRegionDefault as RegionDescriptor>::asize(r) <= region_start + available_size &&
-        <MpuRegionDefault as RegionDescriptor>::astart(r)  >= region_size
+        <MpuRegionDefault as RegionDescriptor>::asize(r)  >= region_size
     }>)]
     fn update_region(
         region_start: FluxPtrU8,

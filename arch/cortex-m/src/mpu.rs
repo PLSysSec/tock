@@ -1274,6 +1274,7 @@ impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> mpu::MPU
             ))
         }
     }
+
     fn configure_mpu(&self, config: &[CortexMRegion; 8]) {
         for region in config.iter() {
             self.registers
