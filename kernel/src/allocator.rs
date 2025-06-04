@@ -163,6 +163,10 @@ const FLASH_REGION_NUMBER: usize = 1;
     regions: Map<int, R>, 
     breaks: AppBreaks
 )]
+// #[flux_rs::invariant(
+//     let flash_region = map_select(regions, FLASH_REGION_NUMBER);
+
+// )]
 pub(crate) struct AppMemoryAllocator<R: RegionDescriptor + Display + Copy> {
     #[field(AppBreaks[breaks])]
     pub breaks: AppBreaks,

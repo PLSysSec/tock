@@ -105,16 +105,9 @@ impl Display for MpuRegionDefault {
 #[flux_rs::assoc(fn is_set(r: Self) -> bool)]
 #[flux_rs::assoc(fn rnum(r: Self) -> int)]
 #[flux_rs::assoc(fn perms(r: Self) -> Permissions)]
-// #[flux_rs::assoc(fn region_not_set(r: Self) -> bool { !<Self as RegionDescriptor>::is_set(r) })]
-// #[flux_rs::assoc(fn region_can_access(r: Self, start: int, end: int, perms: Permissions) -> bool {
-//     // region set
-//     <Self as RegionDescriptor>::is_set(r) &&
-//     // region's accesible block contains the start..end (exclusive) checked
-//     start >= <Self as RegionDescriptor>::astart(r) &&
-//     end <= <Self as RegionDescriptor>::astart(r) + <Self as RegionDescriptor>::asize(r)  &&
-//     // and perms are correct
-//     perms == <Self as RegionDescriptor>::perms(r)
-// })]
+#[flux_rs::assoc(fn region_not_set(r: Self) -> bool)]
+#[flux_rs::assoc(fn region_can_access(r: Self, start: int, end: int, perms: Permissions) -> bool)]
+#[flux_rs::assoc(fn region_cant_access_at_all(r: Self, start: int, end: int) -> bool)]
 pub trait RegionDescriptor {
     #[flux_rs::sig(fn (rnum: usize) -> Self {r: !<Self as RegionDescriptor>::is_set(r) && <Self as RegionDescriptor>::rnum(r) == rnum})]
     fn default(region_num: usize) -> Self;
@@ -150,6 +143,17 @@ pub trait RegionDescriptor {
 #[flux_rs::assoc(fn is_set(r: Self) -> bool { r.is_set })]
 #[flux_rs::assoc(fn rnum(r: Self) -> int { r.rnum })]
 #[flux_rs::assoc(fn perms(r: Self) -> Permissions { r.perms })]
+#[flux_rs::assoc(fn region_not_set(r: Self) -> bool { r.is_set })]
+#[flux_rs::assoc(fn region_can_access(r: Self, start: int, end: int, perms: Permissions) -> bool {
+    r.is_set && 
+    start >= r.start &&
+    end <= r.start + r.size && 
+    r.perms == perms
+})]
+#[flux_rs::assoc(fn region_cant_access_at_all(r: Self, start: int, end: int) -> bool {
+    !r.is_set || 
+    !(r.start < start && start < r.start + r.size)
+})]
 impl RegionDescriptor for MpuRegionDefault {
     #[flux_rs::sig(fn (rnum: usize) -> Self {r: !<Self as RegionDescriptor>::is_set(r) && <Self as RegionDescriptor>::rnum(r) == rnum})]
     fn default(num: usize) -> Self {
