@@ -105,6 +105,16 @@ impl Display for MpuRegionDefault {
 #[flux_rs::assoc(fn is_set(r: Self) -> bool)]
 #[flux_rs::assoc(fn rnum(r: Self) -> int)]
 #[flux_rs::assoc(fn perms(r: Self) -> Permissions)]
+// #[flux_rs::assoc(fn region_not_set(r: Self) -> bool { !<Self as RegionDescriptor>::is_set(r) })]
+// #[flux_rs::assoc(fn region_can_access(r: Self, start: int, end: int, perms: Permissions) -> bool {
+//     // region set
+//     <Self as RegionDescriptor>::is_set(r) &&
+//     // region's accesible block contains the start..end (exclusive) checked
+//     start >= <Self as RegionDescriptor>::astart(r) &&
+//     end <= <Self as RegionDescriptor>::astart(r) + <Self as RegionDescriptor>::asize(r)  &&
+//     // and perms are correct
+//     perms == <Self as RegionDescriptor>::perms(r)
+// })]
 pub trait RegionDescriptor {
     #[flux_rs::sig(fn (rnum: usize) -> Self {r: !<Self as RegionDescriptor>::is_set(r) && <Self as RegionDescriptor>::rnum(r) == rnum})]
     fn default(region_num: usize) -> Self;

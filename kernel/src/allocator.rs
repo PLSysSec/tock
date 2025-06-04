@@ -230,7 +230,12 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             && end <= self.breaks.flash_start.wrapping_add(self.breaks.flash_size)
     }
 
-    // #[flux_rs::sig(fn () -> RArray<R>{regions: app_regions_not_set(regions)})]
+    #[flux_rs::sig(fn () -> RArray<R>{regions: 
+        forall i in 0..8 {
+            let r = map_select(regions, i);
+            !<R as RegionDescriptor>::is_set(r)
+        }
+    })]
     fn new_regions() -> RArray<R> {
         let regions = [R::default(0); 8];
         let mut regions = RArray::new(regions);
