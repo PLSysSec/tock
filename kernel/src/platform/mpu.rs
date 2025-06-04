@@ -105,7 +105,6 @@ impl Display for MpuRegionDefault {
 #[flux_rs::assoc(fn is_set(r: Self) -> bool)]
 #[flux_rs::assoc(fn rnum(r: Self) -> int)]
 #[flux_rs::assoc(fn perms(r: Self) -> Permissions)]
-#[flux_rs::assoc(fn region_not_set(r: Self) -> bool)]
 #[flux_rs::assoc(fn region_can_access(r: Self, start: int, end: int, perms: Permissions) -> bool)]
 #[flux_rs::assoc(fn region_cant_access_at_all(r: Self, start: int, end: int) -> bool)]
 pub trait RegionDescriptor {
@@ -143,7 +142,6 @@ pub trait RegionDescriptor {
 #[flux_rs::assoc(fn is_set(r: Self) -> bool { r.is_set })]
 #[flux_rs::assoc(fn rnum(r: Self) -> int { r.rnum })]
 #[flux_rs::assoc(fn perms(r: Self) -> Permissions { r.perms })]
-#[flux_rs::assoc(fn region_not_set(r: Self) -> bool { r.is_set })]
 #[flux_rs::assoc(fn region_can_access(r: Self, start: int, end: int, perms: Permissions) -> bool {
     r.is_set && 
     start >= r.start &&

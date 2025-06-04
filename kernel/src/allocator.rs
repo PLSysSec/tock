@@ -142,15 +142,19 @@ impl AppBreaks {
     pub(crate) fn flash_start(&self) -> FluxPtrU8 {
         self.flash_start
     }
+
     pub(crate) fn flash_size(&self) -> usize {
         self.flash_size
     }
+
     pub(crate) fn memory_start(&self) -> FluxPtrU8 {
         self.memory_start
     }
+
     pub(crate) fn memory_size(&self) -> usize {
         self.memory_size
     }
+
     pub(crate) fn app_break(&self) -> FluxPtrU8 {
         self.app_break
     }
@@ -163,10 +167,16 @@ const FLASH_REGION_NUMBER: usize = 1;
     regions: Map<int, R>, 
     breaks: AppBreaks
 )]
-// #[flux_rs::invariant(
-//     let flash_region = map_select(regions, FLASH_REGION_NUMBER);
-
-// )]
+#[flux_rs::invariant(
+    // flash can access
+    <R as RegionDescriptor>::region_can_access(map_select(regions, FLASH_REGION_NUMBER), breaks.flash_start, breaks.flash_start + breaks.flash_size, mpu::Permissions { r: true, w: false, x: true }) &&
+    <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, FLASH_REGION_NUMBER), 0, breaks.flash_start - 1) &&
+    <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, FLASH_REGION_NUMBER), breaks.flash_start + breaks.flash_size + 1, u32::MAX) &&
+    // ram can access
+    <R as RegionDescriptor>::region_can_access(map_select(regions, RAM_REGION_NUMBER), breaks.memory_start, breaks.app_break, mpu::Permissions { r: true, w: true, x: false }) &&
+    <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, RAM_REGION_NUMBER), 0, breaks.memory_start - 1) &&
+    <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, RAM_REGION_NUMBER), breaks.app_break + 1, u32::MAX)
+)]
 pub(crate) struct AppMemoryAllocator<R: RegionDescriptor + Display + Copy> {
     #[field(AppBreaks[breaks])]
     pub breaks: AppBreaks,
@@ -257,9 +267,14 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
     }
 
     pub(crate) fn reset(&mut self) {
-        for (i, r) in self.regions.iter_mut().enumerate() {
-            *r = R::default(i)
-        }
+        self.regions.set(0, R::default(0));
+        self.regions.set(1, R::default(1));
+        self.regions.set(2, R::default(2));
+        self.regions.set(3, R::default(3));
+        self.regions.set(4, R::default(4));
+        self.regions.set(5, R::default(5));
+        self.regions.set(6, R::default(6));
+        self.regions.set(7, R::default(7));
     }
 
     #[flux_rs::sig(fn (self: &strg Self, _, _) -> Result<(), ()> ensures self: Self)]
