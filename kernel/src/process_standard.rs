@@ -1771,13 +1771,13 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             grant_ptrs_offset + Self::CALLBACKS_OFFSET + Self::PROCESS_STRUCT_OFFSET;
 
         let maybe_app_mem_alloc = AppMemoryAllocator::allocate_app_memory(
-            app_breaks.memory_start(),
-            app_breaks.memory_size(),
+app_breaks.memory_start,
+            app_breaks.memory_size,
             min_process_memory_size,
             min_process_memory_size,
             initial_kernel_memory_size,
-            app_breaks.flash_start(),
-            app_breaks.flash_size(),
+            app_breaks.flash_start,
+            app_breaks.flash_size,
         );
         let app_mem_alloc: AppMemoryAllocator<<<C as Chip>::MPU as mpu::MPU>::Region> = match maybe_app_mem_alloc {
             Ok(breaks_and_size) => breaks_and_size,
@@ -1827,7 +1827,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         self.state.set(State::Yielded);
 
         // And queue up this app to be restarted.
-        let flash_start = app_breaks.flash_start();
+        let flash_start = app_breaks.flash_start;
         let app_start = flash_start
             .wrapping_add(self.header.get_app_start_offset() as usize)
             .as_usize();
@@ -1839,9 +1839,9 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             source: FunctionCallSource::Kernel,
             pc: init_fn,
             argument0: app_start,
-            argument1: app_breaks.memory_start().as_usize(),
-            argument2: app_breaks.memory_size(),
-            argument3: app_breaks.app_break().as_usize(),
+            argument1: app_breaks.memory_start.as_usize(),
+            argument2: app_breaks.memory_size,
+            argument3: app_breaks.app_break.as_usize(),
         }))
     }
 
