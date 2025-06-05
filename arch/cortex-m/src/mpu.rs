@@ -723,6 +723,247 @@ impl mpu::RegionDescriptor for CortexMRegion {
     fn overlaps(&self, other: &CortexMRegion) -> bool {
         self.region_overlaps(other)
     }
+
+    #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
+    #[flux_rs::sig(
+        fn (
+            region_number: usize,
+            available_start: FluxPtrU8,
+            available_size: usize,
+            region_size: usize,
+            perms: mpu::Permissions
+        ) -> Option<{r. CortexMRegion[r] |
+            <CortexMRegion as RegionDescriptor>::is_set(r) &&
+            <CortexMRegion as RegionDescriptor>::rnum(r) == region_number &&
+            <CortexMRegion as RegionDescriptor>::perms(r) == permissions && 
+            <CortexMRegion as RegionDescriptor>::astart(r) >= available_start &&
+            <CortexMRegion as RegionDescriptor>::astart(r) == <CortexMRegion as RegionDescriptor>::rstart(r) &&
+            <CortexMRegion as RegionDescriptor>::astart(r) + <CortexMRegion as RegionDescriptor>::asize(r) <= available_start + available_size &&
+            <CortexMRegion as RegionDescriptor>::asize(r) >= region_size
+            // r.set &&
+            // r.region_no == region_number &&
+            // r.perms == perms &&
+            // r.astart >= available_start &&
+            // r.astart == r.rstart &&
+            // r.astart + r.asize <= available_start + available_size &&
+            // r.asize >= region_size
+        }>
+        requires region_number < 16 
+    )]
+    fn create_bounded_region(
+        region_number: usize,
+        available_start: FluxPtrU8,
+        available_size: usize,
+        region_size: usize,
+        permissions: mpu::Permissions,
+    ) -> Option<CortexMRegion> {
+        // creates a region with region_start and region_end = region_start + region_size within available start + available size
+
+        let mut start = available_start.as_usize();
+        let mut size = region_size;
+
+        let overflow_bound = (u32::MAX / 2 + 1) as usize;
+        if size == 0 || size > overflow_bound || start > overflow_bound {
+            // cannot create such a region
+            return None;
+        }
+
+        // size must be >= 256 and a power of two for subregions
+        size = flux_support::max_usize(size, 256);
+        size = size.next_power_of_two();
+
+        // region size must be aligned to start
+        start = align(start, size);
+
+        theorem_pow2_octet(size);
+        theorem_div_octet(size);
+
+        // calculate subregions
+        let subregion_size = size / 8;
+        let num_subregions_enabled = region_size.div_ceil(subregion_size);
+
+        let subregions_enabled_end = start + num_subregions_enabled * subregion_size;
+
+        // make sure this fits within our available size
+        if subregions_enabled_end > available_start.as_usize() + available_size {
+            return None;
+        }
+
+        // create the region
+        Some(CortexMRegion::new_with_srd(
+            FluxPtr::from(start),
+            num_subregions_enabled * subregion_size,
+            FluxPtr::from(start),
+            size,
+            region_number,
+            0,
+            num_subregions_enabled - 1,
+            permissions,
+        ))
+    }
+
+    #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
+    #[flux_rs::sig(
+        fn (
+            po2_aligned_start: FluxPtrU8,
+            available_size: usize,
+            min_size: usize,
+            region_number: usize,
+            perms: mpu::Permissions
+        ) -> Option<{r. CortexMRegion[r] |
+
+            <CortexMRegion as RegionDescriptor>::is_set(r) &&
+            <CortexMRegion as RegionDescriptor>::rnum(r) == region_number &&
+            <CortexMRegion as RegionDescriptor>::perms(r) == permissions && 
+            <CortexMRegion as RegionDescriptor>::perms(r) == permissions &&
+            <CortexMRegion as RegionDescriptor>::astart(r) == region_start &&
+            <CortexMRegion as RegionDescriptor>::rstart(r) == region_start &&
+            <CortexMRegion as RegionDescriptor>::astart(r) + <CortexMRegion as RegionDescriptor>::asize(r) <= region_start + available_size &&
+            <CortexMRegion as RegionDescriptor>::asize(r)  >= region_size
+            // region_number < 16 &&
+            // r.set &&
+            // r.region_no == region_number &&
+            // r.perms == perms &&
+            // r.astart == po2_aligned_start &&
+            // r.rstart == po2_aligned_start &&
+            // r.astart + r.asize <= po2_aligned_start + available_size &&
+            // r.asize >= min_size
+        }>
+        // requires region_number < 16
+    )]
+    fn update_region(
+        region_start: FluxPtrU8,
+        available_size: usize,
+        region_size: usize,
+        region_number: usize,
+        permissions: mpu::Permissions,
+    ) -> Option<CortexMRegion> {
+        let overflow_bound = (u32::MAX / 2 + 1) as usize;
+        if region_size == 0
+            || region_size > overflow_bound
+            || region_start.as_usize() > overflow_bound
+        {
+            // cannot create such a region
+            return None;
+        }
+
+        // get the smallest size >= region size which is a power of two and aligned to the start
+        let min_region_size = flux_support::max_usize(256, region_size);
+        let mut underlying_region_size =
+            next_aligned_power_of_two(region_start.as_usize(), min_region_size)?;
+
+        if underlying_region_size > available_size
+            || underlying_region_size > (u32::MAX / 2 + 1) as usize
+        {
+            return None;
+        }
+
+        theorem_div_octet(underlying_region_size);
+
+        // calculate subreigons
+        let subregion_size = underlying_region_size / 8;
+
+        let num_subregions_enabled = region_size.div_ceil(subregion_size);
+
+        let subregions_enabled_end =
+            region_start.as_usize() + num_subregions_enabled * subregion_size;
+
+        // create the region
+        Some(CortexMRegion::new_with_srd(
+            region_start,
+            num_subregions_enabled * subregion_size,
+            region_start,
+            underlying_region_size,
+            region_number,
+            0, 
+            num_subregions_enabled - 1,
+            permissions,
+        ))
+    }
+
+    #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
+    #[flux_rs::sig(
+        fn (
+            usize[@region_no],
+            FluxPtrU8[@start],
+            usize[@size],
+            mpu::Permissions[@perms],
+        ) -> Option<{r. CortexMRegion[r] | 
+                <CortexMRegion as RegionDescriptor>::is_set(r) &&
+                <CortexMRegion as RegionDescriptor>::rnum(r) == region_number &&
+                <CortexMRegion as RegionDescriptor>::perms(r) == permissions &&
+                <CortexMRegion as RegionDescriptor>::astart(r) == start &&
+                <CortexMRegion as RegionDescriptor>::astart(r) + <CortexMRegion as RegionDescriptor>::asize(r) == start + size
+                // r.set &&
+                // r.region_no == region_no &&
+                // r.perms == perms &&
+                // r.astart == start &&
+                // r.astart + r.asize == start + size
+            }>
+            // requires region_no < 16
+    )]
+    fn create_exact_region(
+        region_number: usize,
+        start: FluxPtrU8,
+        size: usize,
+        permissions: mpu::Permissions,
+    ) -> Option<CortexMRegion> {
+        // We can't allocate a size that isn't a power of 2 or a size that is < 32 since that will not fit the requirements for a subregion
+        if size > (u32::MAX / 2 + 1) as usize || !size.is_power_of_two() || size < 32 {
+            return None;
+        }
+
+        if is_aligned(start.as_usize(), size) {
+            // we can just create a region
+            Some(CortexMRegion::new_no_srd(
+                start,
+                size,
+                start,
+                size,
+                region_number,
+                permissions,
+            ))
+        } else {
+            let min_size = flux_support::max_usize(size, 256);
+            let underlying_region_start = start.as_usize();
+            // VTOCK: If the start passed is not even, we fail.
+            // This is generally a sane thing to do because a start being odd means that 
+            let underlying_region_size = next_aligned_power_of_two(start.as_usize(), min_size)?;
+
+            // check overflows
+            if underlying_region_size > (u32::MAX / 2 + 1) as usize {
+                return None;
+            }
+
+            theorem_div_octet(underlying_region_size);
+
+            // calculate subreigons
+            let subregion_size = underlying_region_size / 8;
+
+            // if the size isn't aligned to the subregion size we have a problem
+            // since that means we cannot divide the requested size into an appropriate
+            // number of subregions
+            if !is_aligned(size, subregion_size) {
+                return None;
+            }
+            theorem_aligned_ge(size, subregion_size);
+
+            let num_subregions_enabled = size / subregion_size;
+            assert(num_subregions_enabled <= 8);
+            assert(num_subregions_enabled > 0);
+
+            Some(CortexMRegion::new_with_srd(
+                start,
+                size,
+                FluxPtr::from(underlying_region_start),
+                underlying_region_size,
+                region_number,
+                0,
+                num_subregions_enabled - 1,
+                permissions,
+            ))
+        }
+    }
 }
 
 impl CortexMRegion {
@@ -1053,247 +1294,6 @@ impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> mpu::MPU
 
     fn number_total_regions(&self) -> usize {
         self.registers.mpu_type.read(Type::DREGION().into_inner()) as usize
-    }
-
-    #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
-    #[flux_rs::sig(
-        fn (
-            region_number: usize,
-            available_start: FluxPtrU8,
-            available_size: usize,
-            region_size: usize,
-            perms: mpu::Permissions
-        ) -> Option<{r. CortexMRegion[r] |
-            <CortexMRegion as RegionDescriptor>::is_set(r) &&
-            <CortexMRegion as RegionDescriptor>::rnum(r) == region_number &&
-            <CortexMRegion as RegionDescriptor>::perms(r) == permissions && 
-            <CortexMRegion as RegionDescriptor>::astart(r) >= available_start &&
-            <CortexMRegion as RegionDescriptor>::astart(r) == <CortexMRegion as RegionDescriptor>::rstart(r) &&
-            <CortexMRegion as RegionDescriptor>::astart(r) + <CortexMRegion as RegionDescriptor>::asize(r) <= available_start + available_size &&
-            <CortexMRegion as RegionDescriptor>::asize(r) >= region_size
-            // r.set &&
-            // r.region_no == region_number &&
-            // r.perms == perms &&
-            // r.astart >= available_start &&
-            // r.astart == r.rstart &&
-            // r.astart + r.asize <= available_start + available_size &&
-            // r.asize >= region_size
-        }>
-        requires region_number < 16 
-    )]
-    fn create_bounded_region(
-        region_number: usize,
-        available_start: FluxPtrU8,
-        available_size: usize,
-        region_size: usize,
-        permissions: mpu::Permissions,
-    ) -> Option<CortexMRegion> {
-        // creates a region with region_start and region_end = region_start + region_size within available start + available size
-
-        let mut start = available_start.as_usize();
-        let mut size = region_size;
-
-        let overflow_bound = (u32::MAX / 2 + 1) as usize;
-        if size == 0 || size > overflow_bound || start > overflow_bound {
-            // cannot create such a region
-            return None;
-        }
-
-        // size must be >= 256 and a power of two for subregions
-        size = flux_support::max_usize(size, 256);
-        size = size.next_power_of_two();
-
-        // region size must be aligned to start
-        start = align(start, size);
-
-        theorem_pow2_octet(size);
-        theorem_div_octet(size);
-
-        // calculate subregions
-        let subregion_size = size / 8;
-        let num_subregions_enabled = region_size.div_ceil(subregion_size);
-
-        let subregions_enabled_end = start + num_subregions_enabled * subregion_size;
-
-        // make sure this fits within our available size
-        if subregions_enabled_end > available_start.as_usize() + available_size {
-            return None;
-        }
-
-        // create the region
-        Some(CortexMRegion::new_with_srd(
-            FluxPtr::from(start),
-            num_subregions_enabled * subregion_size,
-            FluxPtr::from(start),
-            size,
-            region_number,
-            0,
-            num_subregions_enabled - 1,
-            permissions,
-        ))
-    }
-
-    #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
-    #[flux_rs::sig(
-        fn (
-            po2_aligned_start: FluxPtrU8,
-            available_size: usize,
-            min_size: usize,
-            region_number: usize,
-            perms: mpu::Permissions
-        ) -> Option<{r. CortexMRegion[r] |
-
-            <CortexMRegion as RegionDescriptor>::is_set(r) &&
-            <CortexMRegion as RegionDescriptor>::rnum(r) == region_number &&
-            <CortexMRegion as RegionDescriptor>::perms(r) == permissions && 
-            <CortexMRegion as RegionDescriptor>::perms(r) == permissions &&
-            <CortexMRegion as RegionDescriptor>::astart(r) == region_start &&
-            <CortexMRegion as RegionDescriptor>::rstart(r) == region_start &&
-            <CortexMRegion as RegionDescriptor>::astart(r) + <CortexMRegion as RegionDescriptor>::asize(r) <= region_start + available_size &&
-            <CortexMRegion as RegionDescriptor>::asize(r)  >= region_size
-            // region_number < 16 &&
-            // r.set &&
-            // r.region_no == region_number &&
-            // r.perms == perms &&
-            // r.astart == po2_aligned_start &&
-            // r.rstart == po2_aligned_start &&
-            // r.astart + r.asize <= po2_aligned_start + available_size &&
-            // r.asize >= min_size
-        }>
-        // requires region_number < 16
-    )]
-    fn update_region(
-        region_start: FluxPtrU8,
-        available_size: usize,
-        region_size: usize,
-        region_number: usize,
-        permissions: mpu::Permissions,
-    ) -> Option<CortexMRegion> {
-        let overflow_bound = (u32::MAX / 2 + 1) as usize;
-        if region_size == 0
-            || region_size > overflow_bound
-            || region_start.as_usize() > overflow_bound
-        {
-            // cannot create such a region
-            return None;
-        }
-
-        // get the smallest size >= region size which is a power of two and aligned to the start
-        let min_region_size = flux_support::max_usize(256, region_size);
-        let mut underlying_region_size =
-            next_aligned_power_of_two(region_start.as_usize(), min_region_size)?;
-
-        if underlying_region_size > available_size
-            || underlying_region_size > (u32::MAX / 2 + 1) as usize
-        {
-            return None;
-        }
-
-        theorem_div_octet(underlying_region_size);
-
-        // calculate subreigons
-        let subregion_size = underlying_region_size / 8;
-
-        let num_subregions_enabled = region_size.div_ceil(subregion_size);
-
-        let subregions_enabled_end =
-            region_start.as_usize() + num_subregions_enabled * subregion_size;
-
-        // create the region
-        Some(CortexMRegion::new_with_srd(
-            region_start,
-            num_subregions_enabled * subregion_size,
-            region_start,
-            underlying_region_size,
-            region_number,
-            0, 
-            num_subregions_enabled - 1,
-            permissions,
-        ))
-    }
-
-    #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
-    #[flux_rs::sig(
-        fn (
-            usize[@region_no],
-            FluxPtrU8[@start],
-            usize[@size],
-            mpu::Permissions[@perms],
-        ) -> Option<{r. CortexMRegion[r] | 
-                <CortexMRegion as RegionDescriptor>::is_set(r) &&
-                <CortexMRegion as RegionDescriptor>::rnum(r) == region_number &&
-                <CortexMRegion as RegionDescriptor>::perms(r) == permissions &&
-                <CortexMRegion as RegionDescriptor>::astart(r) == start &&
-                <CortexMRegion as RegionDescriptor>::astart(r) + <CortexMRegion as RegionDescriptor>::asize(r) == start + size
-                // r.set &&
-                // r.region_no == region_no &&
-                // r.perms == perms &&
-                // r.astart == start &&
-                // r.astart + r.asize == start + size
-            }>
-            // requires region_no < 16
-    )]
-    fn create_exact_region(
-        region_number: usize,
-        start: FluxPtrU8,
-        size: usize,
-        permissions: mpu::Permissions,
-    ) -> Option<CortexMRegion> {
-        // We can't allocate a size that isn't a power of 2 or a size that is < 32 since that will not fit the requirements for a subregion
-        if size > (u32::MAX / 2 + 1) as usize || !size.is_power_of_two() || size < 32 {
-            return None;
-        }
-
-        if is_aligned(start.as_usize(), size) {
-            // we can just create a region
-            Some(CortexMRegion::new_no_srd(
-                start,
-                size,
-                start,
-                size,
-                region_number,
-                permissions,
-            ))
-        } else {
-            let min_size = flux_support::max_usize(size, 256);
-            let underlying_region_start = start.as_usize();
-            // VTOCK: If the start passed is not even, we fail.
-            // This is generally a sane thing to do because a start being odd means that 
-            let underlying_region_size = next_aligned_power_of_two(start.as_usize(), min_size)?;
-
-            // check overflows
-            if underlying_region_size > (u32::MAX / 2 + 1) as usize {
-                return None;
-            }
-
-            theorem_div_octet(underlying_region_size);
-
-            // calculate subreigons
-            let subregion_size = underlying_region_size / 8;
-
-            // if the size isn't aligned to the subregion size we have a problem
-            // since that means we cannot divide the requested size into an appropriate
-            // number of subregions
-            if !is_aligned(size, subregion_size) {
-                return None;
-            }
-            theorem_aligned_ge(size, subregion_size);
-
-            let num_subregions_enabled = size / subregion_size;
-            assert(num_subregions_enabled <= 8);
-            assert(num_subregions_enabled > 0);
-
-            Some(CortexMRegion::new_with_srd(
-                start,
-                size,
-                FluxPtr::from(underlying_region_start),
-                underlying_region_size,
-                region_number,
-                0,
-                num_subregions_enabled - 1,
-                permissions,
-            ))
-        }
     }
 
     fn configure_mpu(&self, config: &[CortexMRegion; 8]) {

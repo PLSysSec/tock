@@ -266,6 +266,12 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         regions
     }
 
+    #[flux_rs::sig(fn (self: &strg Self) ensures self: Self { new_am:
+        forall i in 0..8 {
+            let r = map_select(new_am.regions, i);
+            !<R as RegionDescriptor>::is_set(r)
+        }
+    })]
     pub(crate) fn reset(&mut self) {
         self.regions.set(0, R::default(0));
         self.regions.set(1, R::default(1));
@@ -423,7 +429,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
     }
 
     #[flux_rs::sig(fn (self: &strg Self, _, _, _) -> Result<_, _> ensures self: Self)]
-    pub(crate) fn allocate_ipc_region<M: mpu::MPU<Region = R>>(
+    pub(crate) fn allocate_ipc_region(
         &mut self,
         start: FluxPtrU8,
         size: usize,
@@ -438,7 +444,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         }
 
         let region_idx = self.next_available_ipc_idx().ok_or(())?;
-        let region = M::create_exact_region(region_idx, start, size, permissions).ok_or(())?;
+        let region = R::create_exact_region(region_idx, start, size, permissions).ok_or(())?;
 
         // make sure new region doesn't overlap
         if self.any_overlaps(&region) {
@@ -463,8 +469,8 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             <R as RegionDescriptor>::perms(r) == mpu::Permissions { r: true, x: true, w: false }
         }, ()>
     )]
-    fn get_flash_region<M: mpu::MPU<Region = R>>(flash_start: FluxPtrU8, flash_size: usize) -> Result<R, ()> {
-        M::create_exact_region(
+    fn get_flash_region(flash_start: FluxPtrU8, flash_size: usize) -> Result<R, ()> {
+        R::create_exact_region(
             FLASH_REGION_NUMBER,
             flash_start,
             flash_size,
@@ -487,7 +493,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             <R as RegionDescriptor>::perms(r) == mpu::Permissions { r: true, w: true, x: false }
          }, ()>
     )]
-    fn get_ram_region<M: mpu::MPU<Region = R>>(
+    fn get_ram_region(
         unallocated_memory_start: FluxPtrU8,
         unallocated_memory_size: usize,
         min_memory_size: usize,
@@ -495,7 +501,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
     ) -> Result<R, ()> {
         // set our stack, data, and heap up
         let ideal_region_size = flux_support::max_usize(min_memory_size, initial_app_memory_size);
-        M::create_bounded_region(
+        R::create_bounded_region(
             RAM_REGION_NUMBER,
             unallocated_memory_start,
             unallocated_memory_size,
@@ -588,7 +594,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             }, AllocateAppMemoryError>
         requires flash_start + flash_size < mem_start && kernel_mem_size > 0
     )]
-    pub(crate) fn allocate_app_memory<M: mpu::MPU<Region = R>>(
+    pub(crate) fn allocate_app_memory(
         unallocated_memory_start: FluxPtrU8,
         unallocated_memory_size: usize,
         min_memory_size: usize,
@@ -606,13 +612,13 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         let mut app_regions = Self::new_regions();
 
         // ask MPU for a region covering flash
-        let flash_region = Self::get_flash_region::<M>(flash_start, flash_size)
+        let flash_region = Self::get_flash_region(flash_start, flash_size)
             .map_err(|_| AllocateAppMemoryError::FlashError)?;
 
         app_regions.set(FLASH_REGION_NUMBER, flash_region);
 
         // ask MPU for a region covering RAM
-        let ram_region = Self::get_ram_region::<M>(
+        let ram_region = Self::get_ram_region(
             unallocated_memory_start,
             unallocated_memory_size,
             min_memory_size,
@@ -643,7 +649,8 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         })
     }
 
-    pub(crate) fn update_app_memory<M: mpu::MPU<Region = R>>(
+    #[flux_rs::sig(fn (self: &strg Self, new_app_break: FluxPtrU8Mut) -> Result<(), Error> ensures self: Self)]
+    pub(crate) fn update_app_memory(
         &mut self,
         new_app_break: FluxPtrU8Mut,
     ) -> Result<(), Error> {
@@ -660,7 +667,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             return Err(Error::AddressOutOfBounds);
         }
         let new_region_size = new_app_break.as_usize() - memory_start.as_usize();
-        let new_region = M::update_region(
+        let new_region = R::update_region(
             memory_start,
             memory_start.as_usize() + self.breaks.memory_size(),
             new_region_size,
