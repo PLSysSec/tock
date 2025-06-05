@@ -1297,7 +1297,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         index: usize,
     ) -> Result<(Option<&'static dyn Process>, &'a mut [u8]), (ProcessLoadError, &'a mut [u8])>
     {
-let process_name = pb.header.get_package_name();
+        let process_name = pb.header.get_package_name();
         let process_ram_requested_size = pb.header.get_minimum_app_ram_size() as usize;
 
         // Determine how much space we need in the application's memory space
