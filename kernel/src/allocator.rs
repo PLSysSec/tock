@@ -138,28 +138,6 @@ pub(crate) struct AppBreaks {
     pub flash_size: usize,
 }
 
-impl AppBreaks {
-    pub(crate) fn flash_start(&self) -> FluxPtrU8 {
-        self.flash_start
-    }
-
-    pub(crate) fn flash_size(&self) -> usize {
-        self.flash_size
-    }
-
-    pub(crate) fn memory_start(&self) -> FluxPtrU8 {
-        self.memory_start
-    }
-
-    pub(crate) fn memory_size(&self) -> usize {
-        self.memory_size
-    }
-
-    pub(crate) fn app_break(&self) -> FluxPtrU8 {
-        self.app_break
-    }
-}
-
 const RAM_REGION_NUMBER: usize = 0;
 const FLASH_REGION_NUMBER: usize = 1;
 
@@ -264,23 +242,6 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         regions.set(7, R::default(7));
 
         regions
-    }
-
-    #[flux_rs::sig(fn (self: &strg Self) ensures self: Self { new_am:
-        forall i in 0..8 {
-            let r = map_select(new_am.regions, i);
-            !<R as RegionDescriptor>::is_set(r)
-        }
-    })]
-    pub(crate) fn reset(&mut self) {
-        self.regions.set(0, R::default(0));
-        self.regions.set(1, R::default(1));
-        self.regions.set(2, R::default(2));
-        self.regions.set(3, R::default(3));
-        self.regions.set(4, R::default(4));
-        self.regions.set(5, R::default(5));
-        self.regions.set(6, R::default(6));
-        self.regions.set(7, R::default(7));
     }
 
     #[flux_rs::sig(fn (self: &strg Self, _, _) -> Result<(), ()> ensures self: Self)]
@@ -437,8 +398,8 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
     ) -> Result<mpu::Region, ()> {
         let buf_start = start.as_usize();
         let buf_end = buf_start + size;
-        let memory_start = self.breaks.memory_start();
-        let memory_size = self.breaks.memory_size();
+        let memory_start = self.memory_start();
+        let memory_size = self.memory_size();
         if buf_start < memory_start.as_usize() + memory_size && memory_start.as_usize() < buf_end {
             return Err(());
         }
@@ -654,7 +615,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         &mut self,
         new_app_break: FluxPtrU8Mut,
     ) -> Result<(), Error> {
-        let memory_start = self.breaks.memory_start();
+        let memory_start = self.memory_start();
         let high_water_mark = self.breaks.high_water_mark;
         let kernel_break = self.kernel_break();
         if new_app_break.as_usize() > kernel_break.as_usize() {
@@ -669,7 +630,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         let new_region_size = new_app_break.as_usize() - memory_start.as_usize();
         let new_region = R::update_region(
             memory_start,
-            memory_start.as_usize() + self.breaks.memory_size(),
+            memory_start.as_usize() + self.memory_size(),
             new_region_size,
             RAM_REGION_NUMBER,
             mpu::Permissions::ReadWriteOnly,
