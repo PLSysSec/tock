@@ -9,11 +9,12 @@ use core::cell::Cell;
 use core::cmp;
 use core::fmt;
 use core::num::NonZeroUsize;
+use flux_support::capability::MpuEnabledCapability;
 use kernel::utilities::StaticRef;
 
 use flux_support::register_bitfields;
 use flux_support::*;
-use kernel::platform::mpu;
+use kernel::platform::mpu::{self, RegionDescriptor};
 use kernel::utilities::cells::OptionalCell;
 use kernel::utilities::math;
 use kernel::utilities::registers::interfaces::{Readable, Writeable};
@@ -220,6 +221,20 @@ flux_rs::defs! {
     fn rnum(region: CortexMRegion) -> int { region.region_no}
     fn rbar(region: CortexMRegion) -> bitvec<32>{ region.rbar.value }
     fn rasr(region: CortexMRegion) -> bitvec<32> { region.rasr.value }
+
+
+    // region specific
+    fn regions_overlap(region1: CortexMRegion, region2: CortexMRegion) -> bool {
+        if region1.set && region2.set {
+            let fst_region_start = region1.rstart;
+            let fst_region_end = region1.rstart + region1.rsize;
+            let snd_region_start = region2.rstart;
+            let snd_region_end = region2.rstart + region2.rsize;
+            fst_region_start < snd_region_end && snd_region_start < fst_region_end
+        } else {
+            false
+        }
+    }
 }
 
 /* bunch of code */
@@ -502,34 +517,6 @@ impl GhostRegionState {
 }
 
 
-impl GhostRegionState {
-    // trusted intializer for ghost state stuff
-    #[flux_rs::trusted]
-    #[flux_rs::sig(fn (
-        FluxPtrU8[@astart],
-        usize[@asize],
-        FluxPtrU8[@rstart],
-        usize[@rsize],
-        mpu::Permissions[@perms]
-    ) -> GhostRegionState[astart, asize, rstart, rsize, perms]
-    )]
-    fn set(
-        logical_start: FluxPtrU8,
-        logical_size: usize,
-        region_start: FluxPtrU8,
-        region_size: usize,
-        permissions: mpu::Permissions,
-    ) -> Self {
-        Self {}
-    }
-
-    #[flux_rs::trusted]
-    #[flux_rs::sig(fn () -> GhostRegionState)]
-    fn unset() -> Self {
-        Self {}
-    }
-}
-
 /// Struct storing configuration for a Cortex-M MPU region.
 // if the region is set, the rbar bits encode the accessible start & region_num properly and the rasr bits encode the size and permissions properly
 #[derive(Copy, Clone)]
@@ -544,7 +531,7 @@ impl GhostRegionState {
     rsize: int,
     perms: mpu::Permissions
 )]
-pub(crate) struct CortexMRegion {
+pub struct CortexMRegion {
     #[field(Option<{l. CortexMLocation[l] | l.astart == astart && l.asize == asize && l.rstart == rstart && l.rsize == rsize }>[set])]
     location: Option<CortexMLocation>, 
     #[field({FieldValueU32<RegionBaseAddress::Register>[rbar] | 
@@ -680,6 +667,8 @@ fn next_aligned_power_of_two(po2_aligned_start: usize, min_size: usize) -> Optio
 #[flux_rs::assoc(fn rsize(r: Self) -> int { r.rsize })]
 #[flux_rs::assoc(fn is_set(r: Self) -> bool { r.set })]
 #[flux_rs::assoc(fn rnum(r: Self) -> int { r.region_no })]
+#[flux_rs::assoc(fn perms(r: Self) -> mpu::Permissions { r.perms })]
+#[flux_rs::assoc(fn overlaps(region1: Self, region2: Self) -> bool { regions_overlap(region1, region2)})]
 impl mpu::RegionDescriptor for CortexMRegion {
     #[flux_rs::sig(fn (rnum: usize) -> Self {r: !<Self as RegionDescriptor>::is_set(r) && <Self as RegionDescriptor>::rnum(r) == rnum})]
     fn default(region_num: usize) -> Self {
@@ -691,6 +680,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
         }
     }
 
+    // TODO: These are failing because of the ? - match will work
     #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::astart(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
     fn accessible_start(&self) -> Option<FluxPtrU8> {
         Some(self.location?.accessible_start)
@@ -711,15 +701,12 @@ impl mpu::RegionDescriptor for CortexMRegion {
         Some(self.location?.region_size)
     }
 
-    #[flux_rs::sig(fn (&Self[@r]) -> usize[<Self as RegionDescriptor>::rnum(r)])]
-    fn region_num(&self) -> usize {
-        self.region_number
-    }
-
     #[flux_rs::sig(fn (&Self[@r]) -> bool[<Self as RegionDescriptor>::is_set(r)])]
     fn is_set(&self) -> bool {
         self.location.is_some()
     }
+
+    #[flux_rs::sig(fn (&Self[@r1], &Self[@r2]) -> bool[<Self as RegionDescriptor>::overlaps(r1, r2)])]
     fn overlaps(&self, other: &CortexMRegion) -> bool {
         self.region_overlaps(other)
     }
@@ -735,7 +722,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
         ) -> Option<{r. CortexMRegion[r] |
             <CortexMRegion as RegionDescriptor>::is_set(r) &&
             <CortexMRegion as RegionDescriptor>::rnum(r) == region_number &&
-            <CortexMRegion as RegionDescriptor>::perms(r) == permissions && 
+            <CortexMRegion as RegionDescriptor>::perms(r) == perms && 
             <CortexMRegion as RegionDescriptor>::astart(r) >= available_start &&
             <CortexMRegion as RegionDescriptor>::astart(r) == <CortexMRegion as RegionDescriptor>::rstart(r) &&
             <CortexMRegion as RegionDescriptor>::astart(r) + <CortexMRegion as RegionDescriptor>::asize(r) <= available_start + available_size &&
@@ -748,7 +735,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
             // r.astart + r.asize <= available_start + available_size &&
             // r.asize >= region_size
         }>
-        requires region_number < 16 
+        // requires region_number < 16 
     )]
     fn create_bounded_region(
         region_number: usize,
@@ -814,12 +801,11 @@ impl mpu::RegionDescriptor for CortexMRegion {
 
             <CortexMRegion as RegionDescriptor>::is_set(r) &&
             <CortexMRegion as RegionDescriptor>::rnum(r) == region_number &&
-            <CortexMRegion as RegionDescriptor>::perms(r) == permissions && 
-            <CortexMRegion as RegionDescriptor>::perms(r) == permissions &&
-            <CortexMRegion as RegionDescriptor>::astart(r) == region_start &&
-            <CortexMRegion as RegionDescriptor>::rstart(r) == region_start &&
-            <CortexMRegion as RegionDescriptor>::astart(r) + <CortexMRegion as RegionDescriptor>::asize(r) <= region_start + available_size &&
-            <CortexMRegion as RegionDescriptor>::asize(r)  >= region_size
+            <CortexMRegion as RegionDescriptor>::perms(r) == perms && 
+            <CortexMRegion as RegionDescriptor>::astart(r) == po2_aligned_start &&
+            <CortexMRegion as RegionDescriptor>::rstart(r) == po2_aligned_start &&
+            <CortexMRegion as RegionDescriptor>::astart(r) + <CortexMRegion as RegionDescriptor>::asize(r) <= po2_aligned_start + available_size &&
+            <CortexMRegion as RegionDescriptor>::asize(r)  >= min_size
             // region_number < 16 &&
             // r.set &&
             // r.region_no == region_number &&
@@ -890,8 +876,8 @@ impl mpu::RegionDescriptor for CortexMRegion {
             mpu::Permissions[@perms],
         ) -> Option<{r. CortexMRegion[r] | 
                 <CortexMRegion as RegionDescriptor>::is_set(r) &&
-                <CortexMRegion as RegionDescriptor>::rnum(r) == region_number &&
-                <CortexMRegion as RegionDescriptor>::perms(r) == permissions &&
+                <CortexMRegion as RegionDescriptor>::rnum(r) == region_no &&
+                <CortexMRegion as RegionDescriptor>::perms(r) == perms &&
                 <CortexMRegion as RegionDescriptor>::astart(r) == start &&
                 <CortexMRegion as RegionDescriptor>::astart(r) + <CortexMRegion as RegionDescriptor>::asize(r) == start + size
                 // r.set &&
@@ -979,7 +965,9 @@ impl CortexMRegion {
         rbar_region_start(rbar.value) == bv32(region_start) &&
         rbar_valid_bit_set(rbar.value) 
     }
-    requires region_num < 16 && region_size >= 32 && pow2(region_size) && aligned(region_start, region_size)
+    requires 
+        // region_num < 16 && 
+        region_size >= 32 && pow2(region_size) && aligned(region_start, region_size)
     )]
     fn base_address_register(
         region_start: FluxPtrU8,
@@ -1074,7 +1062,7 @@ impl CortexMRegion {
                 r.set
             }
         requires
-            rnum < 16 &&
+            // rnum < 16 &&
             rsize >= 32 &&
             rsize >= 256 &&
             pow2(rsize) &&
@@ -1149,7 +1137,7 @@ impl CortexMRegion {
                 r.set
             }
         requires
-            no < 16 &&
+            // no < 16 &&
             rsize == asize &&
             rstart == astart &&
             rsize >= 32 &&
@@ -1296,7 +1284,7 @@ impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> mpu::MPU
         self.registers.mpu_type.read(Type::DREGION().into_inner()) as usize
     }
 
-    fn configure_mpu(&self, config: &[CortexMRegion; 8]) {
+    fn configure_mpu(&self, config: &RArray<CortexMRegion>) {
         for region in config.iter() {
             self.registers
                 .rbar

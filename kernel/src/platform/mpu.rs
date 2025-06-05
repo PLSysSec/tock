@@ -105,8 +105,9 @@ impl Display for MpuRegionDefault {
 #[flux_rs::assoc(fn is_set(r: Self) -> bool)]
 #[flux_rs::assoc(fn rnum(r: Self) -> int)]
 #[flux_rs::assoc(fn perms(r: Self) -> Permissions)]
-#[flux_rs::assoc(fn region_can_access(r: Self, start: int, end: int, perms: Permissions) -> bool)]
-#[flux_rs::assoc(fn region_cant_access_at_all(r: Self, start: int, end: int) -> bool)]
+// #[flux_rs::assoc(fn region_can_access(r: Self, start: int, end: int, perms: Permissions) -> bool)]
+// #[flux_rs::assoc(fn region_cant_access_at_all(r: Self, start: int, end: int) -> bool)]
+#[flux_rs::assoc(fn overlaps(r1: Self, r2: Self) -> bool)]
 pub trait RegionDescriptor: core::marker::Sized {
     #[flux_rs::sig(fn (rnum: usize) -> Self {r: !<Self as RegionDescriptor>::is_set(r) && <Self as RegionDescriptor>::rnum(r) == rnum})]
     fn default(region_num: usize) -> Self;
@@ -126,9 +127,7 @@ pub trait RegionDescriptor: core::marker::Sized {
     #[flux_rs::sig(fn (&Self[@r]) -> bool[<Self as RegionDescriptor>::is_set(r)])]
     fn is_set(&self) -> bool;
 
-    #[flux_rs::sig(fn (&Self[@r]) -> usize[<Self as RegionDescriptor>::rnum(r)])]
-    fn region_num(&self) -> usize;
-
+    #[flux_rs::sig(fn (&Self[@r1], &Self[@r2]) -> bool[<Self as RegionDescriptor>::overlaps(r1, r2)])]
     fn overlaps(&self, other: &Self) -> bool;
 
     /// Deals with the alignment, size, and other constraints of the specific
@@ -212,15 +211,18 @@ pub trait RegionDescriptor: core::marker::Sized {
 #[flux_rs::assoc(fn is_set(r: Self) -> bool { r.is_set })]
 #[flux_rs::assoc(fn rnum(r: Self) -> int { r.rnum })]
 #[flux_rs::assoc(fn perms(r: Self) -> Permissions { r.perms })]
-#[flux_rs::assoc(fn region_can_access(r: Self, start: int, end: int, perms: Permissions) -> bool {
-    r.is_set && 
-    start >= r.start &&
-    end <= r.start + r.size && 
-    r.perms == perms
-})]
-#[flux_rs::assoc(fn region_cant_access_at_all(r: Self, start: int, end: int) -> bool {
-    !r.is_set || 
-    !(r.start < start && start < r.start + r.size)
+// #[flux_rs::assoc(fn region_can_access(r: Self, start: int, end: int, perms: Permissions) -> bool {
+//     r.is_set && 
+//     start >= r.start &&
+//     end <= r.start + r.size && 
+//     r.perms == perms
+// })]
+// #[flux_rs::assoc(fn region_cant_access_at_all(r: Self, start: int, end: int) -> bool {
+//     !r.is_set || 
+//     !(r.start < start && start < r.start + r.size)
+// })]
+#[flux_rs::assoc(fn overlaps(region1: Self, region2: Self) -> bool {
+    false
 })]
 impl RegionDescriptor for MpuRegionDefault {
     #[flux_rs::sig(fn (rnum: usize) -> Self {r: !<Self as RegionDescriptor>::is_set(r) && <Self as RegionDescriptor>::rnum(r) == rnum})]
@@ -254,16 +256,11 @@ impl RegionDescriptor for MpuRegionDefault {
         self.size
     }
 
-    #[flux_rs::sig(fn (&Self[@r]) -> usize[<Self as RegionDescriptor>::rnum(r)])]
-    fn region_num(&self) -> usize {
-        self.region_number
-    }
-
     #[flux_rs::sig(fn (&Self[@r]) -> bool[<Self as RegionDescriptor>::is_set(r)])]
     fn is_set(&self) -> bool {
         self.start.is_some()
     }
-
+    #[flux_rs::sig(fn (&Self[@r1], &Self[@r2]) -> bool[<Self as RegionDescriptor>::overlaps(r1, r2)])]
     fn overlaps(&self, _other: &Self) -> bool {
         false
     }
