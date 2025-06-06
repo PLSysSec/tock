@@ -965,6 +965,7 @@ impl CortexMRegion {
         rbar_region_start(rbar.value) == bv32(region_start) &&
         rbar_valid_bit_set(rbar.value) 
     }
+    // TODO: restore region numbers
     requires 
         // region_num < 16 && 
         region_size >= 32 && pow2(region_size) && aligned(region_start, region_size)
