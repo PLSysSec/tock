@@ -680,25 +680,36 @@ impl mpu::RegionDescriptor for CortexMRegion {
         }
     }
 
-    // TODO: These are failing because of the ? - match will work
     #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::astart(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
     fn accessible_start(&self) -> Option<FluxPtrU8> {
-        Some(self.location?.accessible_start)
+        match self.location {
+            Some(loc) => Some(loc.accessible_start),
+            None => None
+        }
     }
 
     #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::rstart(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
     fn region_start(&self) -> Option<FluxPtrU8> {
-        Some(self.location?.region_start)
+        match self.location {
+            Some(loc) => Some(loc.region_start),
+            None => None
+        }
     }
 
     #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::asize(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
     fn accessible_size(&self) -> Option<usize> {
-        Some(self.location?.accessible_size)
+        match self.location {
+            Some(loc) => Some(loc.accessible_size),
+            None => None
+        }
     }
 
     #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::rsize(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
     fn region_size(&self) -> Option<usize> {
-        Some(self.location?.region_size)
+        match self.location {
+            Some(loc) => Some(loc.region_size),
+            None => None
+        }
     }
 
     #[flux_rs::sig(fn (&Self[@r]) -> bool[<Self as RegionDescriptor>::is_set(r)])]
@@ -735,7 +746,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
             // r.astart + r.asize <= available_start + available_size &&
             // r.asize >= region_size
         }>
-        // requires region_number < 16 
+        requires region_number < 8
     )]
     fn create_bounded_region(
         region_number: usize,
@@ -815,7 +826,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
             // r.astart + r.asize <= po2_aligned_start + available_size &&
             // r.asize >= min_size
         }>
-        // requires region_number < 16
+        requires region_number < 8
     )]
     fn update_region(
         region_start: FluxPtrU8,
@@ -886,7 +897,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
                 // r.astart == start &&
                 // r.astart + r.asize == start + size
             }>
-            // requires region_no < 16
+            requires region_no < 8
     )]
     fn create_exact_region(
         region_number: usize,
@@ -965,9 +976,8 @@ impl CortexMRegion {
         rbar_region_start(rbar.value) == bv32(region_start) &&
         rbar_valid_bit_set(rbar.value) 
     }
-    // TODO: restore region numbers
     requires 
-        // region_num < 16 && 
+        region_num < 8 && 
         region_size >= 32 && pow2(region_size) && aligned(region_start, region_size)
     )]
     fn base_address_register(
@@ -1063,7 +1073,7 @@ impl CortexMRegion {
                 r.set
             }
         requires
-            // rnum < 16 &&
+            rnum < 8 &&
             rsize >= 32 &&
             rsize >= 256 &&
             pow2(rsize) &&
@@ -1138,7 +1148,7 @@ impl CortexMRegion {
                 r.set
             }
         requires
-            // no < 16 &&
+            no < 8 &&
             rsize == asize &&
             rstart == astart &&
             rsize >= 32 &&
@@ -1295,6 +1305,8 @@ impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> mpu::MPU
         // cannot have unused regions
         if NUM_REGIONS > 8 {
             for i in 8..NUM_REGIONS {
+                // TODO: remove this via iter
+                flux_support::assume(i < 16);
                 let region = CortexMRegion::empty(i);
                 self.registers
                     .rbar

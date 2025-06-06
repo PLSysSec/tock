@@ -149,7 +149,7 @@ pub trait RegionDescriptor: core::marker::Sized {
         <Self as RegionDescriptor>::astart(r) == <Self as RegionDescriptor>::rstart(r) &&
         <Self as RegionDescriptor>::astart(r) + <Self as RegionDescriptor>::asize(r) <= available_start + available_size &&
         <Self as RegionDescriptor>::asize(r) >= region_size
-    }>)]
+    }> requires region_number < 8)]
     fn create_bounded_region(
         region_number: usize,
         available_start: FluxPtrU8,
@@ -172,7 +172,7 @@ pub trait RegionDescriptor: core::marker::Sized {
         <Self as RegionDescriptor>::rstart(r) == region_start &&
         <Self as RegionDescriptor>::astart(r) + <Self as RegionDescriptor>::asize(r) <= region_start + available_size &&
         <Self as RegionDescriptor>::asize(r)  >= region_size
-    }>)]
+    }> requires region_number < 8)]
     fn update_region(
         region_start: FluxPtrU8,
         available_size: usize,
@@ -194,6 +194,7 @@ pub trait RegionDescriptor: core::marker::Sized {
                 <Self as RegionDescriptor>::astart(r) == start &&
                 <Self as RegionDescriptor>::astart(r) + <Self as RegionDescriptor>::asize(r) == start + size
             }>
+        requires region_number < 8
     )]
     fn create_exact_region(
         region_number: usize,
