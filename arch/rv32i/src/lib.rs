@@ -16,13 +16,15 @@ use core::arch::global_asm;
 
 use kernel::utilities::registers::interfaces::{Readable, Writeable};
 
+// #[flux_rs::ignore]
 pub mod clic;
+// #[flux_rs::ignore]
 pub mod machine_timer;
-#[flux_rs::ignore]
+
 pub mod pmp;
-#[flux_rs::ignore]
+// #[flux_rs::ignore]
 pub mod support;
-#[flux_rs::ignore]
+// #[flux_rs::ignore]
 pub mod syscall;
 
 // Re-export the shared CSR library so that dependent crates do not have to have

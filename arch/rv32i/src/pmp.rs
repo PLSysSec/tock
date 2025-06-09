@@ -8,8 +8,8 @@ use core::num::NonZeroUsize;
 use core::ops::Range;
 
 use crate::csr;
-use flux_support::capability::{MpuConfiguredCapability, MpuEnabledCapability};
-use flux_support::{FluxPtrU8, RArray};
+use flux_support::capability::MpuEnabledCapability;
+use flux_support::{FluxPtr, FluxPtrU8, RArray};
 use kernel::platform::mpu;
 use kernel::utilities::cells::OptionalCell;
 use kernel::utilities::registers::{register_bitfields, LocalRegisterCopy};
@@ -47,9 +47,11 @@ register_bitfields![u8,
 /// hold by construction and avoid runtime checks. For example, this type is
 /// used in the [`TORUserPMP::configure_pmp`] method.
 #[derive(Copy, Clone, Debug)]
+#[flux_rs::refined_by(val: int)]
 pub struct TORUserPMPCFG(LocalRegisterCopy<u8, pmpcfg_octet::Register>);
 
 impl TORUserPMPCFG {
+    #[flux_rs::constant(TORUserPMPCFG[0])]
     pub const OFF: TORUserPMPCFG = TORUserPMPCFG(LocalRegisterCopy::new(0));
 
     /// Extract the `u8` representation of the [`pmpcfg_octet`] register.
@@ -215,13 +217,13 @@ fn region_overlaps(region: &PMPUserRegion, other: &PMPUserRegion) -> bool {
     // This happens to coincide with the definition of the Rust half-open Range
     // type, which provides a convenient `.contains()` method:
     let region_range = Range {
-        start: region.start as usize,
-        end: region.end as usize,
+        start: region.start.as_usize(),
+        end: region.end.as_usize()
     };
 
     let other_range = Range {
-        start: other.start as usize,
-        end: other.end as usize,
+        start: other.start.as_usize(),
+        end: other.end.as_usize()
     };
 
     // For a range A to overlap with a range B, either B's first or B's last
@@ -487,15 +489,23 @@ pub struct PMPUserMPUConfig<const MAX_REGIONS: usize> {
 }
 
 #[derive(Clone, Copy)]
+#[flux_rs::refined_by(
+    region_number: int,
+    start: int, 
+    end: int
+)]
 pub struct PMPUserRegion {
+    #[field(usize[region_number])]
     pub region_number: usize,
     pub tor: TORUserPMPCFG,
-    pub start: *const u8,
-    pub end: *const u8,
+    #[field(FluxPtrU8[start])]
+    pub start: FluxPtrU8,
+    #[field(FluxPtrU8[end])]
+    pub end: FluxPtrU8,
 }
 
 impl PMPUserRegion {
-    pub fn new(region_number: usize, tor: TORUserPMPCFG, start: *const u8, end: *const u8) -> Self {
+    pub fn new(region_number: usize, tor: TORUserPMPCFG, start: FluxPtrU8, end: FluxPtrU8) -> Self {
         Self {
             region_number,
             tor,
@@ -505,33 +515,42 @@ impl PMPUserRegion {
     }
 }
 
+#[flux_rs::assoc(fn astart(r: Self) -> int { r.start })]
+#[flux_rs::assoc(fn rstart(r: Self) -> int { r.start  })]
+#[flux_rs::assoc(fn asize(r: Self) -> int { r.end - r.start })]
+#[flux_rs::assoc(fn rsize(r: Self) -> int { r.end - r.start })]
+#[flux_rs::assoc(fn is_set(r: Self) -> bool {  })]
+// #[flux_rs::assoc(fn rnum(r: Self) -> int)]
+// #[flux_rs::assoc(fn perms(r: Self) -> Permissions)]
+// #[flux_rs::assoc(fn region_can_access(r: Self, start: int, end: int, perms: Permissions) -> bool {
+
+// })]
 impl mpu::RegionDescriptor for PMPUserRegion {
     fn accessible_start(&self) -> Option<FluxPtrU8> {
-        Some(FluxPtrU8::from(self.start as *mut u8))
+        Some(self.start)
     }
 
     fn region_start(&self) -> Option<FluxPtrU8> {
-        Some(FluxPtrU8::from(self.start as *mut u8))
+        Some(self.start)
     }
 
     fn accessible_size(&self) -> Option<usize> {
-        Some((self.end as usize).saturating_sub(self.start as usize))
+        Some(self.end.as_usize() - self.start.as_usize())
     }
 
     fn region_size(&self) -> Option<usize> {
-        Some((self.end as usize).saturating_sub(self.start as usize))
+        Some(self.end.as_usize() - self.start.as_usize())
     }
 
-    fn is_set(&self) -> bool {
-        self.start != core::ptr::null() && self.end != core::ptr::null()
+    fn is_set(&self) -> bool { self.start != FluxPtrU8::null() && self.end != FluxPtrU8::null()
     }
 
     fn default(region_number: usize) -> Self {
         Self {
             region_number,
             tor: TORUserPMPCFG::OFF,
-            start: core::ptr::null(),
-            end: core::ptr::null(),
+            start: FluxPtrU8::null(),
+            end: FluxPtrU8::null(),
         }
     }
 
@@ -617,8 +636,8 @@ impl mpu::RegionDescriptor for PMPUserRegion {
         Some(PMPUserRegion::new(
             region_number,
             permissions.into(),
-            start as *const u8,
-            (start + size) as *const u8,
+            FluxPtrU8::from(start),
+            FluxPtrU8::from(start + size)
         ))
     }
 
@@ -646,8 +665,8 @@ impl mpu::RegionDescriptor for PMPUserRegion {
         Some(PMPUserRegion::new(
             region_number,
             permissions.into(),
-            region_start.unsafe_as_ptr(),
-            end as *const u8,
+            region_start,
+            FluxPtrU8::from(end)
         ))
     }
 }
@@ -668,8 +687,8 @@ impl fmt::Display for PMPUserRegion {
             f,
             "     #{:02}: start={:#010X}, end={:#010X}, cfg={:#04X} ({}) (-{}{}{})\r\n",
             self.region_number,
-            self.start as usize,
-            self.end as usize,
+            self.start.as_usize(),
+            self.end.as_usize(),
             pmpcfg.get(),
             t(pmpcfg.is_set(pmpcfg_octet::a), "TOR", "OFF"),
             t(pmpcfg.is_set(pmpcfg_octet::r), "r", "-"),
@@ -1123,21 +1142,21 @@ pub mod simple {
                     if even_region.tor != TORUserPMPCFG::OFF {
                         csr::CSR.pmpaddr_set(
                             i * 2 + 0,
-                            (even_region.start as usize).overflowing_shr(2).0,
+                            (even_region.start.as_usize()).overflowing_shr(2).0,
                         );
                         csr::CSR.pmpaddr_set(
                             i * 2 + 1,
-                            (even_region.end as usize).overflowing_shr(2).0,
+                            (even_region.end.as_usize()).overflowing_shr(2).0,
                         );
                     }
 
                     if odd_region.tor != TORUserPMPCFG::OFF {
                         csr::CSR.pmpaddr_set(
                             i * 2 + 2,
-                            (odd_region.start as usize).overflowing_shr(2).0,
+                            (odd_region.start.as_usize()).overflowing_shr(2).0,
                         );
                         csr::CSR
-                            .pmpaddr_set(i * 2 + 3, (odd_region.end as usize).overflowing_shr(2).0);
+                            .pmpaddr_set(i * 2 + 3, (odd_region.end.as_usize()).overflowing_shr(2).0);
                     }
 
                     i += 2;
@@ -1162,11 +1181,11 @@ pub mod simple {
                     if even_region.tor != TORUserPMPCFG::OFF {
                         csr::CSR.pmpaddr_set(
                             i * 2 + 0,
-                            (even_region.start as usize).overflowing_shr(2).0,
+                            (even_region.start.as_usize()).overflowing_shr(2).0,
                         );
                         csr::CSR.pmpaddr_set(
                             i * 2 + 1,
-                            (even_region.end as usize).overflowing_shr(2).0,
+                            (even_region.end.as_usize()).overflowing_shr(2).0,
                         );
                     }
 
@@ -1496,21 +1515,21 @@ pub mod kernel_protection {
                     if even_region.tor != TORUserPMPCFG::OFF {
                         csr::CSR.pmpaddr_set(
                             i * 2 + 0,
-                            (even_region.start as usize).overflowing_shr(2).0,
+                            (even_region.start.as_usize()).overflowing_shr(2).0,
                         );
                         csr::CSR.pmpaddr_set(
                             i * 2 + 1,
-                            (even_region.start as usize).overflowing_shr(2).0,
+                            (even_region.start.as_usize()).overflowing_shr(2).0,
                         );
                     }
 
                     if odd_region.tor != TORUserPMPCFG::OFF {
                         csr::CSR.pmpaddr_set(
                             i * 2 + 2,
-                            (odd_region.start as usize).overflowing_shr(2).0,
+                            (odd_region.start.as_usize()).overflowing_shr(2).0,
                         );
                         csr::CSR
-                            .pmpaddr_set(i * 2 + 3, (odd_region.end as usize).overflowing_shr(2).0);
+                            .pmpaddr_set(i * 2 + 3, (odd_region.end.as_usize()).overflowing_shr(2).0);
                     }
 
                     i += 2;
@@ -1534,11 +1553,11 @@ pub mod kernel_protection {
                     if even_region.tor != TORUserPMPCFG::OFF {
                         csr::CSR.pmpaddr_set(
                             i * 2 + 0,
-                            (even_region.start as usize).overflowing_shr(2).0,
+                            (even_region.start.as_usize()).overflowing_shr(2).0,
                         );
                         csr::CSR.pmpaddr_set(
                             i * 2 + 1,
-                            (even_region.end as usize).overflowing_shr(2).0,
+                            (even_region.end.as_usize()).overflowing_shr(2).0,
                         );
                     }
 
@@ -1881,11 +1900,11 @@ pub mod kernel_protection_mml_epmp {
                 if region.tor != TORUserPMPCFG::OFF {
                     csr::CSR.pmpaddr_set(
                         (i + Self::TOR_REGIONS_OFFSET) * 2 + 0,
-                        (region.start as usize).overflowing_shr(2).0,
+                        (region.start.as_usize()).overflowing_shr(2).0,
                     );
                     csr::CSR.pmpaddr_set(
                         (i + Self::TOR_REGIONS_OFFSET) * 2 + 1,
-                        (region.end as usize).overflowing_shr(2).0,
+                        (region.end.as_usize()).overflowing_shr(2).0,
                     );
                 }
 

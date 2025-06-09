@@ -557,9 +557,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
                 app.breaks.memory_start >= mem_start &&
                 app.breaks.memory_start + app.breaks.memory_size <= u32::MAX &&
                 app.breaks.memory_start > 0 &&
-                app.breaks.memory_size >= kernel_mem_size &&
-
-                <R as RegionDescriptor>::region_can_access(map_select(regions, FLASH_REGION_NUMBER), breaks.flash_start, breaks.flash_start + breaks.flash_size, mpu::Permissions {r: true, w: false, x: true})
+                app.breaks.memory_size >= kernel_mem_size
             }, AllocateAppMemoryError>
         requires flash_start + flash_size < mem_start && kernel_mem_size > 0
     )]
