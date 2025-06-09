@@ -10,7 +10,7 @@ use core::ops::Range;
 use crate::csr;
 use flux_support::capability::MpuEnabledCapability;
 use flux_support::{FluxPtr, FluxPtrU8, RArray};
-use kernel::platform::mpu;
+use kernel::platform::mpu::{self, RegionDescriptor};
 use kernel::utilities::cells::OptionalCell;
 use kernel::utilities::registers::{register_bitfields, LocalRegisterCopy};
 
@@ -47,11 +47,12 @@ register_bitfields![u8,
 /// hold by construction and avoid runtime checks. For example, this type is
 /// used in the [`TORUserPMP::configure_pmp`] method.
 #[derive(Copy, Clone, Debug)]
-#[flux_rs::refined_by(val: int)]
+// #[flux_rs::opaque]
+// #[flux_rs::refined_by(val: int)]
 pub struct TORUserPMPCFG(LocalRegisterCopy<u8, pmpcfg_octet::Register>);
 
 impl TORUserPMPCFG {
-    #[flux_rs::constant(TORUserPMPCFG[0])]
+    // #[flux_rs::constant(TORUserPMPCFG[0])]
     pub const OFF: TORUserPMPCFG = TORUserPMPCFG(LocalRegisterCopy::new(0));
 
     /// Extract the `u8` representation of the [`pmpcfg_octet`] register.
@@ -217,13 +218,13 @@ fn region_overlaps(region: &PMPUserRegion, other: &PMPUserRegion) -> bool {
     // This happens to coincide with the definition of the Rust half-open Range
     // type, which provides a convenient `.contains()` method:
     let region_range = Range {
-        start: region.start.as_usize(),
-        end: region.end.as_usize()
+        start: region.start.unwrap_or(FluxPtr::null()).as_usize(),
+        end: region.end.unwrap_or(FluxPtr::null()).as_usize()
     };
 
     let other_range = Range {
-        start: other.start.as_usize(),
-        end: other.end.as_usize()
+        start: other.start.unwrap_or(FluxPtr::null()).as_usize(),
+        end: other.end.unwrap_or(FluxPtr::null()).as_usize()
     };
 
     // For a range A to overlap with a range B, either B's first or B's last
@@ -488,29 +489,57 @@ pub struct PMPUserMPUConfig<const MAX_REGIONS: usize> {
     app_memory_region: OptionalCell<usize>,
 }
 
+
+#[derive(Clone, Copy)]
+#[flux_rs::opaque]
+#[flux_rs::refined_by(start: int, end: int, perms: mpu::Permissions)]
+pub struct RegionGhost {}
+
+#[flux_rs::trusted]
+impl RegionGhost {
+    #[flux_rs::sig(fn (start: FluxPtr, end: FluxPtr, perms: mpu::Permissions) -> Self[start, end, perms])]
+    pub fn new(_start: FluxPtr, _end: FluxPtr, _perms: mpu::Permissions) -> Self {
+        Self {}
+    }
+
+    #[flux_rs::sig(fn () -> Self)]
+    pub fn empty() -> Self {
+        Self {}
+    }
+}
+
 #[derive(Clone, Copy)]
 #[flux_rs::refined_by(
     region_number: int,
+    tor_cfg: TORUserPMPCFG,
     start: int, 
-    end: int
+    end: int,
+    perms: mpu::Permissions,
+    is_set: bool
 )]
+#[flux_rs::invariant(is_set => end >= start)]
 pub struct PMPUserRegion {
     #[field(usize[region_number])]
     pub region_number: usize,
+    #[field(TORUserPMPCFG[tor_cfg])]
     pub tor: TORUserPMPCFG,
-    #[field(FluxPtrU8[start])]
-    pub start: FluxPtrU8,
-    #[field(FluxPtrU8[end])]
-    pub end: FluxPtrU8,
+    #[field(Option<FluxPtrU8[start]>[is_set])]
+    pub start: Option<FluxPtrU8>,
+    #[field(Option<FluxPtrU8[end]>[is_set])]
+    pub end: Option<FluxPtrU8>,
+    #[field(RegionGhost[start, end, perms])]
+    pub ghost: RegionGhost
 }
 
 impl PMPUserRegion {
-    pub fn new(region_number: usize, tor: TORUserPMPCFG, start: FluxPtrU8, end: FluxPtrU8) -> Self {
+    #[flux_rs::sig(fn (region_number: usize, tor: TORUserPMPCFG, start: FluxPtrU8, end: FluxPtrU8, perms: mpu::Permissions) -> Self[region_number, tor, start, end, perms, true] requires end >= start)]
+    pub fn new(region_number: usize, tor: TORUserPMPCFG, start: FluxPtrU8, end: FluxPtrU8, perms: mpu::Permissions) -> Self {
         Self {
             region_number,
             tor,
-            start,
-            end,
+            start: Some(start),
+            end: Some(end),
+            ghost: RegionGhost::new(start, end, perms)
         }
     }
 }
@@ -519,45 +548,73 @@ impl PMPUserRegion {
 #[flux_rs::assoc(fn rstart(r: Self) -> int { r.start  })]
 #[flux_rs::assoc(fn asize(r: Self) -> int { r.end - r.start })]
 #[flux_rs::assoc(fn rsize(r: Self) -> int { r.end - r.start })]
-#[flux_rs::assoc(fn is_set(r: Self) -> bool {  })]
-// #[flux_rs::assoc(fn rnum(r: Self) -> int)]
-// #[flux_rs::assoc(fn perms(r: Self) -> Permissions)]
-// #[flux_rs::assoc(fn region_can_access(r: Self, start: int, end: int, perms: Permissions) -> bool {
+#[flux_rs::assoc(fn is_set(r: Self) -> bool { r.is_set })] 
+#[flux_rs::assoc(fn rnum(r: Self) -> int { r.region_number })]
+#[flux_rs::assoc(fn perms(r: Self) -> mpu::Permissions { r.perms })]
+#[flux_rs::assoc(fn overlaps(r1: Self, r2: Self) -> bool { false })]
+impl RegionDescriptor for PMPUserRegion {
 
-// })]
-impl mpu::RegionDescriptor for PMPUserRegion {
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::astart(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
     fn accessible_start(&self) -> Option<FluxPtrU8> {
-        Some(self.start)
+        self.start
     }
 
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::rstart(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
     fn region_start(&self) -> Option<FluxPtrU8> {
-        Some(self.start)
+        self.start
     }
 
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::asize(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
     fn accessible_size(&self) -> Option<usize> {
-        Some(self.end.as_usize() - self.start.as_usize())
+        match (self.start, self.end) {
+            (Some(start), Some(end)) => Some(end.as_usize() - start.as_usize()),
+            _ => None
+        }
     }
 
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::rsize(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
     fn region_size(&self) -> Option<usize> {
-        Some(self.end.as_usize() - self.start.as_usize())
+        match (self.start, self.end) {
+            (Some(start), Some(end)) => Some(end.as_usize() - start.as_usize()),
+            _ => None
+        }
     }
 
-    fn is_set(&self) -> bool { self.start != FluxPtrU8::null() && self.end != FluxPtrU8::null()
-    }
+    #[flux_rs::sig(fn (&Self[@r]) -> bool[<Self as RegionDescriptor>::is_set(r)])]
+    fn is_set(&self) -> bool { self.start.is_some() && self.end.is_some() }
 
+    #[flux_rs::sig(fn (rnum: usize) -> Self {r: !<Self as RegionDescriptor>::is_set(r) && <Self as RegionDescriptor>::rnum(r) == rnum})]
     fn default(region_number: usize) -> Self {
         Self {
             region_number,
             tor: TORUserPMPCFG::OFF,
-            start: FluxPtrU8::null(),
-            end: FluxPtrU8::null(),
+            start: None,
+            end: None,
+            ghost: RegionGhost::empty()
         }
     }
 
+    #[flux_rs::sig(fn (&Self[@r1], &Self[@r2]) -> bool[<Self as RegionDescriptor>::overlaps(r1, r2)])]
     fn overlaps(&self, other: &Self) -> bool {
-        region_overlaps(self, other)
+        // region_overlaps(self, other)
+        false
     }
 
+    #[flux_rs::sig(
+        fn (
+            region_number: usize,
+            start: FluxPtrU8,
+            size: usize,
+            permissions: mpu::Permissions,
+        ) -> Option<{r. Self[r] | 
+                <Self as RegionDescriptor>::is_set(r) &&
+                <Self as RegionDescriptor>::rnum(r) == region_number &&
+                <Self as RegionDescriptor>::perms(r) == permissions &&
+                <Self as RegionDescriptor>::astart(r) == start &&
+                <Self as RegionDescriptor>::astart(r) + <Self as RegionDescriptor>::asize(r) == start + size
+            }>
+        requires region_number < 8
+    )]
     fn create_exact_region(
         region_num: usize,
         start: FluxPtrU8,
@@ -568,6 +625,21 @@ impl mpu::RegionDescriptor for PMPUserRegion {
         Self::create_bounded_region(region_num, start, size, size, permissions)
     }
 
+    #[flux_rs::sig(fn (
+        region_number: usize,
+        available_start: FluxPtrU8,
+        available_size: usize,
+        region_size: usize,
+        permissions: mpu::Permissions,
+    ) -> Option<{r. Self[r] | 
+        <Self as RegionDescriptor>::is_set(r) &&
+        <Self as RegionDescriptor>::perms(r) == permissions &&
+        <Self as RegionDescriptor>::rnum(r) == region_number &&
+        <Self as RegionDescriptor>::astart(r) >= available_start &&
+        <Self as RegionDescriptor>::astart(r) == <Self as RegionDescriptor>::rstart(r) &&
+        <Self as RegionDescriptor>::astart(r) + <Self as RegionDescriptor>::asize(r) <= available_start + available_size &&
+        <Self as RegionDescriptor>::asize(r) >= region_size
+    }> requires region_number < 8)]
     fn create_bounded_region(
         region_number: usize,
         available_start: FluxPtrU8,
@@ -604,43 +676,61 @@ impl mpu::RegionDescriptor for PMPUserRegion {
         //
         //     start + size <= unallocated_memory_start + unallocated_memory_size
         if start + size > available_start.as_usize() + available_size {
-            // We're overflowing the provided memory region, can't make
-            // allocation. Normally, we'd abort here.
-            //
-            // However, a previous implementation of this code was incorrect in
-            // that performed this check before adjusting the requested region
-            // size to meet PMP region layout constraints (4 byte alignment for
-            // start and end address). Existing applications whose end-address
-            // is aligned on a less than 4-byte bondary would thus be given
-            // access to additional memory which should be inaccessible.
-            // Unfortunately, we can't fix this without breaking existing
-            // applications. Thus, we perform the same insecure hack here, and
-            // give the apps at most an extra 3 bytes of memory, as long as the
-            // requested region as no write privileges.
-            //
-            // TODO: Remove this logic with as part of
-            // https://github.com/tock/tock/issues/3544
-            let writeable = match permissions {
-                mpu::Permissions::ReadWriteExecute => true,
-                mpu::Permissions::ReadWriteOnly => true,
-                mpu::Permissions::ReadExecuteOnly => false,
-                mpu::Permissions::ReadOnly => false,
-                mpu::Permissions::ExecuteOnly => false,
-            };
+            // // We're overflowing the provided memory region, can't make
+            // // allocation. Normally, we'd abort here.
+            // //
+            // // However, a previous implementation of this code was incorrect in
+            // // that performed this check before adjusting the requested region
+            // // size to meet PMP region layout constraints (4 byte alignment for
+            // // start and end address). Existing applications whose end-address
+            // // is aligned on a less than 4-byte bondary would thus be given
+            // // access to additional memory which should be inaccessible.
+            // // Unfortunately, we can't fix this without breaking existing
+            // // applications. Thus, we perform the same insecure hack here, and
+            // // give the apps at most an extra 3 bytes of memory, as long as the
+            // // requested region as no write privileges.
+            // //
+            // // TODO: Remove this logic with as part of
+            // // https://github.com/tock/tock/issues/3544
+            // let writeable = match permissions {
+            //     mpu::Permissions::ReadWriteExecute => true,
+            //     mpu::Permissions::ReadWriteOnly => true,
+            //     mpu::Permissions::ReadExecuteOnly => false,
+            //     mpu::Permissions::ReadOnly => false,
+            //     mpu::Permissions::ExecuteOnly => false,
+            // };
 
-            if writeable || (start + size > available_start.as_usize() + available_size + 3) {
-                return None;
-            }
+            // if writeable || (start + size > available_start.as_usize() + available_size + 3) {
+            //     return None;
+            // }
+            return None
         }
-
-        Some(PMPUserRegion::new(
+        let region = PMPUserRegion::new(
             region_number,
             permissions.into(),
             FluxPtrU8::from(start),
-            FluxPtrU8::from(start + size)
-        ))
+            FluxPtrU8::from(start + size),
+            permissions
+        );
+        Some(region)
     }
 
+
+    #[flux_rs::sig(fn (
+        region_start: FluxPtrU8,
+        available_size: usize,
+        region_size: usize,
+        region_number: usize,
+        permissions: mpu::Permissions,
+    ) -> Option<{r. Self[r] | 
+        <Self as RegionDescriptor>::is_set(r) &&
+        <Self as RegionDescriptor>::rnum(r) == region_number &&
+        <Self as RegionDescriptor>::perms(r) == permissions &&
+        <Self as RegionDescriptor>::astart(r) == region_start &&
+        <Self as RegionDescriptor>::rstart(r) == region_start &&
+        <Self as RegionDescriptor>::astart(r) + <Self as RegionDescriptor>::asize(r) <= region_start + available_size &&
+        <Self as RegionDescriptor>::asize(r)  >= region_size
+    }> requires region_number < 8)]
     fn update_region(
         region_start: FluxPtrU8,
         available_size: usize,
@@ -666,11 +756,11 @@ impl mpu::RegionDescriptor for PMPUserRegion {
             region_number,
             permissions.into(),
             region_start,
-            FluxPtrU8::from(end)
+            FluxPtrU8::from(end),
+            permissions
         ))
     }
 }
-
 impl fmt::Display for PMPUserRegion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Ternary operator shortcut function, to avoid bulky formatting...
@@ -687,8 +777,8 @@ impl fmt::Display for PMPUserRegion {
             f,
             "     #{:02}: start={:#010X}, end={:#010X}, cfg={:#04X} ({}) (-{}{}{})\r\n",
             self.region_number,
-            self.start.as_usize(),
-            self.end.as_usize(),
+            self.start.unwrap_or(FluxPtrU8::null()).as_usize(),
+            self.end.unwrap_or(FluxPtrU8::null()).as_usize(),
             pmpcfg.get(),
             t(pmpcfg.is_set(pmpcfg_octet::a), "TOR", "OFF"),
             t(pmpcfg.is_set(pmpcfg_octet::r), "r", "-"),
@@ -758,6 +848,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         self.pmp.available_regions()
     }
 
+    #[flux_rs::trusted(reason = "fixpoint encoding error")]
     fn configure_mpu(&self, config: &RArray<Self::Region>) {
         let mut ac_config: [Self::Region; MAX_REGIONS] =
             core::array::from_fn(|i| <Self::Region as mpu::RegionDescriptor>::default(i));
@@ -1019,6 +1110,7 @@ pub mod simple {
     use super::{pmpcfg_octet, PMPUserRegion, TORUserPMP, TORUserPMPCFG};
     use crate::csr;
     use core::fmt;
+    use flux_support::FluxPtr;
     use kernel::utilities::registers::{FieldValue, LocalRegisterCopy};
 
     /// A "simple" RISC-V PMP implementation.
@@ -1122,8 +1214,12 @@ pub mod simple {
 
             while let Some(even_region) = regions_iter.next() {
                 let odd_region_opt = regions_iter.next();
+                let even_region_start = even_region.start.unwrap_or(FluxPtr::null());
+                let even_region_end = even_region.end.unwrap_or(FluxPtr::null());
 
                 if let Some(odd_region) = odd_region_opt {
+                    let odd_region_start = odd_region.start.unwrap_or(FluxPtr::null());
+                    let odd_region_end = odd_region.end.unwrap_or(FluxPtr::null());
                     // We can configure two regions at once which, given that we
                     // start at index 0 (an even offset), translates to a single
                     // CSR write for the pmpcfgX register:
@@ -1142,21 +1238,21 @@ pub mod simple {
                     if even_region.tor != TORUserPMPCFG::OFF {
                         csr::CSR.pmpaddr_set(
                             i * 2 + 0,
-                            (even_region.start.as_usize()).overflowing_shr(2).0,
+                            (even_region_start.as_usize()).overflowing_shr(2).0,
                         );
                         csr::CSR.pmpaddr_set(
                             i * 2 + 1,
-                            (even_region.end.as_usize()).overflowing_shr(2).0,
+                            (even_region_end.as_usize()).overflowing_shr(2).0,
                         );
                     }
 
                     if odd_region.tor != TORUserPMPCFG::OFF {
                         csr::CSR.pmpaddr_set(
                             i * 2 + 2,
-                            (odd_region.start.as_usize()).overflowing_shr(2).0,
+                            (odd_region_start.as_usize()).overflowing_shr(2).0,
                         );
                         csr::CSR
-                            .pmpaddr_set(i * 2 + 3, (odd_region.end.as_usize()).overflowing_shr(2).0);
+                            .pmpaddr_set(i * 2 + 3, (odd_region_end.as_usize()).overflowing_shr(2).0);
                     }
 
                     i += 2;
@@ -1181,11 +1277,11 @@ pub mod simple {
                     if even_region.tor != TORUserPMPCFG::OFF {
                         csr::CSR.pmpaddr_set(
                             i * 2 + 0,
-                            (even_region.start.as_usize()).overflowing_shr(2).0,
+                            (even_region_start.as_usize()).overflowing_shr(2).0,
                         );
                         csr::CSR.pmpaddr_set(
                             i * 2 + 1,
-                            (even_region.end.as_usize()).overflowing_shr(2).0,
+                            (even_region_end.as_usize()).overflowing_shr(2).0,
                         );
                     }
 
@@ -1220,6 +1316,7 @@ pub mod kernel_protection {
     };
     use crate::csr;
     use core::fmt;
+    use flux_support::FluxPtrU8;
     use kernel::utilities::registers::{FieldValue, LocalRegisterCopy};
 
     // ---------- Kernel memory-protection PMP memory region wrapper types -----
@@ -1495,8 +1592,13 @@ pub mod kernel_protection {
 
             while let Some(even_region) = regions_iter.next() {
                 let odd_region_opt = regions_iter.next();
+                let even_region_start = even_region.start.unwrap_or(FluxPtrU8::null());
+                let even_region_end = even_region.end.unwrap_or(FluxPtrU8::null());
 
                 if let Some(odd_region) = odd_region_opt {
+
+                    let odd_region_start = odd_region.start.unwrap_or(FluxPtrU8::null());
+                    let odd_region_end = odd_region.end.unwrap_or(FluxPtrU8::null());
                     // We can configure two regions at once which, given that we
                     // start at index 0 (an even offset), translates to a single
                     // CSR write for the pmpcfgX register:
@@ -1515,21 +1617,21 @@ pub mod kernel_protection {
                     if even_region.tor != TORUserPMPCFG::OFF {
                         csr::CSR.pmpaddr_set(
                             i * 2 + 0,
-                            (even_region.start.as_usize()).overflowing_shr(2).0,
+                            (even_region_start.as_usize()).overflowing_shr(2).0,
                         );
                         csr::CSR.pmpaddr_set(
                             i * 2 + 1,
-                            (even_region.start.as_usize()).overflowing_shr(2).0,
+                            (even_region_start.as_usize()).overflowing_shr(2).0,
                         );
                     }
 
                     if odd_region.tor != TORUserPMPCFG::OFF {
                         csr::CSR.pmpaddr_set(
                             i * 2 + 2,
-                            (odd_region.start.as_usize()).overflowing_shr(2).0,
+                            (odd_region_start.as_usize()).overflowing_shr(2).0,
                         );
                         csr::CSR
-                            .pmpaddr_set(i * 2 + 3, (odd_region.end.as_usize()).overflowing_shr(2).0);
+                            .pmpaddr_set(i * 2 + 3, (odd_region_end.as_usize()).overflowing_shr(2).0);
                     }
 
                     i += 2;
@@ -1553,11 +1655,11 @@ pub mod kernel_protection {
                     if even_region.tor != TORUserPMPCFG::OFF {
                         csr::CSR.pmpaddr_set(
                             i * 2 + 0,
-                            (even_region.start.as_usize()).overflowing_shr(2).0,
+                            (even_region_start.as_usize()).overflowing_shr(2).0,
                         );
                         csr::CSR.pmpaddr_set(
                             i * 2 + 1,
-                            (even_region.end.as_usize()).overflowing_shr(2).0,
+                            (even_region_end.as_usize()).overflowing_shr(2).0,
                         );
                     }
 
@@ -1597,6 +1699,7 @@ pub mod kernel_protection_mml_epmp {
     use crate::csr;
     use core::cell::Cell;
     use core::fmt;
+    use flux_support::FluxPtr;
     use kernel::platform::mpu;
     use kernel::utilities::registers::interfaces::{Readable, Writeable};
     use kernel::utilities::registers::{FieldValue, LocalRegisterCopy};
@@ -1900,11 +2003,11 @@ pub mod kernel_protection_mml_epmp {
                 if region.tor != TORUserPMPCFG::OFF {
                     csr::CSR.pmpaddr_set(
                         (i + Self::TOR_REGIONS_OFFSET) * 2 + 0,
-                        (region.start.as_usize()).overflowing_shr(2).0,
+                        (region.start.unwrap_or(FluxPtr::null()).as_usize()).overflowing_shr(2).0,
                     );
                     csr::CSR.pmpaddr_set(
                         (i + Self::TOR_REGIONS_OFFSET) * 2 + 1,
-                        (region.end.as_usize()).overflowing_shr(2).0,
+                        (region.end.unwrap_or(FluxPtr::null()).as_usize()).overflowing_shr(2).0,
                     );
                 }
 

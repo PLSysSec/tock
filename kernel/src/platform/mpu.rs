@@ -308,7 +308,6 @@ impl RegionDescriptor for MpuRegionDefault {
     ) -> Option<{r. Self[r] | 
         <MpuRegionDefault as RegionDescriptor>::is_set(r) &&
         <MpuRegionDefault as RegionDescriptor>::rnum(r) == region_number &&
-        <MpuRegionDefault as RegionDescriptor>::perms(r) == permissions && 
         <MpuRegionDefault as RegionDescriptor>::perms(r) == permissions &&
         <MpuRegionDefault as RegionDescriptor>::astart(r) == region_start &&
         <MpuRegionDefault as RegionDescriptor>::rstart(r) == region_start &&
