@@ -8,7 +8,8 @@ use core::num::NonZeroUsize;
 use core::ops::Range;
 
 use crate::csr;
-use flux_support::FluxPtrU8;
+use flux_support::capability::{MpuConfiguredCapability, MpuEnabledCapability};
+use flux_support::{FluxPtrU8, RArray};
 use kernel::platform::mpu;
 use kernel::utilities::cells::OptionalCell;
 use kernel::utilities::registers::{register_bitfields, LocalRegisterCopy};
@@ -505,10 +506,6 @@ impl PMPUserRegion {
 }
 
 impl mpu::RegionDescriptor for PMPUserRegion {
-    fn region_num(&self) -> usize {
-        self.region_number
-    }
-
     fn accessible_start(&self) -> Option<FluxPtrU8> {
         Some(FluxPtrU8::from(self.start as *mut u8))
     }
@@ -541,100 +538,13 @@ impl mpu::RegionDescriptor for PMPUserRegion {
     fn overlaps(&self, other: &Self) -> bool {
         region_overlaps(self, other)
     }
-}
-
-impl fmt::Display for PMPUserRegion {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Ternary operator shortcut function, to avoid bulky formatting...
-        fn t<T>(cond: bool, a: T, b: T) -> T {
-            if cond {
-                a
-            } else {
-                b
-            }
-        }
-        let tor_user_pmpcfg = self.tor;
-        let pmpcfg = tor_user_pmpcfg.get_reg();
-        write!(
-            f,
-            "     #{:02}: start={:#010X}, end={:#010X}, cfg={:#04X} ({}) (-{}{}{})\r\n",
-            self.region_number,
-            self.start as usize,
-            self.end as usize,
-            pmpcfg.get(),
-            t(pmpcfg.is_set(pmpcfg_octet::a), "TOR", "OFF"),
-            t(pmpcfg.is_set(pmpcfg_octet::r), "r", "-"),
-            t(pmpcfg.is_set(pmpcfg_octet::w), "w", "-"),
-            t(pmpcfg.is_set(pmpcfg_octet::x), "x", "-"),
-        )?;
-
-        write!(f, " }}\r\n")?;
-        Ok(())
-    }
-}
-
-/// Adapter from a generic PMP implementation exposing TOR-type regions to the
-/// Tock [`mpu::MPU`] trait. See [`TORUserPMP`].
-pub struct PMPUserMPU<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> {
-    /// Monotonically increasing counter for allocated configurations, used to
-    /// assign unique IDs to `PMPUserMPUConfig` instances.
-    config_count: Cell<NonZeroUsize>,
-    /// The configuration that the PMP was last configured for. Used (along with
-    /// the `is_dirty` flag) to determine if PMP can skip writing the
-    /// configuration to hardware.
-    last_configured_for: OptionalCell<NonZeroUsize>,
-    /// Underlying hardware PMP implementation, exposing a number (up to
-    /// `P::MAX_REGIONS`) of memory protection regions with a 4-byte enforcement
-    /// granularity.
-    pub pmp: P,
-}
-
-impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> PMPUserMPU<MAX_REGIONS, P> {
-    pub fn new(pmp: P) -> Self {
-        // Assigning this constant here ensures evaluation of the const
-        // expression at compile time, and can thus be used to enforce
-        // compile-time assertions based on the desired PMP configuration.
-        #[allow(clippy::let_unit_value)]
-        let _: () = P::CONST_ASSERT_CHECK;
-
-        PMPUserMPU {
-            config_count: Cell::new(NonZeroUsize::MIN),
-            last_configured_for: OptionalCell::empty(),
-            pmp,
-        }
-    }
-}
-
-impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::platform::mpu::MPU
-    for PMPUserMPU<MAX_REGIONS, P>
-{
-    // type MpuConfig = PMPUserMPUConfig<MAX_REGIONS>;
-    type Region = PMPUserRegion;
-
-    fn enable_app_mpu(&self) {
-        // TODO: This operation may fail when the PMP is not exclusively used
-        // for userspace. Instead of panicing, we should handle this case more
-        // gracefully and return an error in the `MPU` trait. Process
-        // infrastructure can then attempt to re-schedule the process later on,
-        // try to revoke some optional shared memory regions, or suspend the
-        // process.
-        self.pmp.enable_user_pmp().unwrap()
-    }
-
-    fn disable_app_mpu(&self) {
-        self.pmp.disable_user_pmp()
-    }
-
-    fn number_total_regions(&self) -> usize {
-        self.pmp.available_regions()
-    }
 
     fn create_exact_region(
         region_num: usize,
         start: FluxPtrU8,
         size: usize,
         permissions: mpu::Permissions,
-    ) -> Option<PMPUserRegion> {
+    ) -> Option<Self> {
         // logic for create_bounded_region is exactly the same here
         Self::create_bounded_region(region_num, start, size, size, permissions)
     }
@@ -645,7 +555,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         available_size: usize,
         region_size: usize,
         permissions: mpu::Permissions,
-    ) -> Option<Self::Region> {
+    ) -> Option<Self> {
         // Meet the PMP TOR region constraints. For this, start with the
         // provided start address and size, transform them to meet the
         // constraints, and then check that we're still within the bounds of the
@@ -718,7 +628,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         region_size: usize,
         region_number: usize,
         permissions: mpu::Permissions,
-    ) -> Option<Self::Region> {
+    ) -> Option<Self> {
         let mut end = region_start.as_usize() + region_size;
         // Ensure that the requested app_memory_break complies with PMP
         // alignment constraints, namely that the region's end address is 4 byte
@@ -740,14 +650,102 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
             end as *const u8,
         ))
     }
+}
 
-    fn configure_mpu(&self, config: &[Self::Region; 8]) {
+impl fmt::Display for PMPUserRegion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Ternary operator shortcut function, to avoid bulky formatting...
+        fn t<T>(cond: bool, a: T, b: T) -> T {
+            if cond {
+                a
+            } else {
+                b
+            }
+        }
+        let tor_user_pmpcfg = self.tor;
+        let pmpcfg = tor_user_pmpcfg.get_reg();
+        write!(
+            f,
+            "     #{:02}: start={:#010X}, end={:#010X}, cfg={:#04X} ({}) (-{}{}{})\r\n",
+            self.region_number,
+            self.start as usize,
+            self.end as usize,
+            pmpcfg.get(),
+            t(pmpcfg.is_set(pmpcfg_octet::a), "TOR", "OFF"),
+            t(pmpcfg.is_set(pmpcfg_octet::r), "r", "-"),
+            t(pmpcfg.is_set(pmpcfg_octet::w), "w", "-"),
+            t(pmpcfg.is_set(pmpcfg_octet::x), "x", "-"),
+        )?;
+
+        write!(f, " }}\r\n")?;
+        Ok(())
+    }
+}
+
+/// Adapter from a generic PMP implementation exposing TOR-type regions to the
+/// Tock [`mpu::MPU`] trait. See [`TORUserPMP`].
+pub struct PMPUserMPU<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> {
+    /// Monotonically increasing counter for allocated configurations, used to
+    /// assign unique IDs to `PMPUserMPUConfig` instances.
+    config_count: Cell<NonZeroUsize>,
+    /// The configuration that the PMP was last configured for. Used (along with
+    /// the `is_dirty` flag) to determine if PMP can skip writing the
+    /// configuration to hardware.
+    last_configured_for: OptionalCell<NonZeroUsize>,
+    /// Underlying hardware PMP implementation, exposing a number (up to
+    /// `P::MAX_REGIONS`) of memory protection regions with a 4-byte enforcement
+    /// granularity.
+    pub pmp: P,
+}
+
+impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> PMPUserMPU<MAX_REGIONS, P> {
+    pub fn new(pmp: P) -> Self {
+        // Assigning this constant here ensures evaluation of the const
+        // expression at compile time, and can thus be used to enforce
+        // compile-time assertions based on the desired PMP configuration.
+        #[allow(clippy::let_unit_value)]
+        let _: () = P::CONST_ASSERT_CHECK;
+
+        PMPUserMPU {
+            config_count: Cell::new(NonZeroUsize::MIN),
+            last_configured_for: OptionalCell::empty(),
+            pmp,
+        }
+    }
+}
+
+impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::platform::mpu::MPU
+    for PMPUserMPU<MAX_REGIONS, P>
+{
+    // type MpuConfig = PMPUserMPUConfig<MAX_REGIONS>;
+    type Region = PMPUserRegion;
+
+    fn enable_app_mpu(&self) -> MpuEnabledCapability {
+        // TODO: This operation may fail when the PMP is not exclusively used
+        // for userspace. Instead of panicing, we should handle this case more
+        // gracefully and return an error in the `MPU` trait. Process
+        // infrastructure can then attempt to re-schedule the process later on,
+        // try to revoke some optional shared memory regions, or suspend the
+        // process.
+        self.pmp.enable_user_pmp().unwrap();
+        MpuEnabledCapability {}
+    }
+
+    fn disable_app_mpu(&self) {
+        self.pmp.disable_user_pmp()
+    }
+
+    fn number_total_regions(&self) -> usize {
+        self.pmp.available_regions()
+    }
+
+    fn configure_mpu(&self, config: &RArray<Self::Region>) {
         let mut ac_config: [Self::Region; MAX_REGIONS] =
             core::array::from_fn(|i| <Self::Region as mpu::RegionDescriptor>::default(i));
 
         // copy config over
         for i in 0..8 {
-            ac_config[i] = config[i];
+            ac_config[i] = config.get(i);
         }
 
         self.pmp.configure_pmp(&ac_config).unwrap();

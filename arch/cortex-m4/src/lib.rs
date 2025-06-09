@@ -20,6 +20,12 @@ pub use cortexm::systick;
 pub use cortexm::unhandled_interrupt;
 pub use cortexm::CortexMVariant;
 
+pub mod mpu {
+    use cortexm::mpu;
+
+    pub type MPU = mpu::MPU<8, 32>;
+}
+
 // Enum with no variants to ensure that this type is not instantiable. It is
 // only used to pass architecture-specific constants and functions via the
 // `CortexMVariant` trait.

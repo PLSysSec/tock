@@ -1,4 +1,4 @@
-use core::{cmp, fmt::Display, ptr::NonNull};
+use core::{fmt::Display, ptr::NonNull};
 
 use flux_support::capability::*;
 use flux_support::{max_ptr, max_usize, FluxPtrU8, FluxPtrU8Mut, RArray};
@@ -145,13 +145,10 @@ const FLASH_REGION_NUMBER: usize = 1;
     breaks: AppBreaks
 )]
 #[flux_rs::invariant(
-    // TODO: These invariants currently fail because they are uninterpreted functions. 
-    // The easiest fix is to inline `region_can_access` etc. directly here but this is 
-    // insanely tedious
-    // 
+    true
     // flash can access
-    true 
-    // <R as RegionDescriptor>::region_can_access(map_select(regions, FLASH_REGION_NUMBER), breaks.flash_start, breaks.flash_start + breaks.flash_size, mpu::Permissions { r: true, w: false, x: true }) &&
+    // <R as RegionDescriptor>::region_can_access(map_select(regions, FLASH_REGION_NUMBER), breaks.flash_start, breaks.flash_start + breaks.flash_size, mpu::Permissions { r: true, w: false, x: true }) 
+    // &&
     // <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, FLASH_REGION_NUMBER), 0, breaks.flash_start - 1) &&
     // <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, FLASH_REGION_NUMBER), breaks.flash_start + breaks.flash_size + 1, u32::MAX) &&
     // // ram can access
@@ -560,7 +557,9 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
                 app.breaks.memory_start >= mem_start &&
                 app.breaks.memory_start + app.breaks.memory_size <= u32::MAX &&
                 app.breaks.memory_start > 0 &&
-                app.breaks.memory_size >= kernel_mem_size
+                app.breaks.memory_size >= kernel_mem_size &&
+
+                <R as RegionDescriptor>::region_can_access(map_select(regions, FLASH_REGION_NUMBER), breaks.flash_start, breaks.flash_start + breaks.flash_size, mpu::Permissions {r: true, w: false, x: true})
             }, AllocateAppMemoryError>
         requires flash_start + flash_size < mem_start && kernel_mem_size > 0
     )]
