@@ -29,14 +29,31 @@ struct Range<Idx> {
 }
 
 #[flux_rs::extern_spec(core::ops)]
-#[generics(Self as base, T as base)]
+#[generics(Self as base, T as base, U as base)]
 #[flux_rs::assoc(fn start(self: Self) -> T)]
 #[flux_rs::assoc(fn end(self: Self) -> T)]
 trait RangeBounds<T> {
     #[flux_rs::sig(fn(&Self) -> Bound<&T>)]
     fn start_bound(&self) -> Bound<&T>;
+
     #[flux_rs::sig(fn(&Self) -> Bound<&T>)]
     fn end_bound(&self) -> Bound<&T>;
+
+    // fn contains<U>(&self, item: &U) -> bool
+    // where
+    //     T: PartialOrd<U>,
+    //     U: ?Sized + PartialOrd<T>;
+    // {
+    //     (match self.start_bound() {
+    //         Included(start) => start <= item,
+    //         Excluded(start) => start < item,
+    //         Unbounded => true,
+    //     }) && (match self.end_bound() {
+    //         Included(end) => item <= end,
+    //         Excluded(end) => item < end,
+    //         Unbounded => true,
+    //     })
+    // }
 }
 
 #[flux_rs::extern_spec(core::ops)]

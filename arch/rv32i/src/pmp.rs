@@ -5,14 +5,32 @@
 use core::cell::Cell;
 use core::fmt;
 use core::num::NonZeroUsize;
-use core::ops::Range;
 
 use crate::csr;
 use flux_support::capability::MpuEnabledCapability;
-use flux_support::{FluxPtr, FluxPtrU8, RArray};
+use flux_support::{FluxPtr, FluxPtrU8, FluxRange, RArray};
 use kernel::platform::mpu::{self, RegionDescriptor};
 use kernel::utilities::cells::OptionalCell;
 use kernel::utilities::registers::{register_bitfields, LocalRegisterCopy};
+
+flux_rs::defs! {
+
+    fn is_empty(r: PMPUserRegion) -> bool {
+        r.start >= r.end
+    }
+
+    fn contains(r: PMPUserRegion, i: int) -> bool {
+        r.start <= i && i < r.end
+    }
+
+    fn region_overlaps(r1: PMPUserRegion, r2: PMPUserRegion) -> bool {
+        r1.is_set && r2.is_set && !is_empty(r1) && !is_empty(r2) 
+            && (contains(r1, r2.start) ||
+                contains(r1, r2.end) ||
+                contains(r2, r1.start) ||
+                contains(r2, r1.end))
+    }
+}
 
 register_bitfields![u8,
     /// Generic `pmpcfg` octet.
@@ -217,6 +235,7 @@ impl TORRegionSpec {
 ///
 /// Matching the RISC-V spec this checks `pmpaddr[i-i] <= y < pmpaddr[i]` for TOR
 /// ranges.
+#[flux_rs::sig(fn (&PMPUserRegion[@r1], &PMPUserRegion[@r2]) -> bool[region_overlaps(r1, r2)])]
 fn region_overlaps(region: &PMPUserRegion, other: &PMPUserRegion) -> bool {
     // PMP TOR regions are not inclusive on the high end, that is
     //     pmpaddr[i-i] <= y < pmpaddr[i].
@@ -224,9 +243,10 @@ fn region_overlaps(region: &PMPUserRegion, other: &PMPUserRegion) -> bool {
     // This happens to coincide with the definition of the Rust half-open Range
     // type, which provides a convenient `.contains()` method:
 
+    // TODO: Use Range for real? Problem is the implementation is crazy
     let region_range = match (region.start, region.end) {
         (Some(start), Some(end)) => {
-            Range {
+            FluxRange{
                 start: start.as_usize(),
                 end: end.as_usize()
             }
@@ -236,7 +256,7 @@ fn region_overlaps(region: &PMPUserRegion, other: &PMPUserRegion) -> bool {
 
     let other_range = match (other.start, other.end) {
         (Some(start), Some(end)) => {
-            Range {
+            FluxRange {
                 start: start.as_usize(),
                 end: end.as_usize()
             }
@@ -254,9 +274,9 @@ fn region_overlaps(region: &PMPUserRegion, other: &PMPUserRegion) -> bool {
     !region_range.is_empty()
         && !other_range.is_empty()
         && (region_range.contains(&other_range.start)
-            || region_range.contains(&(other_range.end - 1))
+            || region_range.contains(&other_range.end)
             || other_range.contains(&region_range.start)
-            || other_range.contains(&(region_range.end - 1)))
+            || other_range.contains(&region_range.end))
 }
 
 /// Print a table of the configured PMP regions, read from  the HW CSRs.
@@ -570,7 +590,7 @@ impl PMPUserRegion {
 #[flux_rs::assoc(fn is_set(r: Self) -> bool { r.is_set })] 
 #[flux_rs::assoc(fn rnum(r: Self) -> int { r.region_number })]
 #[flux_rs::assoc(fn perms(r: Self) -> mpu::Permissions { r.perms })]
-#[flux_rs::assoc(fn overlaps(r1: Self, r2: Self) -> bool { false })]
+#[flux_rs::assoc(fn overlaps(r1: Self, r2: Self) -> bool { region_overlaps(r1, r2) })]
 impl RegionDescriptor for PMPUserRegion {
 
     #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::astart(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
@@ -615,8 +635,7 @@ impl RegionDescriptor for PMPUserRegion {
 
     #[flux_rs::sig(fn (&Self[@r1], &Self[@r2]) -> bool[<Self as RegionDescriptor>::overlaps(r1, r2)])]
     fn overlaps(&self, other: &Self) -> bool {
-        // region_overlaps(self, other)
-        false
+        region_overlaps(self, other)
     }
 
     #[flux_rs::sig(
