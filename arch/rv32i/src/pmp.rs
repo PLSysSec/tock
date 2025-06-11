@@ -114,8 +114,13 @@ impl From<mpu::Permissions> for TORUserPMPCFG {
 /// [`NAPOTRegionSpec::napot_addr`] convenience method to retrieve an `pmpaddrX`
 /// CSR value encoding this region's address and length.
 #[derive(Copy, Clone, Debug)]
+#[flux_rs::refined_by(start: int, size: int)]
+#[flux_rs::invariant(size > 0)]
+#[flux_rs::invariant(start + size <= usize::MAX)]
 pub struct NAPOTRegionSpec {
-    start: *const u8,
+    #[field(FluxPtrU8[start])]
+    start: FluxPtrU8,
+    #[field(usize[size])]
     size: usize,
 }
 
@@ -125,8 +130,9 @@ impl NAPOTRegionSpec {
     /// This method accepts a `start` address and a region length. It returns
     /// `Some(region)` when all constraints specified in the
     /// [`NAPOTRegionSpec`]'s documentation are satisfied, otherwise `None`.
-    pub fn new(start: *const u8, size: usize) -> Option<Self> {
-        if !size.is_power_of_two() || (start as usize) % size != 0 || size < 8 {
+    #[flux_rs::sig(fn (start: FluxPtrU8, {usize[@size] | size > 0 && start + size <= usize::MAX}) -> Option<Self>)]
+    pub fn new(start: FluxPtrU8, size: usize) -> Option<Self> {
+        if !size.is_power_of_two() || start.as_usize() % size != 0 || size < 8 {
             None
         } else {
             Some(NAPOTRegionSpec { start, size })
@@ -134,7 +140,7 @@ impl NAPOTRegionSpec {
     }
 
     /// Retrieve the start address of this [`NAPOTRegionSpec`].
-    pub fn start(&self) -> *const u8 {
+    pub fn start(&self) -> FluxPtrU8 {
         self.start
     }
 
@@ -144,7 +150,7 @@ impl NAPOTRegionSpec {
     }
 
     /// Retrieve the end address of this [`NAPOTRegionSpec`].
-    pub fn end(&self) -> *const u8 {
+    pub fn end(&self) -> FluxPtrU8 {
         unsafe { self.start.add(self.size) }
     }
 
@@ -153,7 +159,7 @@ impl NAPOTRegionSpec {
     /// a `CSR` register, the `pmpcfgX` octet's `A` (address mode) value
     /// belonging to this `pmpaddrX`-CSR must be set to `NAPOT` (0b11).
     pub fn napot_addr(&self) -> usize {
-        ((self.start as usize) + (self.size - 1).overflowing_shr(1).0)
+        (self.start.as_usize() + (self.size - 1).overflowing_shr(1).0)
             .overflowing_shr(2)
             .0
     }
@@ -217,14 +223,25 @@ fn region_overlaps(region: &PMPUserRegion, other: &PMPUserRegion) -> bool {
     //
     // This happens to coincide with the definition of the Rust half-open Range
     // type, which provides a convenient `.contains()` method:
-    let region_range = Range {
-        start: region.start.unwrap_or(FluxPtr::null()).as_usize(),
-        end: region.end.unwrap_or(FluxPtr::null()).as_usize()
+
+    let region_range = match (region.start, region.end) {
+        (Some(start), Some(end)) => {
+            Range {
+                start: start.as_usize(),
+                end: end.as_usize()
+            }
+        }
+        _ => return false
     };
 
-    let other_range = Range {
-        start: other.start.unwrap_or(FluxPtr::null()).as_usize(),
-        end: other.end.unwrap_or(FluxPtr::null()).as_usize()
+    let other_range = match (other.start, other.end) {
+        (Some(start), Some(end)) => {
+            Range {
+                start: start.as_usize(),
+                end: end.as_usize()
+            }
+        }
+        _ => return false
     };
 
     // For a range A to overlap with a range B, either B's first or B's last
@@ -301,7 +318,9 @@ pub unsafe fn format_pmp_entries<const PHYSICAL_ENTRIES: usize>(
             Some(pmpcfg_octet::a::Value::NAPOT) => {
                 let pmpaddr = csr::CSR.pmpaddr_get(i);
                 let encoded_size = pmpaddr.trailing_ones();
-                if (encoded_size as usize) < (core::mem::size_of_val(&pmpaddr) * 8 - 1) {
+                let size_of_pmp_addr = core::mem::size_of_val(&pmpaddr);
+                flux_support::assume(size_of_pmp_addr > 0);
+                if (encoded_size as usize) < (size_of_pmp_addr * 8 - 1) {
                     let start = pmpaddr - ((1 << encoded_size) - 1);
                     let end = start + (1 << (encoded_size + 1)) - 1;
                     (
@@ -1399,6 +1418,7 @@ pub mod kernel_protection {
     /// through the [`KernelProtectionPMP::CONST_ASSERT_CHECK`] associated
     /// constant, which MUST be evaluated by the consumer of the [`TORUserPMP`]
     /// trait (usually the [`PMPUserMPU`](super::PMPUserMPU) implementation).
+    #[flux_rs::invariant(AVAILABLE_ENTRIES >= 7)]
     pub struct KernelProtectionPMP<const AVAILABLE_ENTRIES: usize>;
 
     impl<const AVAILABLE_ENTRIES: usize> KernelProtectionPMP<AVAILABLE_ENTRIES> {
@@ -1465,6 +1485,8 @@ pub mod kernel_protection {
                     ),
                 );
             }
+
+            flux_support::assume(AVAILABLE_ENTRIES >= 7);
 
             // Set the kernel `.text`, flash, RAM and MMIO regions, in no
             // particular order, with the exception of `.text` and flash:
@@ -1783,6 +1805,7 @@ pub mod kernel_protection_mml_epmp {
     /// Lockdown Mode (MML) security bit. This bit is required to ensure that
     /// any machine-mode (kernel) protection regions (lock bit set) are only
     /// accessible to kernel mode.
+    #[flux_rs::invariant(AVAILABLE_ENTRIES >= 3)]
     pub struct KernelProtectionMMLEPMP<const AVAILABLE_ENTRIES: usize, const MPU_REGIONS: usize> {
         user_pmp_enabled: Cell<bool>,
         shadow_user_pmpcfgs: [Cell<TORUserPMPCFG>; MPU_REGIONS],
@@ -1860,6 +1883,7 @@ pub mod kernel_protection_mml_epmp {
                 );
             }
 
+            flux_support::assume(AVAILABLE_ENTRIES >= 3);
             // Set the kernel `.text`, flash, RAM and MMIO regions, in no
             // particular order, with the exception of `.text` and flash:
             // `.text` must precede flash, as otherwise we'd be revoking execute
