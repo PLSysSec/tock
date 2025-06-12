@@ -287,12 +287,6 @@ fn region_overlaps(region: &PMPUserRegion, other: &PMPUserRegion) -> bool {
             || other_range.contains(&region_range.end.saturating_sub(1)))
 }
 
-fn foo_bar() {
-    let region1 = PMPUserRegion::new(0, TORUserPMPCFG::OFF, FluxPtr::from(0), FluxPtr::from(1), mpu::Permissions::ReadExecuteOnly);
-    let region2 = PMPUserRegion::new(1, TORUserPMPCFG::OFF, FluxPtr::from(1), FluxPtr::from(2), mpu::Permissions::ReadExecuteOnly);
-    flux_support::assert(!region_overlaps(&region1, &region2));
-}
-
 /// Print a table of the configured PMP regions, read from  the HW CSRs.
 ///
 /// # Safety
