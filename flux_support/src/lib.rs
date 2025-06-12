@@ -7,7 +7,6 @@ mod flux_ptr;
 mod flux_range;
 mod flux_register_interface;
 mod math;
-mod range;
 use core::panic;
 pub use flux_arr::*;
 pub use flux_pair::*;

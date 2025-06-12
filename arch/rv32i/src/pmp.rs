@@ -23,12 +23,20 @@ flux_rs::defs! {
         r.start <= i && i < r.end
     }
 
+    fn saturating_sub(fst: int, snd: int) -> int {
+        if fst - snd >= 0 {
+            fst - snd
+        } else {
+            0
+        }
+    }
+
     fn region_overlaps(r1: PMPUserRegion, r2: PMPUserRegion) -> bool {
         r1.is_set && r2.is_set && !is_empty(r1) && !is_empty(r2) 
             && (contains(r1, r2.start) ||
-                contains(r1, r2.end) ||
+                contains(r1, saturating_sub(r2.end, 1)) ||
                 contains(r2, r1.start) ||
-                contains(r2, r1.end))
+                contains(r2, saturating_sub(r1.end, 1)))
     }
 }
 
@@ -274,9 +282,15 @@ fn region_overlaps(region: &PMPUserRegion, other: &PMPUserRegion) -> bool {
     !region_range.is_empty()
         && !other_range.is_empty()
         && (region_range.contains(&other_range.start)
-            || region_range.contains(&other_range.end)
+            || region_range.contains(&other_range.end.saturating_sub(1))
             || other_range.contains(&region_range.start)
-            || other_range.contains(&region_range.end))
+            || other_range.contains(&region_range.end.saturating_sub(1)))
+}
+
+fn foo_bar() {
+    let region1 = PMPUserRegion::new(0, TORUserPMPCFG::OFF, FluxPtr::from(0), FluxPtr::from(1), mpu::Permissions::ReadExecuteOnly);
+    let region2 = PMPUserRegion::new(1, TORUserPMPCFG::OFF, FluxPtr::from(1), FluxPtr::from(2), mpu::Permissions::ReadExecuteOnly);
+    flux_support::assert(!region_overlaps(&region1, &region2));
 }
 
 /// Print a table of the configured PMP regions, read from  the HW CSRs.

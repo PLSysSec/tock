@@ -39,10 +39,10 @@ trait RangeBounds<T> {
     #[flux_rs::sig(fn(&Self) -> Bound<&T>)]
     fn end_bound(&self) -> Bound<&T>;
 
-    // fn contains<U>(&self, item: &U) -> bool
-    // where
-    //     T: PartialOrd<U>,
-    //     U: ?Sized + PartialOrd<T>;
+    fn contains<U>(&self, item: &U) -> bool
+    where
+        T: PartialOrd<U>,
+        U: ?Sized + PartialOrd<T>;
     // {
     //     (match self.start_bound() {
     //         Included(start) => start <= item,

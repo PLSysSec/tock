@@ -3,5 +3,7 @@ mod mem;
 mod non_null;
 mod num;
 mod option;
+mod partial_cmp;
+mod range;
 mod result;
 mod slice;
