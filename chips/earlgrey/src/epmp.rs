@@ -9,6 +9,7 @@
 use core::cell::Cell;
 use core::fmt;
 use core::marker::PhantomData;
+use flux_support::FluxPtr;
 use kernel::platform::mpu;
 use kernel::utilities::registers::FieldValue;
 use rv32i::csr;
@@ -966,11 +967,15 @@ impl<const HANDOVER_CONFIG_CHECK: bool, DBG: EPMPDebugConfig>
             if region.tor != TORUserPMPCFG::OFF {
                 csr::CSR.pmpaddr_set(
                     DBG::TOR_USER_ENTRIES_OFFSET + (i * 2) + 0,
-                    (region.start as usize).overflowing_shr(2).0,
+                    region
+                        .start
+                        .unwrap_or(FluxPtr::from(0))
+                        .overflowing_shr(2)
+                        .0 as usize,
                 );
                 csr::CSR.pmpaddr_set(
                     DBG::TOR_USER_ENTRIES_OFFSET + (i * 2) + 1,
-                    (region.end as usize).overflowing_shr(2).0,
+                    region.end.unwrap_or(FluxPtr::from(0)).overflowing_shr(2).0 as usize,
                 );
             }
 

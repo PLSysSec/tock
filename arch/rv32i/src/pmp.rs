@@ -48,7 +48,7 @@ flux_rs::defs! {
     }
 
     fn region_overlaps(range1: PMPUserRegion, range2: PMPUserRegion) -> bool {
-        if range1.end <= range1.start || range2.end <= range2.start {
+        if !range1.is_set || !range2.is_set || is_empty(range1) || is_empty(range2) {
             false
         } else {
             max(range1.start, range2.start) < min(range1.end, range2.end)

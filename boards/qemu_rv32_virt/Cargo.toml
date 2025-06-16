@@ -15,6 +15,7 @@ sifive = { path = "../../chips/sifive" }
 rv32i = { path = "../../arch/rv32i" }
 kernel = { path = "../../kernel" }
 qemu_rv32_virt_chip = { path = "../../chips/qemu_rv32_virt_chip" }
+flux_support = { path = "../../flux_support" }
 
 capsules-core = { path = "../../capsules/core" }
 capsules-extra = { path = "../../capsules/extra" }
