@@ -23,20 +23,36 @@ flux_rs::defs! {
         r.start <= i && i < r.end
     }
 
-    fn saturating_sub(fst: int, snd: int) -> int {
-        if fst - snd >= 0 {
-            fst - snd
+    fn saturating_sub(a: int, b: int) -> int {
+        if a > b {
+            a - b
         } else {
             0
         }
     }
 
-    fn region_overlaps(r1: PMPUserRegion, r2: PMPUserRegion) -> bool {
-        r1.is_set && r2.is_set && !is_empty(r1) && !is_empty(r2) 
-            && (contains(r1, r2.start) ||
-                contains(r1, saturating_sub(r2.end, 1)) ||
-                contains(r2, r1.start) ||
-                contains(r2, saturating_sub(r1.end, 1)))
+    fn max(x: int, y: int) -> int {
+        if x > y {
+            x
+        } else {
+            y
+        }
+    }
+
+    fn min(x: int, y: int) -> int {
+        if x > y {
+            y
+        } else {
+            x
+        }
+    }
+
+    fn region_overlaps(range1: PMPUserRegion, range2: PMPUserRegion) -> bool {
+        if range1.end <= range1.start || range2.end <= range2.start {
+            false
+        } else {
+            max(range1.start, range2.start) < min(range1.end, range2.end)
+        }
     }
 }
 
@@ -295,6 +311,7 @@ fn region_overlaps(region: &PMPUserRegion, other: &PMPUserRegion) -> bool {
 /// the hardware to feature `PHYSICAL_ENTRIES` PMP CSR entries. If these
 /// conditions are not met, calling this function can result in undefinied
 /// behavior (e.g., cause a system trap).
+#[flux_rs::trusted(reason = "just used for debugging so who cares")]
 pub unsafe fn format_pmp_entries<const PHYSICAL_ENTRIES: usize>(
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result {
