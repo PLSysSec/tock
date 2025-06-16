@@ -36,6 +36,16 @@ impl From<usize> for FluxPtr {
     }
 }
 
+#[flux_rs::trusted(reason = "flux wrappers")]
+impl From<*const u8> for FluxPtr {
+    #[flux_rs::trusted(reason = "flux wrappers")]
+    fn from(value: *const u8) -> Self {
+        FluxPtr {
+            inner: value as *mut u8,
+        }
+    }
+}
+
 impl From<NonNull<u8>> for FluxPtr {
     #[flux_rs::sig(fn (value: NonNull<u8>) -> FluxPtr[value])]
     #[flux_rs::trusted(reason = "flux wrappers")]
@@ -206,6 +216,12 @@ impl PartialEq for FluxPtr {
     #[flux_rs::trusted(reason = "flux wrappers")]
     #[flux_rs::sig(fn (&Self[@x], &Self[@y]) -> bool[x == y])]
     fn eq(&self, other: &Self) -> bool {
+        self.inner == other.inner
+    }
+
+    #[flux_rs::trusted(reason = "flux wrappers")]
+    #[flux_rs::sig(fn (&Self[@x], &Self[@y]) -> bool[x != y])]
+    fn ne(&self, other: &Self) -> bool {
         self.inner == other.inner
     }
 }

@@ -17,7 +17,7 @@ use core::{mem, str};
 use flux_support::*;
 use flux_support::capability::*;
 
-use crate::allocator::{self, AppMemoryAllocator, IntoCortexMPU};
+use crate::allocator::{self, AppMemoryAllocator};
 use crate::collections::queue::Queue;
 use crate::collections::ring_buffer::RingBuffer;
 use crate::config;
@@ -25,7 +25,7 @@ use crate::debug;
 use crate::errorcode::ErrorCode;
 use crate::kernel::Kernel;
 use crate::platform::chip::Chip;
-use crate::platform::mpu::{self};
+use crate::platform::mpu::{self, MPU};
 use crate::process::BinaryVersion;
 use crate::process::ProcessBinary;
 use crate::process::{Error, FunctionCall, FunctionCallSource, Process, Task};
@@ -159,7 +159,7 @@ pub struct ProcessStandard<'a, C: 'static + Chip> {
     // breaks and corresponding configuration
     // refinement says that these are the same
     // breaks_and_config: MapCell<BreaksAndMPUConfig<C>>,
-    app_memory_allocator: MapCell<AppMemoryAllocator>,
+    app_memory_allocator: MapCell<AppMemoryAllocator<<<C as Chip>::MPU as mpu::MPU>::Region>>,
 
     /// Reference to the slice of `GrantPointerEntry`s stored in the process's
     /// memory reserved for the kernel. These driver numbers are zero and
@@ -529,12 +529,8 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
 
     fn setup_mpu(&self) -> MpuConfiguredCapability {
         self.app_memory_allocator
-            .map_or(Err(()), |am| match self.chip.mpu().into_cortex_mpu() {
-                allocator::CortexMpuTypes::Sixteen(mpu) => {
-                    Ok(am.configure_mpu(mpu))
-            }
-                allocator::CortexMpuTypes::Eight(mpu) => Ok(am.configure_mpu(mpu))
-            }).expect("Fatal kernel bug in setting up MPU - cannot branch to process as it would be unsafe")
+            .map_or(Err(()), |am| Ok(am.configure_mpu(self.chip.mpu())))
+            .expect("Fatal kernel bug in setting up MPU - cannot branch to process as it would be unsafe")
     }
 
     fn add_mpu_region(&self, start: FluxPtrU8, size: usize) -> Option<mpu::Region> {
@@ -673,6 +669,26 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
                     Ok(app_mem.add_shared_readonly_buffer(buf_start_addr, size))
                 })
                 .map_err(|_| ErrorCode::INVAL)?;
+            //     if self
+            //     .in_app_owned_memory(buf_start_addr, size)
+            //     .map_err(|_| ErrorCode::FAIL)?
+            //     || self.in_app_flash_memory(buf_start_addr, size)
+            // {
+            //     // TODO: Check for buffer aliasing here
+
+            //     if self
+            //         .in_app_owned_memory(buf_start_addr, size)
+            //         .map_err(|_| ErrorCode::FAIL)?
+            //     {
+            //         // Valid buffer, and since this is in read-write memory (i.e.
+            //         // not flash), we need to adjust the process's watermark. Note:
+            //         // `in_app_owned_memory()` ensures this offset does not wrap.
+
+            //         self.breaks_and_config
+            //             .map_or(Err(ErrorCode::FAIL), |breaks_and_config| {
+            //                 Ok(breaks_and_config.set_high_water_mark_to_buf_end(buf_end_addr))
+            //             })?;
+            //     }
 
             // Clippy complains that we're dereferencing a pointer in a public
             // and safe function here. While we are not dereferencing the
@@ -924,9 +940,12 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
     fn is_valid_upcall_function_pointer(&self, upcall_fn: NonNull<()>) -> Result<bool, ()> {
         let ptr = upcall_fn.as_fluxptr();
         let size = mem::size_of::<FluxPtrU8Mut>();
-        self.app_memory_allocator.map_or(Err(()), |am| {
-            Ok(am.is_valid_upcall_function_pointer(ptr, size))
-        })
+
+        // It is okay if this function is in memory or flash.
+        Ok(
+            self.in_app_flash_memory(ptr, size).ok_or(())?
+                || self.in_app_owned_memory(ptr, size)?,
+        )
     }
 
     fn get_process_name(&self) -> &'static str {
@@ -1094,8 +1113,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
                     .flash_start()
                     .wrapping_add(self.header.get_protected_size() as usize)
                     .as_usize(),
-                flash_integrity_end: (am.flash_start().as_u32() + self.header.get_binary_end())
-                    as usize,
+                flash_integrity_end: am.flash_start().as_usize() + self.header.get_binary_end() as usize,
                 flash_end: am.flash_end().as_usize(),
                 sram_start: am.memory_start().as_usize(),
                 sram_app_brk: am.app_break().as_usize(),
@@ -1180,7 +1198,9 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
 
         // Display the current state of the MPU for this process.
         self.app_memory_allocator.map(|am| {
-            let _ = writer.write_fmt(format_args!("{}", am.regions));
+            for region in am.regions.iter() {
+                let _ = writer.write_fmt(format_args!("{}", region));
+            }
         });
 
         // Print a helpful message on how to re-compile a process to view the
@@ -1201,6 +1221,8 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
                 ));
             } else {
                 // PIC, need to specify the addresses.
+                let sram_start = self.mem_start()?.as_usize();
+                let flash_start = self.flash_start()?.as_usize();
                 let sram_start = self.mem_start()?.as_usize();
                 let flash_start = self.flash_start()?.as_usize();
                 let flash_init_fn = flash_start + self.header.get_init_function_offset() as usize;
@@ -1401,8 +1423,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         } = mem_slices_to_raw_ptrs(pb.flash, remaining_memory);
 
         // Initialize MPU region configuration.
-
-        let app_memory_alloc = match AppMemoryAllocator::new_app_alloc(
+        let app_memory_alloc = match AppMemoryAllocator::allocate_app_memory(
             remaining_mem_ptrs.start,
             remaining_mem_ptrs.len,
             min_total_memory_size,
@@ -1749,8 +1770,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let initial_kernel_memory_size =
             grant_ptrs_offset + Self::CALLBACKS_OFFSET + Self::PROCESS_STRUCT_OFFSET;
 
-        let maybe_app_mem_alloc = AppMemoryAllocator::new_app_alloc(
-            app_breaks.memory_start,
+        let maybe_app_mem_alloc = AppMemoryAllocator::allocate_app_memory(
+app_breaks.memory_start,
             app_breaks.memory_size,
             min_process_memory_size,
             min_process_memory_size,
@@ -1758,7 +1779,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             app_breaks.flash_start,
             app_breaks.flash_size,
         );
-        let app_mem_alloc = match maybe_app_mem_alloc {
+        let app_mem_alloc: AppMemoryAllocator<<<C as Chip>::MPU as mpu::MPU>::Region> = match maybe_app_mem_alloc {
             Ok(breaks_and_size) => breaks_and_size,
             Err(allocator::AllocateAppMemoryError::FlashError) => {
                 return Err(ErrorCode::FAIL);
@@ -1824,7 +1845,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         }))
     }
 
-    #[flux_rs::trusted(reason = "unsafe assignment caused by extern spec: https://github.com/flux-rs/flux/issues/782")] 
+    #[flux_rs::trusted] // https://github.com/flux-rs/flux/issues/782
     fn update_debug_sp(&self, stack_pointer: Option<FluxPtrU8>) {
         if let Some(sp) = stack_pointer {
             self.debug.map(|debug| {
@@ -1839,6 +1860,31 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
                 }
             });
         }
+    }
+
+    /// Checks if the buffer represented by the passed in base pointer and size
+    /// is within the RAM bounds currently exposed to the processes (i.e. ending
+    /// at `app_break`). If this method returns `true`, the buffer is guaranteed
+    /// to be accessible to the process and to not overlap with the grant
+    /// region.
+    fn in_app_owned_memory(&self, buf_start_addr: FluxPtrU8Mut, size: usize) -> Result<bool, ()> {
+        let buf_end_addr = buf_start_addr.wrapping_add(size);
+        self.app_memory_allocator.map_or(Err(()), |am| {
+            Ok(am.in_app_ram_memory(buf_start_addr, buf_end_addr))
+        })
+    }
+
+    /// Checks if the buffer represented by the passed in base pointer and size
+    /// are within the readable region of an application's flash memory.  If
+    /// this method returns true, the buffer is guaranteed to be readable to the
+    /// process.
+    fn in_app_flash_memory(&self, buf_start_addr: FluxPtrU8Mut, size: usize) -> Option<bool> {
+        let buf_end_addr = buf_start_addr.wrapping_add(size);
+        Some(
+            buf_end_addr >= buf_start_addr
+                && buf_start_addr >= self.flash_non_protected_start()?
+                && buf_end_addr <= self.flash_end()?,
+        )
     }
 
     /// Reset all `grant_ptr`s to NULL.
@@ -1893,6 +1939,19 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     fn flash_start(&self) -> Option<FluxPtrU8Mut> {
         self.app_memory_allocator
             .map_or(None, |am| Some(am.flash_start()))
+    }
+
+    /// Get the first address of process's flash that isn't protected by the
+    /// kernel. The protected range of flash contains the TBF header and
+    /// potentially other state the kernel is storing on behalf of the process,
+    /// and cannot be edited by the process.
+    fn flash_non_protected_start(&self) -> Option<FluxPtrU8Mut> {
+        self.app_memory_allocator.map_or(None, |am| {
+            Some(
+                am.flash_start()
+                    .wrapping_add(self.header.get_protected_size() as usize),
+            )
+        })
     }
 
     /// The first address after the end of the flash region allocated for this

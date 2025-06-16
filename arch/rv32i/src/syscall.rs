@@ -9,6 +9,7 @@ use core::mem::size_of;
 use core::ops::Range;
 
 use crate::csr::mcause;
+use flux_support::capability::*;
 use flux_support::*;
 use kernel::errorcode::ErrorCode;
 use kernel::syscall::ContextSwitchReason;
@@ -215,11 +216,12 @@ impl kernel::syscall::UserspaceKernelBoundary for SysCall {
     #[cfg(not(all(target_arch = "riscv32", target_os = "none")))]
     unsafe fn switch_to_process(
         &self,
-        _accessible_memory_start: FluxPtr,
-        _app_brk: FluxPtr,
+        _mpu_configured_capability: MpuConfiguredCapability,
+        _mpu_enabled_capability: MpuEnabledCapability,
         _state: &mut Riscv32iStoredState,
     ) -> (ContextSwitchReason, Option<FluxPtr>) {
         // Convince lint that 'mcause' and 'R_A4' are used during test build
+
         let _cause = mcause::Trap::from(_state.mcause as usize);
         let _arg4 = _state.regs[R_A4];
         unimplemented!()

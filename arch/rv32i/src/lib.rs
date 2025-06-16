@@ -16,8 +16,11 @@ use core::arch::global_asm;
 
 use kernel::utilities::registers::interfaces::{Readable, Writeable};
 
+#[flux_rs::ignore]
 pub mod clic;
+#[flux_rs::ignore]
 pub mod machine_timer;
+
 pub mod pmp;
 #[flux_rs::ignore]
 pub mod support;

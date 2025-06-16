@@ -921,7 +921,7 @@ impl<'a, C: Chip> DeferredCallClient for SequentialProcessLoaderMachine<'a, C> {
 impl<'a, C: Chip> crate::process_checker::ProcessCheckerMachineClient
     for SequentialProcessLoaderMachine<'a, C>
 {
-    #[flux_rs::trusted(reason = "ICE: expected array or slice type `checker.rs:1188`")] 
+    #[flux_rs::trusted(reason = "ICE: expected array or slice type `checker.rs:1188`")]
     fn done(
         &self,
         process_binary: ProcessBinary,

@@ -5,10 +5,10 @@
 //! Interface for configuring the Memory Protection Unit.
 
 use core::fmt::{self, Display};
+use flux_support::capability::*;
 #[allow(clippy::wildcard_imports)]
 use flux_support::*;
 
-/// User mode access permissions.
 #[derive(Copy, Clone, Debug)]
 #[flux_rs::refined_by(r: bool, w: bool, x: bool)]
 pub enum Permissions {
@@ -24,69 +24,21 @@ pub enum Permissions {
     ExecuteOnly,
 }
 
-#[flux_rs::refined_by(memory_start: int, app_break: int)]
-pub struct AllocatedAppBreaks {
-    #[field(FluxPtrU8[memory_start])]
-    pub memory_start: FluxPtrU8,
-    #[field(FluxPtrU8[app_break])]
-    pub app_break: FluxPtrU8,
-}
-
-impl AllocatedAppBreaks {
-    #[flux_rs::sig(fn (FluxPtrU8[@memory_start], FluxPtrU8[@app_break]) -> AllocatedAppBreaks[memory_start, app_break])]
-    pub fn new(memory_start: FluxPtrU8, app_break: FluxPtrU8) -> Self {
-        Self {
-            memory_start,
-            app_break,
-        }
-    }
-}
-
-#[flux_rs::refined_by(memory_start: int, app_break: int, memory_size: int)]
-pub struct AllocatedAppBreaksAndSize {
-    #[field(AllocatedAppBreaks[memory_start, app_break])]
-    pub breaks: AllocatedAppBreaks,
-    #[field(usize[memory_size])]
-    pub memory_size: usize,
-}
-
-impl AllocatedAppBreaksAndSize {
-    #[flux_rs::sig(fn (FluxPtrU8[@memory_start], FluxPtrU8[@app_break], memory_size: usize) -> AllocatedAppBreaksAndSize[memory_start, app_break, memory_size])]
-    pub fn new(memory_start: FluxPtrU8, app_break: FluxPtrU8, memory_size: usize) -> Self {
-        Self {
-            breaks: AllocatedAppBreaks::new(memory_start, app_break),
-            memory_size,
-        }
-    }
-}
-
-pub enum AllocateAppMemoryError {
-    HeapError,
-    FlashError,
-}
-
-/// MPU region.
-///
-/// This is one contiguous address space protected by the MPU.
 #[derive(Copy, Clone, PartialEq, Eq)]
-#[flux_rs::refined_by(ptr: int, sz: int)]
 pub struct Region {
     /// The memory address where the region starts.
     ///
     /// For maximum compatibility, we use a u8 pointer, however, note that many
     /// memory protection units have very strict alignment requirements for the
     /// memory regions protected by the MPU.
-    #[flux_rs::field(FluxPtrU8Mut[ptr])]
     start_address: FluxPtrU8Mut,
 
     /// The number of bytes of memory in the MPU region.
-    #[flux_rs::field(usize[sz])]
     size: usize,
 }
 
 impl Region {
     /// Create a new MPU region with a given starting point and length in bytes.
-    #[flux_rs::sig(fn (FluxPtrU8Mut[@start], usize[@size]) -> Region[start, size])]
     pub fn new(start_address: FluxPtrU8Mut, size: usize) -> Region {
         Region {
             start_address,
@@ -105,42 +57,322 @@ impl Region {
     }
 }
 
+#[flux_rs::opaque]
+#[flux_rs::refined_by(start: int, size: int, permissions: Permissions)]
+#[derive(Clone, Copy)]
+struct DefaultGhost {}
+
+#[flux_rs::trusted(reason = "opaque wrapper")]
+impl DefaultGhost {
+    #[flux_rs::sig(fn (start: FluxPtrU8, size: usize, perms: Permissions) -> Self[start, size, perms])]
+    pub fn new(start: FluxPtrU8, size: usize, perms: Permissions) -> Self {
+        Self {}
+    }
+
+    pub fn empty() -> Self {
+        Self {}
+    }
+}
+
 /// Null type for the default type of the `MpuConfig` type in an implementation
 /// of the `MPU` trait. This custom type allows us to implement `Display` with
 /// an empty implementation to meet the constraint on `type MpuConfig`.
-pub struct MpuConfigDefault;
+#[derive(Clone, Copy)]
+#[flux_rs::refined_by(start: int, size: int, perms: Permissions, is_set: bool, rnum: int)]
+pub struct MpuRegionDefault {
+    #[field(Option<FluxPtrU8[start]>[is_set])]
+    start: Option<FluxPtrU8>,
+    #[field(Option<usize[size]>[is_set])]
+    size: Option<usize>,
+    #[field(Option<Permissions[perms]>[is_set])]
+    perms: Option<Permissions>,
+    #[field(usize[rnum])]
+    region_number: usize,
+    #[field(DefaultGhost[start, size, perms])]
+    _ghost: DefaultGhost,
+}
 
-impl Display for MpuConfigDefault {
+impl Display for MpuRegionDefault {
     fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Ok(())
+    }
+}
+
+#[flux_rs::assoc(fn astart(r: Self) -> int)]
+#[flux_rs::assoc(fn rstart(r: Self) -> int)]
+#[flux_rs::assoc(fn asize(r: Self) -> int)]
+#[flux_rs::assoc(fn rsize(r: Self) -> int)]
+#[flux_rs::assoc(fn is_set(r: Self) -> bool)]
+#[flux_rs::assoc(fn rnum(r: Self) -> int)]
+#[flux_rs::assoc(fn perms(r: Self) -> Permissions)]
+#[flux_rs::assoc(fn region_can_access(r: Self, start: int, end: int, perms: Permissions) -> bool {
+    <Self as RegionDescriptor>::is_set(r) &&
+    start >= <Self as RegionDescriptor>::astart(r) &&
+    end <= <Self as RegionDescriptor>::astart(r) + <Self as RegionDescriptor>::asize(r) &&
+    perms == <Self as RegionDescriptor>::perms(r)
+})]
+#[flux_rs::assoc(fn region_cant_access_at_all(r: Self, start: int, end: int) -> bool {
+    !<Self as RegionDescriptor>::is_set(r) || 
+    !(<Self as RegionDescriptor>::astart(r) < start && start < <Self as RegionDescriptor>::astart(r) + <Self as RegionDescriptor>::asize(r))
+})]
+#[flux_rs::assoc(fn overlaps(r1: Self, r2: Self) -> bool)]
+pub trait RegionDescriptor: core::marker::Sized {
+    #[flux_rs::sig(fn (rnum: usize) -> Self {r: !<Self as RegionDescriptor>::is_set(r) && <Self as RegionDescriptor>::rnum(r) == rnum})]
+    fn default(region_num: usize) -> Self;
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::astart(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
+    fn accessible_start(&self) -> Option<FluxPtrU8>;
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::rstart(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
+    fn region_start(&self) -> Option<FluxPtrU8>;
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::asize(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
+    fn accessible_size(&self) -> Option<usize>;
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::rsize(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
+    fn region_size(&self) -> Option<usize>;
+
+    #[flux_rs::sig(fn (&Self[@r]) -> bool[<Self as RegionDescriptor>::is_set(r)])]
+    fn is_set(&self) -> bool;
+
+    #[flux_rs::sig(fn (&Self[@r1], &Self[@r2]) -> bool[<Self as RegionDescriptor>::overlaps(r1, r2)])]
+    fn overlaps(&self, other: &Self) -> bool;
+
+    /// Deals with the alignment, size, and other constraints of the specific
+    /// MPU to create a new region.
+    ///
+    /// Returns None if the MPU cannot allocate a region with the passed
+    /// constraints
+    #[flux_rs::sig(fn (
+        region_number: usize,
+        available_start: FluxPtrU8,
+        available_size: usize,
+        region_size: usize,
+        permissions: Permissions,
+    ) -> Option<{r. Self[r] | 
+        <Self as RegionDescriptor>::is_set(r) &&
+        <Self as RegionDescriptor>::perms(r) == permissions &&
+        <Self as RegionDescriptor>::rnum(r) == region_number &&
+        <Self as RegionDescriptor>::astart(r) >= available_start &&
+        <Self as RegionDescriptor>::astart(r) == <Self as RegionDescriptor>::rstart(r) &&
+        <Self as RegionDescriptor>::astart(r) + <Self as RegionDescriptor>::asize(r) <= available_start + available_size &&
+        <Self as RegionDescriptor>::asize(r) >= region_size
+    }> requires region_number < 8)]
+    fn create_bounded_region(
+        region_number: usize,
+        available_start: FluxPtrU8,
+        available_size: usize,
+        region_size: usize,
+        permissions: Permissions,
+    ) -> Option<Self>;
+
+    #[flux_rs::sig(fn (
+        region_start: FluxPtrU8,
+        available_size: usize,
+        region_size: usize,
+        region_number: usize,
+        permissions: Permissions,
+    ) -> Option<{r. Self[r] | 
+        <Self as RegionDescriptor>::is_set(r) &&
+        <Self as RegionDescriptor>::rnum(r) == region_number &&
+        <Self as RegionDescriptor>::perms(r) == permissions &&
+        <Self as RegionDescriptor>::astart(r) == region_start &&
+        <Self as RegionDescriptor>::rstart(r) == region_start &&
+        <Self as RegionDescriptor>::astart(r) + <Self as RegionDescriptor>::asize(r) <= region_start + available_size &&
+        <Self as RegionDescriptor>::asize(r)  >= region_size
+    }> requires region_number < 8)]
+    fn update_region(
+        region_start: FluxPtrU8,
+        available_size: usize,
+        region_size: usize,
+        region_number: usize,
+        permissions: Permissions,
+    ) -> Option<Self>;
+
+    #[flux_rs::sig(
+        fn (
+            region_number: usize,
+            start: FluxPtrU8,
+            size: usize,
+            permissions: Permissions,
+        ) -> Option<{r. Self[r] | 
+                <Self as RegionDescriptor>::is_set(r) &&
+                <Self as RegionDescriptor>::rnum(r) == region_number &&
+                <Self as RegionDescriptor>::perms(r) == permissions &&
+                <Self as RegionDescriptor>::astart(r) == start &&
+                <Self as RegionDescriptor>::astart(r) + <Self as RegionDescriptor>::asize(r) == start + size
+            }>
+        requires region_number < 8
+    )]
+    fn create_exact_region(
+        region_number: usize,
+        start: FluxPtrU8,
+        size: usize,
+        permissions: Permissions,
+    ) -> Option<Self>;
+
+}
+
+#[flux_rs::assoc(fn astart(r: Self) -> int { r.start })]
+#[flux_rs::assoc(fn rstart(r: Self) -> int { r.start })]
+#[flux_rs::assoc(fn asize(r: Self) -> int { r.size })]
+#[flux_rs::assoc(fn rsize(r: Self) -> int { r.size })]
+#[flux_rs::assoc(fn is_set(r: Self) -> bool { r.is_set })]
+#[flux_rs::assoc(fn rnum(r: Self) -> int { r.rnum })]
+#[flux_rs::assoc(fn perms(r: Self) -> Permissions { r.perms })]
+#[flux_rs::assoc(fn overlaps(region1: Self, region2: Self) -> bool {
+    false
+})]
+impl RegionDescriptor for MpuRegionDefault {
+    #[flux_rs::sig(fn (rnum: usize) -> Self {r: !<Self as RegionDescriptor>::is_set(r) && <Self as RegionDescriptor>::rnum(r) == rnum})]
+    fn default(num: usize) -> Self {
+        Self {
+            start: None,
+            size: None,
+            region_number: num,
+            perms: None,
+            _ghost: DefaultGhost::empty(),
+        }
+    }
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::astart(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
+    fn accessible_start(&self) -> Option<FluxPtrU8> {
+        self.start
+    }
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::rstart(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
+    fn region_start(&self) -> Option<FluxPtrU8> {
+        self.start
+    }
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::asize(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
+    fn accessible_size(&self) -> Option<usize> {
+        self.size
+    }
+
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::rsize(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
+    fn region_size(&self) -> Option<usize> {
+        self.size
+    }
+
+    #[flux_rs::sig(fn (&Self[@r]) -> bool[<Self as RegionDescriptor>::is_set(r)])]
+    fn is_set(&self) -> bool {
+        self.start.is_some()
+    }
+    #[flux_rs::sig(fn (&Self[@r1], &Self[@r2]) -> bool[<Self as RegionDescriptor>::overlaps(r1, r2)])]
+    fn overlaps(&self, _other: &Self) -> bool {
+        false
+    }
+
+    #[flux_rs::sig(fn (
+        region_number: usize,
+        available_start: FluxPtrU8,
+        available_size: usize,
+        region_size: usize,
+        permissions: Permissions,
+    ) -> Option<{r. Self[r] | 
+        <MpuRegionDefault as RegionDescriptor>::is_set(r) &&
+        <MpuRegionDefault as RegionDescriptor>::rnum(r) == region_number &&
+        <MpuRegionDefault as RegionDescriptor>::perms(r) == permissions && 
+        <MpuRegionDefault as RegionDescriptor>::astart(r) >= available_start &&
+        <MpuRegionDefault as RegionDescriptor>::astart(r) == <MpuRegionDefault as RegionDescriptor>::rstart(r) &&
+        <MpuRegionDefault as RegionDescriptor>::astart(r) + <MpuRegionDefault as RegionDescriptor>::asize(r) <= available_start + available_size &&
+        <MpuRegionDefault as RegionDescriptor>::asize(r) >= region_size
+    }>)]
+    fn create_bounded_region(
+        region_number: usize,
+        available_start: FluxPtrU8,
+        available_size: usize,
+        region_size: usize,
+        permissions: Permissions,
+    ) -> Option<Self> {
+        if region_size > available_size {
+            None
+        } else {
+            Some(MpuRegionDefault {
+                start: Some(available_start),
+                size: Some(region_size),
+                perms: Some(permissions),
+                region_number,
+                _ghost: DefaultGhost::new(available_start, region_size, permissions),
+            })
+        }
+    }
+
+    #[flux_rs::sig(fn (
+        region_start: FluxPtrU8,
+        available_size: usize,
+        region_size: usize,
+        region_number: usize,
+        permissions: Permissions,
+    ) -> Option<{r. Self[r] | 
+        <MpuRegionDefault as RegionDescriptor>::is_set(r) &&
+        <MpuRegionDefault as RegionDescriptor>::rnum(r) == region_number &&
+        <MpuRegionDefault as RegionDescriptor>::perms(r) == permissions &&
+        <MpuRegionDefault as RegionDescriptor>::astart(r) == region_start &&
+        <MpuRegionDefault as RegionDescriptor>::rstart(r) == region_start &&
+        <MpuRegionDefault as RegionDescriptor>::astart(r) + <MpuRegionDefault as RegionDescriptor>::asize(r) <= region_start + available_size &&
+        <MpuRegionDefault as RegionDescriptor>::asize(r)  >= region_size
+    }>)]
+    fn update_region(
+        region_start: FluxPtrU8,
+        available_size: usize,
+        region_size: usize,
+        region_number: usize,
+        permissions: Permissions,
+    ) -> Option<Self> {
+        if region_size > available_size {
+            None
+        } else {
+            Some(MpuRegionDefault {
+                start: Some(region_start),
+                size: Some(region_size),
+                perms: Some(permissions),
+                region_number,
+                _ghost: DefaultGhost::new(region_start, region_size, permissions),
+            })
+        }
+    }
+
+    #[flux_rs::sig(
+        fn (
+            region_number: usize,
+            start: FluxPtrU8,
+            size: usize,
+            permissions: Permissions,
+        ) -> Option<{r. Self[r] | 
+                <MpuRegionDefault as RegionDescriptor>::is_set(r) &&
+                <MpuRegionDefault as RegionDescriptor>::rnum(r) == region_number &&
+                <MpuRegionDefault as RegionDescriptor>::perms(r) == permissions &&
+                <MpuRegionDefault as RegionDescriptor>::astart(r) == start &&
+                <MpuRegionDefault as RegionDescriptor>::astart(r) + <MpuRegionDefault as RegionDescriptor>::asize(r) == start + size
+            }>
+    )]
+    fn create_exact_region(
+        region_number: usize,
+        start: FluxPtrU8,
+        size: usize,
+        permissions: Permissions,
+    ) -> Option<Self> {
+        Some(MpuRegionDefault {
+            start: Some(start),
+            size: Some(size),
+            perms: Some(permissions),
+            region_number,
+            _ghost: DefaultGhost::new(start, size, permissions),
+        })
     }
 }
 
 /// The generic trait that particular memory protection unit implementations
 /// need to implement.
 ///
-/// This trait is a blend of relatively generic MPU functionality that should be
-/// common across different MPU implementations, and more specific requirements
-/// that Tock needs to support protecting applications. While a less
-/// Tock-specific interface may be desirable, due to the sometimes complex
-/// alignment rules and other restrictions imposed by MPU hardware, some of the
-/// Tock details have to be passed into this interface. That allows the MPU
-/// implementation to have more flexibility when satisfying the protection
-/// requirements, and also allows the MPU to specify some addresses used by the
-/// kernel when deciding where to place certain application memory regions so
-/// that the MPU can appropriately provide protection for those memory regions.
-
-// VTOCK-TODO: remove default associated refinements
-#[flux_rs::assoc(fn enabled(self: Self) -> bool {false} )]
-#[flux_rs::assoc(fn configured_for(self: Self, config: Self::MpuConfig) -> bool)]
-#[flux_rs::assoc(fn config_can_access_flash(c: Self::MpuConfig, fstart: int, fend: int) -> bool)]
-#[flux_rs::assoc(fn config_can_access_heap(c: Self::MpuConfig, hstart: int, hend: int) -> bool)]
-#[flux_rs::assoc(fn config_cant_access_at_all(c: Self::MpuConfig, start: int, end: int) -> bool)]
-// #[flux_rs::assoc(fn ipc_cant_access_process_mem(c: Self::MpuConfig, fstart: int, fend: int, hstart: int, hend: int) -> bool)]
+/// This trait is implements generic MPU functionality that is common across different
+/// MPU implementations.
 pub trait MPU {
-    /// MPU-specific state that defines a particular configuration for the MPU.
+    /// MPU-specific state that defines a region for the MPU.
     /// That is, this should contain all of the required state such that the
-    /// implementation can be passed an object of this type and it should be
+    /// implementation can be passed an array of of this type and it should be
     /// able to correctly and entirely configure the MPU.
     ///
     /// This state will be held on a per-process basis as a way to cache all of
@@ -150,246 +382,25 @@ pub trait MPU {
     /// It is `Default` so we can create empty state when the process is
     /// created, and `Display` so that the `panic!()` output can display the
     /// current state to help with debugging.
-    type MpuConfig: Display;
+    type Region: RegionDescriptor + Display + Copy;
 
     /// Enables the MPU for userspace apps.
     ///
     /// This function must enable the permission restrictions on the various
     /// regions protected by the MPU.
-    // #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{r: <Self as MPU>::enabled(r)})]
-    fn enable_app_mpu(&mut self);
+    fn enable_app_mpu(&self) -> MpuEnabledCapability;
 
-    /// Disables the MPU for userspace apps.
-    ///
+    /// Disables the MPU for userspace apps.  ///
     /// This function must disable any access control that was previously setup
     /// for an app if it will interfere with the kernel.
     /// This will be called before the kernel starts to execute as on some
     /// platforms the MPU rules apply to privileged code as well, and therefore
     /// some of the MPU configuration must be disabled for the kernel to effectively
     /// manage processes.
-    // #[flux_rs::sig(fn(self: &strg Self) ensures self: Self{r: !<Self as MPU>::enabled(r)})]
-    fn disable_app_mpu(&mut self);
+    fn disable_app_mpu(&self);
 
     /// Returns the maximum number of regions supported by the MPU.
     fn number_total_regions(&self) -> usize;
-
-    /// Creates a new empty MPU configuration.
-    ///
-    /// The returned configuration must not have any userspace-accessible
-    /// regions pre-allocated.
-    ///
-    /// The underlying implementation may only be able to allocate a finite
-    /// number of MPU configurations. It may return `None` if this resource is
-    /// exhausted.
-    #[flux_rs::sig(fn (_) -> Option<{c. Self::MpuConfig[c] | <Self as MPU>::config_cant_access_at_all(c, 0, u32::MAX)}>)]
-    fn new_config(&self) -> Option<Self::MpuConfig>;
-
-    /// Resets an MPU configuration.
-    ///
-    /// This method resets an MPU configuration to its initial state, as
-    /// returned by [`MPU::new_config`]. After invoking this operation, it must
-    /// not have any userspace-acessible regions pre-allocated.
-    #[flux_rs::sig(fn (_, config: &strg Self::MpuConfig) ensures config: Self::MpuConfig {c: <Self as MPU>::config_cant_access_at_all(c, 0, u32::MAX)})]
-    fn reset_config(&self, config: &mut Self::MpuConfig);
-
-    /// Allocates a new MPU region.
-    ///
-    /// An implementation must allocate an MPU region at least `min_region_size`
-    /// bytes in size within the specified stretch of unallocated memory, and
-    /// with the specified user mode permissions, and store it in `config`. The
-    /// allocated region may not overlap any of the regions already stored in
-    /// `config`.
-    ///
-    /// # Arguments
-    ///
-    /// - `unallocated_memory_start`: start of unallocated memory
-    /// - `unallocated_memory_size`:  size of unallocated memory
-    /// - `min_region_size`:          minimum size of the region
-    /// - `permissions`:              permissions for the region
-    /// - `config`:                   MPU region configuration
-    ///
-    /// # Return Value
-    ///
-    /// Returns the start and size of the allocated MPU region. If it is
-    /// infeasible to allocate the MPU region, returns None.
-    #[flux_rs::sig(fn(
-        _,
-        FluxPtrU8[@memstart],
-        usize[@memsz],
-        usize[@minsz],
-        Permissions[@perms],
-        &mut Self::MpuConfig,
-    ) -> Option<Region>
-        requires minsz > 0 && minsz <= u32::MAX / 2 + 1 && memsz <= u32::MAX / 2 + 1 && memstart <= u32::MAX / 2 + 1
-    )]
-    fn allocate_region(
-        &self,
-        unallocated_memory_start: FluxPtrU8Mut,
-        unallocated_memory_size: usize,
-        min_region_size: usize,
-        permissions: Permissions,
-        config: &mut Self::MpuConfig,
-    ) -> Option<Region>;
-
-    /// Removes an MPU region within app-owned memory.
-    ///
-    /// An implementation must remove the MPU region that matches the region parameter if it exists.
-    /// If there is not a region that matches exactly, then the implementation may return an Error.
-    /// Implementors should not remove the app_memory_region and should return an Error if that
-    /// region is supplied.
-    ///
-    /// # Arguments
-    ///
-    /// - `region`:    a region previously allocated with `allocate_region`
-    /// - `config`:    MPU region configuration
-    ///
-    /// # Return Value
-    ///
-    /// Returns an error if the specified region is not exactly mapped to the process as specified
-    fn remove_memory_region(&self, region: Region, config: &mut Self::MpuConfig) -> Result<(), ()>;
-
-    /// Chooses the location for a process's memory, and allocates an MPU region
-    /// covering the app-owned part.
-    ///
-    /// An implementation must choose a contiguous block of memory that is at
-    /// least `min_memory_size` bytes in size and lies completely within the
-    /// specified stretch of unallocated memory.
-    ///
-    /// It must also allocate an MPU region with the following properties:
-    ///
-    /// 1. The region covers at least the first `initial_app_memory_size` bytes
-    ///    at the beginning of the memory block.
-    /// 2. The region does not overlap the last `initial_kernel_memory_size`
-    ///    bytes.
-    /// 3. The region has the user mode permissions specified by `permissions`.
-    ///
-    /// The end address of app-owned memory will increase in the future, so the
-    /// implementation should choose the location of the process memory block
-    /// such that it is possible for the MPU region to grow along with it. The
-    /// implementation must store the allocated region in `config`. The
-    /// allocated region may not overlap any of the regions already stored in
-    /// `config`.
-    ///
-    /// # Arguments
-    ///
-    /// - `unallocated_memory_start`:   start of unallocated memory
-    /// - `unallocated_memory_size`:    size of unallocated memory
-    /// - `min_memory_size`:            minimum total memory to allocate for process
-    /// - `initial_app_memory_size`:    initial size of app-owned memory
-    /// - `initial_kernel_memory_size`: initial size of kernel-owned memory
-    /// - `permissions`:                permissions for the MPU region
-    /// - `config`:                     MPU region configuration
-    ///
-    /// # Return Value
-    ///
-    /// This function returns the start address and the size of the memory block
-    /// chosen for the process. If it is infeasible to find a memory block or
-    /// allocate the MPU region, or if the function has already been called,
-    /// returns None. If None is returned no changes are made.
-    #[flux_rs::sig(
-        fn (
-            &Self,
-            FluxPtrU8[@mem_start],
-            usize[@memsz],
-            usize[@min_mem_sz],
-            usize[@appmsz],
-            usize[@kernelmsz],
-            FluxPtrU8[@fstart],
-            usize[@fsz],
-            config: &strg Self::MpuConfig[@old_c],
-        ) -> Result<{b. AllocatedAppBreaksAndSize[b] | 
-            b.app_break <= b.memory_start + b.memory_size - kernelmsz &&
-            b.app_break >= b.memory_start + appmsz &&
-            b.memory_start >= mem_start &&
-            b.memory_start + b.memory_size <= u32::MAX &&
-            b.memory_start > 0 &&
-            <Self as MPU>::config_can_access_flash(new_c, fstart, fstart + fsz) &&
-            <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart - 1) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX) 
-            // &&
-            // <Self as MPU>::ipc_cant_access_process_mem(new_c, fstart, fstart + fsz, mem_start, u32::MAX)
-        }, AllocateAppMemoryError>
-        requires 
-            fstart + fsz < mem_start &&
-            min_mem_sz > 0 &&
-            <Self as MPU>::config_cant_access_at_all(old_c, 0, u32::MAX)
-        ensures config: Self::MpuConfig[#new_c]
-    )]
-    fn allocate_app_memory_regions(
-        &self,
-        unallocated_memory_start: FluxPtrU8Mut,
-        unallocated_memory_size: usize,
-        min_memory_size: usize,
-        initial_app_memory_size: usize,
-        initial_kernel_memory_size: usize,
-        flash_start: FluxPtrU8Mut,
-        flash_size: usize,
-        config: &mut Self::MpuConfig,
-    ) -> Result<AllocatedAppBreaksAndSize, AllocateAppMemoryError>;
-
-    /// Updates the MPU region for app-owned memory.
-    ///
-    /// An implementation must reallocate the MPU region for app-owned memory
-    /// stored in `config` to maintain the 3 conditions described in
-    /// `allocate_app_memory_region`.
-    ///
-    /// # Arguments
-    ///
-    /// - `app_memory_break`:    new address for the end of app-owned memory
-    /// - `kernel_memory_break`: new address for the start of kernel-owned memory
-    /// - `permissions`:         permissions for the MPU region
-    /// - `config`:              MPU region configuration
-    ///
-    /// # Return Value
-    ///
-    /// Returns an error if it is infeasible to update the MPU region, or if it
-    /// was never created. If an error is returned no changes are made to the
-    /// configuration.
-    #[flux_rs::sig(
-        fn (
-            &Self,
-            FluxPtrU8[@mem_start],
-            FluxPtrU8[@old_app_break],
-            FluxPtrU8Mut[@app_break],
-            FluxPtrU8Mut[@kernel_break],
-            FluxPtrU8Mut[@fstart],
-            usize[@fsz],
-            config: &strg Self::MpuConfig[@old_c],
-        ) -> Result<{b. AllocatedAppBreaks[b] | 
-            b.app_break <= kernel_break &&
-            b.app_break >= app_break &&
-            b.memory_start == mem_start &&
-            <Self as MPU>::config_can_access_flash(new_c, fstart, fstart + fsz) &&
-            <Self as MPU>::config_can_access_heap(new_c, b.memory_start, b.app_break) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, 0, fstart - 1) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, fstart + fsz + 1, b.memory_start - 1) &&
-            <Self as MPU>::config_cant_access_at_all(new_c, b.app_break + 1, u32::MAX) 
-            // &&
-            // <Self as MPU>::ipc_cant_access_process_mem(new_c, fstart, fstart + fsz, b.memory_start, u32::MAX)
-        }, ()>[#res]
-        requires 
-            fstart + fsz < mem_start &&
-            app_break > mem_start &&
-            <Self as MPU>::config_can_access_flash(old_c, fstart, fstart + fsz) &&
-            <Self as MPU>::config_cant_access_at_all(old_c, 0, fstart - 1) &&
-            <Self as MPU>::config_cant_access_at_all(old_c, fstart + fsz + 1, mem_start - 1) &&
-            <Self as MPU>::config_cant_access_at_all(old_c, old_app_break + 1, u32::MAX) 
-            // &&
-            // <Self as MPU>::ipc_cant_access_process_mem(old_c, fstart, fstart + fsz, mem_start, u32::MAX)
-        ensures config: Self::MpuConfig[#new_c], !res => old_c == new_c
-    )]
-    fn update_app_memory_regions(
-        &self,
-        mem_start: FluxPtrU8,
-        old_app_memory_break: FluxPtrU8,
-        app_memory_break: FluxPtrU8Mut,
-        kernel_memory_break: FluxPtrU8Mut,
-        flash_start: FluxPtrU8Mut,
-        flash_size: usize,
-        config: &mut Self::MpuConfig,
-    ) -> Result<AllocatedAppBreaks, ()>;
 
     /// Configures the MPU with the provided region configuration.
     ///
@@ -399,86 +410,26 @@ pub trait MPU {
     ///
     /// # Arguments
     ///
-    /// - `config`: MPU region configuration
-    #[flux_rs::sig(fn(self: &strg Self, &Self::MpuConfig[@config]) ensures self: Self{r: <Self as MPU>::configured_for(r, config)})]
-    fn configure_mpu(&mut self, config: &Self::MpuConfig);
+    /// - `region`: MPU region to be configured
+    fn configure_mpu(&self, regions: &RArray<Self::Region>);
+
 }
 
 // /// Implement default MPU trait for unit.
-// impl MPU for () {
-//     type MpuConfig = MpuConfigDefault;
+impl MPU for () {
+    type Region = MpuRegionDefault;
 
-//     fn enable_app_mpu(&mut self) {}
+    #[flux_rs::sig(fn (self: &Self) -> MpuEnabledCapability)]
+    fn enable_app_mpu(&self) -> MpuEnabledCapability {
+        MpuEnabledCapability {}
+    }
 
-//     fn disable_app_mpu(&mut self) {}
+    #[flux_rs::sig(fn (self: &Self))]
+    fn disable_app_mpu(&self) {}
 
-//     fn number_total_regions(&self) -> usize {
-//         0
-//     }
+    fn number_total_regions(&self) -> usize {
+        0
+    }
 
-//     fn new_config(&self) -> Option<MpuConfigDefault> {
-//         Some(MpuConfigDefault)
-//     }
-
-//     fn reset_config(&self, _config: &mut Self::MpuConfig) {}
-
-//     fn allocate_region(
-//         &self,
-//         unallocated_memory_start: FluxPtrU8Mut,
-//         unallocated_memory_size: usize,
-//         min_region_size: usize,
-//         _permissions: Permissions,
-//         _config: &mut Self::MpuConfig,
-//     ) -> Option<Region> {
-//         if min_region_size > unallocated_memory_size {
-//             None
-//         } else {
-//             Some(Region::new(unallocated_memory_start, min_region_size))
-//         }
-//     }
-
-//     fn remove_memory_region(
-//         &self,
-//         _region: Region,
-//         _config: &mut Self::MpuConfig,
-//     ) -> Result<(), ()> {
-//         Ok(())
-//     }
-
-//     fn allocate_app_memory_region(
-//         &self,
-//         unallocated_memory_start: FluxPtrU8Mut,
-//         unallocated_memory_size: usize,
-//         min_memory_size: usize,
-//         initial_app_memory_size: usize,
-//         initial_kernel_memory_size: usize,
-//         _permissions: Permissions,
-//         _config: &mut Self::MpuConfig,
-//     ) -> Option<(FluxPtrU8Mut, usize)> {
-//         let memory_size = cmp::max(
-//             min_memory_size,
-//             initial_app_memory_size + initial_kernel_memory_size,
-//         );
-//         if memory_size > unallocated_memory_size {
-//             None
-//         } else {
-//             Some((unallocated_memory_start, memory_size))
-//         }
-//     }
-
-//     fn update_app_memory_region(
-//         &self,
-//         app_memory_break: FluxPtrU8Mut,
-//         kernel_memory_break: FluxPtrU8Mut,
-//         _permissions: Permissions,
-//         _config: &mut Self::MpuConfig,
-//     ) -> Result<(), ()> {
-//         if (app_memory_break.as_usize()) > (kernel_memory_break.as_usize()) {
-//             Err(())
-//         } else {
-//             Ok(())
-//         }
-//     }
-
-//     fn configure_mpu(&mut self, _config: &Self::MpuConfig) {}
-// }
+    fn configure_mpu(&self, _config: &RArray<Self::Region>) {}
+}

@@ -13,3 +13,15 @@ pub struct FluxRange {
     #[field(usize[end])]
     pub end: usize,
 }
+
+impl FluxRange {
+    #[flux_rs::sig(fn (&Self[@r]) -> bool[r.start >= r.end])]
+    pub fn is_empty(&self) -> bool {
+        self.start >= self.end
+    }
+
+    #[flux_rs::sig(fn (&Self[@r], &usize[@item]) -> bool[r.start <= item && item < r.end])]
+    pub fn contains(&self, item: &usize) -> bool {
+        self.start <= *item && *item < self.end
+    }
+}

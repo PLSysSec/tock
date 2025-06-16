@@ -11,6 +11,7 @@
 #![cfg_attr(not(doc), no_main)]
 
 use core::ptr::{addr_of, addr_of_mut};
+use flux_support::FluxPtr;
 
 use capsules_core::virtualizers::virtual_alarm::{MuxAlarm, VirtualMuxAlarm};
 
@@ -272,22 +273,22 @@ unsafe fn start() -> (
     let pmp = rv32i::pmp::kernel_protection::KernelProtectionPMP::new(
         rv32i::pmp::kernel_protection::FlashRegion(
             rv32i::pmp::NAPOTRegionSpec::new(
-                core::ptr::addr_of!(_sflash),
+                FluxPtr::from(core::ptr::addr_of!(_sflash)),
                 core::ptr::addr_of!(_eflash) as usize - core::ptr::addr_of!(_sflash) as usize,
             )
             .unwrap(),
         ),
         rv32i::pmp::kernel_protection::RAMRegion(
             rv32i::pmp::NAPOTRegionSpec::new(
-                core::ptr::addr_of!(_ssram),
+                FluxPtr::from(core::ptr::addr_of!(_ssram)),
                 core::ptr::addr_of!(_esram) as usize - core::ptr::addr_of!(_ssram) as usize,
             )
             .unwrap(),
         ),
         rv32i::pmp::kernel_protection::MMIORegion(
             rv32i::pmp::NAPOTRegionSpec::new(
-                0xf0000000 as *const u8, // start
-                0x10000000,              // size
+                FluxPtr::from(0xf0000000), // start
+                0x10000000,                // size
             )
             .unwrap(),
         ),

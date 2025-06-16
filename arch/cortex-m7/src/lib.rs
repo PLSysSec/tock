@@ -9,10 +9,7 @@
 #![no_std]
 
 use core::fmt::Write;
-
-pub mod mpu {
-    pub type MPU = kernel::allocator::MPU<16>; // Cortex-M7 MPU has 16 regions
-}
+use flux_support::capability::*;
 
 pub use cortexm::initialize_ram_jump_to_main;
 pub use cortexm::nvic;
@@ -21,6 +18,10 @@ pub use cortexm::support;
 pub use cortexm::systick;
 pub use cortexm::unhandled_interrupt;
 pub use cortexm::CortexMVariant;
+
+pub mod mpu {
+    pub type MPU = cortexm::mpu::MPU<16, 32>;
+}
 
 // Enum with no variants to ensure that this type is not instantiable. It is
 // only used to pass architecture-specific constants and functions via the
@@ -45,6 +46,8 @@ impl cortexm::CortexMVariant for CortexM7 {
     unsafe fn switch_to_user(
         _user_stack: *const usize,
         _process_regs: &mut [usize; 8],
+        _mpu_configured_capability: MpuConfiguredCapability,
+        _mpu_enabled_capability: MpuEnabledCapability,
     ) -> *const usize {
         unimplemented!()
     }

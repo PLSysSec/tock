@@ -16,5 +16,8 @@ riscv-csr = { path = "../../libraries/riscv-csr" }
 riscv = { path = "../riscv" }
 flux-rs = { git  = "https://github.com/flux-rs/flux.git" }
 
+[package.metadata.flux]
+enabled = true
+
 [lints]
 workspace = true

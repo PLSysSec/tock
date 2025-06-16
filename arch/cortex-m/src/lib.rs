@@ -31,6 +31,8 @@ pub mod syscall;
 #[flux_rs::ignore]
 pub mod systick;
 
+pub mod mpu;
+
 // These constants are defined in the linker script.
 extern "C" {
     static _szero: *const u32;

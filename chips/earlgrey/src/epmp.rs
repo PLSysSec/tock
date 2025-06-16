@@ -9,11 +9,13 @@
 use core::cell::Cell;
 use core::fmt;
 use core::marker::PhantomData;
+use flux_support::FluxPtr;
 use kernel::platform::mpu;
 use kernel::utilities::registers::FieldValue;
 use rv32i::csr;
 use rv32i::pmp::{
-    format_pmp_entries, pmpcfg_octet, NAPOTRegionSpec, TORRegionSpec, TORUserPMP, TORUserPMPCFG,
+    format_pmp_entries, pmpcfg_octet, NAPOTRegionSpec, PMPUserRegion, TORRegionSpec, TORUserPMP,
+    TORUserPMPCFG,
 };
 
 // ---------- EarlGrey ePMP implementation named constants ---------------------
@@ -934,7 +936,7 @@ impl<const HANDOVER_CONFIG_CHECK: bool, DBG: EPMPDebugConfig>
 
     fn user_configure_pmp<const TOR_USER_REGIONS: usize>(
         &self,
-        regions: &[(TORUserPMPCFG, *const u8, *const u8); TOR_USER_REGIONS],
+        regions: &[PMPUserRegion; TOR_USER_REGIONS],
     ) -> Result<(), ()> {
         // Configure all of the regions' addresses and store their pmpcfg octets
         // in our shadow storage. If the user PMP is already enabled, we further
@@ -951,7 +953,7 @@ impl<const HANDOVER_CONFIG_CHECK: bool, DBG: EPMPDebugConfig>
             // return an error. We don't make any promises about the ePMP state
             // if the configuration files, but it is still being activated with
             // `enable_user_pmp`:
-            if region.0.get()
+            if region.tor.get()
                 == <TORUserPMPCFG as From<mpu::Permissions>>::from(
                     mpu::Permissions::ReadWriteExecute,
                 )
@@ -962,19 +964,23 @@ impl<const HANDOVER_CONFIG_CHECK: bool, DBG: EPMPDebugConfig>
 
             // Set the CSR addresses for this region (if its not OFF, in which
             // case the hardware-configured addresses are irrelevant):
-            if region.0 != TORUserPMPCFG::OFF {
+            if region.tor != TORUserPMPCFG::OFF {
                 csr::CSR.pmpaddr_set(
                     DBG::TOR_USER_ENTRIES_OFFSET + (i * 2) + 0,
-                    (region.1 as usize).overflowing_shr(2).0,
+                    region
+                        .start
+                        .unwrap_or(FluxPtr::from(0))
+                        .overflowing_shr(2)
+                        .0 as usize,
                 );
                 csr::CSR.pmpaddr_set(
                     DBG::TOR_USER_ENTRIES_OFFSET + (i * 2) + 1,
-                    (region.2 as usize).overflowing_shr(2).0,
+                    region.end.unwrap_or(FluxPtr::from(0)).overflowing_shr(2).0 as usize,
                 );
             }
 
             // Store the region's pmpcfg octet:
-            shadow_user_pmpcfg.set(region.0);
+            shadow_user_pmpcfg.set(region.tor);
         }
 
         // If the PMP is currently active, apply the changes to the CSRs:
@@ -1147,7 +1153,7 @@ impl<const HANDOVER_CONFIG_CHECK: bool> TORUserPMP<{ TOR_USER_REGIONS_DEBUG_ENAB
 
     fn configure_pmp(
         &self,
-        regions: &[(TORUserPMPCFG, *const u8, *const u8); TOR_USER_REGIONS_DEBUG_ENABLE],
+        regions: &[PMPUserRegion; TOR_USER_REGIONS_DEBUG_ENABLE],
     ) -> Result<(), ()> {
         self.user_configure_pmp::<TOR_USER_REGIONS_DEBUG_ENABLE>(regions)
     }
@@ -1177,7 +1183,7 @@ impl<const HANDOVER_CONFIG_CHECK: bool> TORUserPMP<{ TOR_USER_REGIONS_DEBUG_DISA
 
     fn configure_pmp(
         &self,
-        regions: &[(TORUserPMPCFG, *const u8, *const u8); TOR_USER_REGIONS_DEBUG_DISABLE],
+        regions: &[PMPUserRegion; TOR_USER_REGIONS_DEBUG_DISABLE],
     ) -> Result<(), ()> {
         self.user_configure_pmp::<TOR_USER_REGIONS_DEBUG_DISABLE>(regions)
     }

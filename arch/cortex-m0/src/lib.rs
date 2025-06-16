@@ -9,6 +9,7 @@
 #![no_std]
 
 use core::fmt::Write;
+use flux_support::capability::*;
 
 #[cfg(all(target_arch = "arm", target_os = "none"))]
 use core::arch::global_asm;
@@ -369,6 +370,8 @@ impl cortexm::CortexMVariant for CortexM0 {
     unsafe fn switch_to_user(
         _user_stack: *const usize,
         _process_regs: &mut [usize; 8],
+        _mpu_configured_capability: MpuConfiguredCapability,
+        _mpu_enabled_capability: MpuEnabledCapability,
     ) -> *const usize {
         unimplemented!()
     }
