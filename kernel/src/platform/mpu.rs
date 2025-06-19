@@ -121,12 +121,12 @@ impl Display for MpuRegionDefault {
     let end = <Self as RegionDescriptor>::astart(region) + <Self as RegionDescriptor>::asize(region);
     <Self as RegionDescriptor>::is_set(region) && end >= start && ((start >= high_water_mark && end <= mem_end) || (end >= high_water_mark && end <= mem_end))
 })]
-#[flux_rs::assoc(final fn no_ipc_regions_overlap_high_water_mark(regions: Map<int, Self>, high_water_mark: int, mem_end: int) -> bool {
-    forall i: int in 2..8 {
-        let region = map_select(regions, i);
-        !<Self as RegionDescriptor>::region_overlaps_high_water_mark(region, high_water_mark, mem_end)
-    }
-})]
+// #[flux_rs::assoc(final fn no_ipc_regions_overlap_high_water_mark(regions: Map<int, Self>, high_water_mark: int, mem_end: int) -> bool {
+//     forall i: int in 2..8 {
+//         let region = map_select(regions, i);
+//         !<Self as RegionDescriptor>::region_overlaps_high_water_mark(region, high_water_mark, mem_end)
+//     }
+// })]
 pub trait RegionDescriptor: core::marker::Sized {
     #[flux_rs::sig(fn (rnum: usize) -> Self {r: !<Self as RegionDescriptor>::is_set(r) && <Self as RegionDescriptor>::rnum(r) == rnum})]
     fn default(region_num: usize) -> Self;
