@@ -116,8 +116,16 @@ impl Display for MpuRegionDefault {
     !<Self as RegionDescriptor>::is_set(r) || 
     !(<Self as RegionDescriptor>::astart(r) < start && start < <Self as RegionDescriptor>::astart(r) + <Self as RegionDescriptor>::asize(r))
 })]
-#[flux_rs::assoc(final fn region_does_not_overlap_app_block(r: Self, mem_start: int, mem_end: int) -> bool {
-    !<Self as RegionDescriptor>::is_set(r) || !(mem_start < <Self as RegionDescriptor>::astart(r) && <Self as RegionDescriptor>::astart(r) < mem_end)
+#[flux_rs::assoc(final fn region_overlaps_high_water_mark(region: Self, high_water_mark: int, mem_end: int) -> bool {
+    let start = <Self as RegionDescriptor>::astart(region);
+    let end = <Self as RegionDescriptor>::astart(region) + <Self as RegionDescriptor>::asize(region);
+    <Self as RegionDescriptor>::is_set(region) && end >= start && ((start >= high_water_mark && end <= mem_end) || (end >= high_water_mark && end <= mem_end))
+})]
+#[flux_rs::assoc(final fn no_ipc_regions_overlap_high_water_mark(regions: Map<int, Self>, high_water_mark: int, mem_end: int) -> bool {
+    forall i: int in 2..8 {
+        let region = map_select(regions, i);
+        !<Self as RegionDescriptor>::region_overlaps_high_water_mark(region, high_water_mark, mem_end)
+    }
 })]
 pub trait RegionDescriptor: core::marker::Sized {
     #[flux_rs::sig(fn (rnum: usize) -> Self {r: !<Self as RegionDescriptor>::is_set(r) && <Self as RegionDescriptor>::rnum(r) == rnum})]
@@ -213,7 +221,6 @@ pub trait RegionDescriptor: core::marker::Sized {
         size: usize,
         permissions: Permissions,
     ) -> Option<Self>;
-
 }
 
 #[flux_rs::assoc(fn astart(r: Self) -> int { r.start })]
@@ -415,7 +422,6 @@ pub trait MPU {
     ///
     /// - `region`: MPU region to be configured
     fn configure_mpu(&self, regions: &RArray<Self::Region>);
-
 }
 
 // /// Implement default MPU trait for unit.

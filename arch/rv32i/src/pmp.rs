@@ -269,23 +269,19 @@ fn region_overlaps(region: &PMPUserRegion, other: &PMPUserRegion) -> bool {
 
     // TODO: Use Range for real? Problem is the implementation is crazy
     let region_range = match (region.start, region.end) {
-        (Some(start), Some(end)) => {
-            FluxRange{
-                start: start.as_usize(),
-                end: end.as_usize()
-            }
-        }
-        _ => return false
+        (Some(start), Some(end)) => FluxRange {
+            start: start.as_usize(),
+            end: end.as_usize(),
+        },
+        _ => return false,
     };
 
     let other_range = match (other.start, other.end) {
-        (Some(start), Some(end)) => {
-            FluxRange {
-                start: start.as_usize(),
-                end: end.as_usize()
-            }
-        }
-        _ => return false
+        (Some(start), Some(end)) => FluxRange {
+            start: start.as_usize(),
+            end: end.as_usize(),
+        },
+        _ => return false,
     };
 
     // For a range A to overlap with a range B, either B's first or B's last
@@ -553,7 +549,6 @@ pub struct PMPUserMPUConfig<const MAX_REGIONS: usize> {
     app_memory_region: OptionalCell<usize>,
 }
 
-
 #[derive(Clone, Copy)]
 #[flux_rs::opaque]
 #[flux_rs::refined_by(start: int, end: int, perms: mpu::Permissions)]
@@ -592,18 +587,24 @@ pub struct PMPUserRegion {
     #[field(Option<FluxPtrU8[end]>[is_set])]
     pub end: Option<FluxPtrU8>,
     #[field(RegionGhost[start, end, perms])]
-    pub ghost: RegionGhost
+    pub ghost: RegionGhost,
 }
 
 impl PMPUserRegion {
     #[flux_rs::sig(fn (region_number: usize, tor: TORUserPMPCFG, start: FluxPtrU8, end: FluxPtrU8, perms: mpu::Permissions) -> Self[region_number, tor, start, end, perms, true] requires end >= start)]
-    pub fn new(region_number: usize, tor: TORUserPMPCFG, start: FluxPtrU8, end: FluxPtrU8, perms: mpu::Permissions) -> Self {
+    pub fn new(
+        region_number: usize,
+        tor: TORUserPMPCFG,
+        start: FluxPtrU8,
+        end: FluxPtrU8,
+        perms: mpu::Permissions,
+    ) -> Self {
         Self {
             region_number,
             tor,
             start: Some(start),
             end: Some(end),
-            ghost: RegionGhost::new(start, end, perms)
+            ghost: RegionGhost::new(start, end, perms),
         }
     }
 }
@@ -612,12 +613,11 @@ impl PMPUserRegion {
 #[flux_rs::assoc(fn rstart(r: Self) -> int { r.start  })]
 #[flux_rs::assoc(fn asize(r: Self) -> int { r.end - r.start })]
 #[flux_rs::assoc(fn rsize(r: Self) -> int { r.end - r.start })]
-#[flux_rs::assoc(fn is_set(r: Self) -> bool { r.is_set })] 
+#[flux_rs::assoc(fn is_set(r: Self) -> bool { r.is_set })]
 #[flux_rs::assoc(fn rnum(r: Self) -> int { r.region_number })]
 #[flux_rs::assoc(fn perms(r: Self) -> mpu::Permissions { r.perms })]
 #[flux_rs::assoc(fn overlaps(r1: Self, r2: Self) -> bool { region_overlaps(r1, r2) })]
 impl RegionDescriptor for PMPUserRegion {
-
     #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::astart(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
     fn accessible_start(&self) -> Option<FluxPtrU8> {
         self.start
@@ -632,7 +632,7 @@ impl RegionDescriptor for PMPUserRegion {
     fn accessible_size(&self) -> Option<usize> {
         match (self.start, self.end) {
             (Some(start), Some(end)) => Some(end.as_usize() - start.as_usize()),
-            _ => None
+            _ => None,
         }
     }
 
@@ -640,12 +640,14 @@ impl RegionDescriptor for PMPUserRegion {
     fn region_size(&self) -> Option<usize> {
         match (self.start, self.end) {
             (Some(start), Some(end)) => Some(end.as_usize() - start.as_usize()),
-            _ => None
+            _ => None,
         }
     }
 
     #[flux_rs::sig(fn (&Self[@r]) -> bool[<Self as RegionDescriptor>::is_set(r)])]
-    fn is_set(&self) -> bool { self.start.is_some() && self.end.is_some() }
+    fn is_set(&self) -> bool {
+        self.start.is_some() && self.end.is_some()
+    }
 
     #[flux_rs::sig(fn (rnum: usize) -> Self {r: !<Self as RegionDescriptor>::is_set(r) && <Self as RegionDescriptor>::rnum(r) == rnum})]
     fn default(region_number: usize) -> Self {
@@ -654,7 +656,7 @@ impl RegionDescriptor for PMPUserRegion {
             tor: TORUserPMPCFG::OFF,
             start: None,
             end: None,
-            ghost: RegionGhost::empty()
+            ghost: RegionGhost::empty(),
         }
     }
 
@@ -766,18 +768,17 @@ impl RegionDescriptor for PMPUserRegion {
             // if writeable || (start + size > available_start.as_usize() + available_size + 3) {
             //     return None;
             // }
-            return None
+            return None;
         }
         let region = PMPUserRegion::new(
             region_number,
             permissions.into(),
             FluxPtrU8::from(start),
             FluxPtrU8::from(start + size),
-            permissions
+            permissions,
         );
         Some(region)
     }
-
 
     #[flux_rs::sig(fn (
         region_start: FluxPtrU8,
@@ -820,7 +821,7 @@ impl RegionDescriptor for PMPUserRegion {
             permissions.into(),
             region_start,
             FluxPtrU8::from(end),
-            permissions
+            permissions,
         ))
     }
 }
@@ -1314,8 +1315,10 @@ pub mod simple {
                             i * 2 + 2,
                             (odd_region_start.as_usize()).overflowing_shr(2).0,
                         );
-                        csr::CSR
-                            .pmpaddr_set(i * 2 + 3, (odd_region_end.as_usize()).overflowing_shr(2).0);
+                        csr::CSR.pmpaddr_set(
+                            i * 2 + 3,
+                            (odd_region_end.as_usize()).overflowing_shr(2).0,
+                        );
                     }
 
                     i += 2;
@@ -1662,7 +1665,6 @@ pub mod kernel_protection {
                 let even_region_end = even_region.end.unwrap_or(FluxPtrU8::null());
 
                 if let Some(odd_region) = odd_region_opt {
-
                     let odd_region_start = odd_region.start.unwrap_or(FluxPtrU8::null());
                     let odd_region_end = odd_region.end.unwrap_or(FluxPtrU8::null());
                     // We can configure two regions at once which, given that we
@@ -1696,8 +1698,10 @@ pub mod kernel_protection {
                             i * 2 + 2,
                             (odd_region_start.as_usize()).overflowing_shr(2).0,
                         );
-                        csr::CSR
-                            .pmpaddr_set(i * 2 + 3, (odd_region_end.as_usize()).overflowing_shr(2).0);
+                        csr::CSR.pmpaddr_set(
+                            i * 2 + 3,
+                            (odd_region_end.as_usize()).overflowing_shr(2).0,
+                        );
                     }
 
                     i += 2;
@@ -2071,11 +2075,15 @@ pub mod kernel_protection_mml_epmp {
                 if region.tor != TORUserPMPCFG::OFF {
                     csr::CSR.pmpaddr_set(
                         (i + Self::TOR_REGIONS_OFFSET) * 2 + 0,
-                        (region.start.unwrap_or(FluxPtr::null()).as_usize()).overflowing_shr(2).0,
+                        (region.start.unwrap_or(FluxPtr::null()).as_usize())
+                            .overflowing_shr(2)
+                            .0,
                     );
                     csr::CSR.pmpaddr_set(
                         (i + Self::TOR_REGIONS_OFFSET) * 2 + 1,
-                        (region.end.unwrap_or(FluxPtr::null()).as_usize()).overflowing_shr(2).0,
+                        (region.end.unwrap_or(FluxPtr::null()).as_usize())
+                            .overflowing_shr(2)
+                            .0,
                     );
                 }
 

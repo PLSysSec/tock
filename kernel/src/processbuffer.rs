@@ -762,7 +762,9 @@ impl ReadableProcessSlice {
     ///
     /// The length of `self` must be the same as `dest`. Subslicing
     /// can be used to obtain a slice of matching length.
-    #[flux_rs::trusted(reason = "assertion might fail: possible out of bound access (needs spec for Enumerate)")]
+    #[flux_rs::trusted(
+        reason = "assertion might fail: possible out of bound access (needs spec for Enumerate)"
+    )]
     #[flux_rs::sig(fn (self: &Self, dest: &strg [u8]) -> Result<(), ErrorCode> ensures dest: [u8] )]
     pub fn copy_to_slice_or_err(&self, dest: &mut [u8]) -> Result<(), ErrorCode> {
         // Method implemetation adopted from the

@@ -13,9 +13,9 @@ use core::fmt::Write;
 use core::num::NonZeroU32;
 use core::ptr::NonNull;
 use core::{mem, str};
+use flux_support::capability::*;
 #[allow(clippy::wildcard_imports)]
 use flux_support::*;
-use flux_support::capability::*;
 
 use crate::allocator::{self, AppMemoryAllocator};
 use crate::collections::queue::Queue;
@@ -714,9 +714,8 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
     }
 
     fn set_byte(&self, addr: FluxPtrU8Mut, value: u8) -> Result<bool, ()> {
-        self.app_memory_allocator.map_or(Err(()), |am| {
-            unsafe { Ok(am.set_byte(addr, value)) }
-        })
+        self.app_memory_allocator
+            .map_or(Err(()), |am| unsafe { Ok(am.set_byte(addr, value)) })
     }
 
     fn grant_is_allocated(&self, grant_num: usize) -> Option<bool> {
@@ -1049,7 +1048,11 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         }
     }
 
-    fn switch_to(&self, mpu_configured: MpuConfiguredCapability, mpu_enabled: MpuEnabledCapability) -> Option<syscall::ContextSwitchReason> {
+    fn switch_to(
+        &self,
+        mpu_configured: MpuConfiguredCapability,
+        mpu_enabled: MpuEnabledCapability,
+    ) -> Option<syscall::ContextSwitchReason> {
         // Cannot switch to an invalid process
         if !self.is_running() {
             return None;
@@ -1113,7 +1116,8 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
                     .flash_start()
                     .wrapping_add(self.header.get_protected_size() as usize)
                     .as_usize(),
-                flash_integrity_end: am.flash_start().as_usize() + self.header.get_binary_end() as usize,
+                flash_integrity_end: am.flash_start().as_usize()
+                    + self.header.get_binary_end() as usize,
                 flash_end: am.flash_end().as_usize(),
                 sram_start: am.memory_start().as_usize(),
                 sram_app_brk: am.app_break().as_usize(),
@@ -1558,7 +1562,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // `initial_kernel_memory_size` above.
         let mut kernel_memory_break = app_memory_alloc.memory_end();
 
-        kernel_memory_break = kernel_memory_break.wrapping_sub(kernel_memory_break.as_usize() % usize_size);
+        kernel_memory_break =
+            kernel_memory_break.wrapping_sub(kernel_memory_break.as_usize() % usize_size);
 
         // Now that we know we have the space we can setup the grant pointers.
         // kernel_memory_break = kernel_memory_break.offset(-(grant_ptrs_offset as isize)); // VTOCK TODO: Something about usize cast to isize here?
@@ -1771,7 +1776,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             grant_ptrs_offset + Self::CALLBACKS_OFFSET + Self::PROCESS_STRUCT_OFFSET;
 
         let maybe_app_mem_alloc = AppMemoryAllocator::allocate_app_memory(
-app_breaks.memory_start,
+            app_breaks.memory_start,
             app_breaks.memory_size,
             min_process_memory_size,
             min_process_memory_size,
@@ -1779,19 +1784,20 @@ app_breaks.memory_start,
             app_breaks.flash_start,
             app_breaks.flash_size,
         );
-        let app_mem_alloc: AppMemoryAllocator<<<C as Chip>::MPU as mpu::MPU>::Region> = match maybe_app_mem_alloc {
-            Ok(breaks_and_size) => breaks_and_size,
-            Err(allocator::AllocateAppMemoryError::FlashError) => {
-                return Err(ErrorCode::FAIL);
-            }
-            Err(allocator::AllocateAppMemoryError::HeapError) => {
-                // We couldn't configure the MPU for the process. This shouldn't
-                // happen since we were able to start the process before, but at
-                // this point it is better to leave the app faulted and not
-                // schedule it.
-                return Err(ErrorCode::NOMEM);
-            }
-        };
+        let app_mem_alloc: AppMemoryAllocator<<<C as Chip>::MPU as mpu::MPU>::Region> =
+            match maybe_app_mem_alloc {
+                Ok(breaks_and_size) => breaks_and_size,
+                Err(allocator::AllocateAppMemoryError::FlashError) => {
+                    return Err(ErrorCode::FAIL);
+                }
+                Err(allocator::AllocateAppMemoryError::HeapError) => {
+                    // We couldn't configure the MPU for the process. This shouldn't
+                    // happen since we were able to start the process before, but at
+                    // this point it is better to leave the app faulted and not
+                    // schedule it.
+                    return Err(ErrorCode::NOMEM);
+                }
+            };
 
         // Reset memory pointers now that we know the layout of the process
         // memory and know that we can configure the MPU.

@@ -89,9 +89,8 @@ fn theorem_last_subregion_7(rstart: FluxPtr, rsize: usize, astart: FluxPtr, asiz
         disabled_srd_mask(0, 7) == 0 &&
         subregions_disabled_bit_set(rasr.value, 0, 7)
 )]
-fn theorem_subregions_disabled_bit_set_0_7(
-    attributes: &FieldValueU32<RegionAttributes::Register>,
-) {}
+fn theorem_subregions_disabled_bit_set_0_7(attributes: &FieldValueU32<RegionAttributes::Register>) {
+}
 
 #[flux_rs::sig(fn (&FieldValueU32<RegionAttributes::Register>[@rasr])
     requires
@@ -100,9 +99,7 @@ fn theorem_subregions_disabled_bit_set_0_7(
         enabled_srd_mask(0, 7) == 255 &&
         disabled_srd_mask(0, 7) == 0
 )]
-fn theorem_subregions_enabled_bit_set_0_7(
-    attributes: &FieldValueU32<RegionAttributes::Register>,
-) {}
+fn theorem_subregions_enabled_bit_set_0_7(attributes: &FieldValueU32<RegionAttributes::Register>) {}
 
 /* our actual flux defs */
 
@@ -516,7 +513,6 @@ impl GhostRegionState {
     }
 }
 
-
 /// Struct storing configuration for a Cortex-M MPU region.
 // if the region is set, the rbar bits encode the accessible start & region_num properly and the rasr bits encode the size and permissions properly
 #[derive(Copy, Clone)]
@@ -533,7 +529,7 @@ impl GhostRegionState {
 )]
 pub struct CortexMRegion {
     #[field(Option<{l. CortexMLocation[l] | l.astart == astart && l.asize == asize && l.rstart == rstart && l.rsize == rsize }>[set])]
-    location: Option<CortexMLocation>, 
+    location: Option<CortexMLocation>,
     #[field({FieldValueU32<RegionBaseAddress::Register>[rbar] | 
         rbar_region_number(rbar.value) == bv32(region_no) &&
         rbar_valid_bit_set(rbar.value)
@@ -576,7 +572,7 @@ impl PartialEq<mpu::Region> for CortexMRegion {
     }
 }
 
-#[flux_rs::trusted(reason = "bitwise arith")] 
+#[flux_rs::trusted(reason = "bitwise arith")]
 #[flux_rs::sig(fn(num: u32) -> u32{r: (r < 32) && (num > 1 => r > 0) && (pow2(num) => (bv32(num) == exp2(bv32(r))))})]
 fn log_base_two(num: u32) -> u32 {
     if num == 0 {
@@ -588,7 +584,7 @@ fn log_base_two(num: u32) -> u32 {
 
 #[flux_rs::trusted(reason = "math support (bitwise arithmetic fact)")]
 // VTOCK Note: Realized this only works when enabled_mask is not 0 because
-// 0xff ^ 0 == 1 but anything & 0 = 0. 
+// 0xff ^ 0 == 1 but anything & 0 = 0.
 #[flux_rs::sig(fn ({usize[@fsr] | fsr <= lsr}, {usize[@lsr] | lsr < 8}) -> u8{r: 
     let mask = enabled_srd_mask(bv32(fsr), bv32(lsr));
     if mask == 0 {
@@ -626,13 +622,12 @@ fn usize_to_u32(n: usize) -> u32 {
         half_max(min_size) &&
         min_size >= 256
 )]
-// Should only be called with a start that aligns to a po2 
+// Should only be called with a start that aligns to a po2
 fn next_aligned_power_of_two(po2_aligned_start: usize, min_size: usize) -> Option<usize> {
-
     // if start is 0 everything aligns
     if po2_aligned_start == 0 {
         let size = min_size.next_power_of_two();
-        theorem_aligned0(po2_aligned_start,size);
+        theorem_aligned0(po2_aligned_start, size);
         theorem_pow2_octet(size);
         return Some(size);
     }
@@ -641,7 +636,7 @@ fn next_aligned_power_of_two(po2_aligned_start: usize, min_size: usize) -> Optio
         return None;
     }
 
-    // Find the largest power of 2 that divides start 
+    // Find the largest power of 2 that divides start
     // VTOCK TODO: Should just be usize stuff
     assume(po2_aligned_start <= u32::MAX as usize);
     let mut trailing_zeros = po2_aligned_start.trailing_zeros() as usize;
@@ -684,7 +679,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
     fn accessible_start(&self) -> Option<FluxPtrU8> {
         match self.location {
             Some(loc) => Some(loc.accessible_start),
-            None => None
+            None => None,
         }
     }
 
@@ -692,7 +687,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
     fn region_start(&self) -> Option<FluxPtrU8> {
         match self.location {
             Some(loc) => Some(loc.region_start),
-            None => None
+            None => None,
         }
     }
 
@@ -700,7 +695,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
     fn accessible_size(&self) -> Option<usize> {
         match self.location {
             Some(loc) => Some(loc.accessible_size),
-            None => None
+            None => None,
         }
     }
 
@@ -708,7 +703,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
     fn region_size(&self) -> Option<usize> {
         match self.location {
             Some(loc) => Some(loc.region_size),
-            None => None
+            None => None,
         }
     }
 
@@ -872,7 +867,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
             region_start,
             underlying_region_size,
             region_number,
-            0, 
+            0,
             num_subregions_enabled - 1,
             permissions,
         ))
@@ -924,7 +919,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
             let min_size = flux_support::max_usize(size, 256);
             let underlying_region_start = start.as_usize();
             // VTOCK: If the start passed is not even, we fail.
-            // This is generally a sane thing to do because a start being odd means that 
+            // This is generally a sane thing to do because a start being odd means that
             let underlying_region_size = next_aligned_power_of_two(start.as_usize(), min_size)?;
 
             // check overflows
@@ -964,10 +959,9 @@ impl mpu::RegionDescriptor for CortexMRegion {
 }
 
 impl CortexMRegion {
-
     #[flux_rs::reveal(
         rbar_region_number,
-        rbar_region_start, 
+        rbar_region_start,
         rbar_valid_bit_set,
         least_five_bits
     )]
@@ -1090,7 +1084,7 @@ impl CortexMRegion {
         region_start: FluxPtrU8,
         region_size: usize,
         region_num: usize,
-        fsr: usize, 
+        fsr: usize,
         lsr: usize,
         permissions: mpu::Permissions,
     ) -> CortexMRegion {
@@ -1251,7 +1245,7 @@ impl CortexMRegion {
     pub(crate) fn accessible_start(&self) -> Option<FluxPtr> {
         match self.location() {
             Some(l) => Some(l.accessible_start),
-            None => None
+            None => None,
         }
     }
 
@@ -1259,7 +1253,7 @@ impl CortexMRegion {
     pub(crate) fn accessible_size(&self) -> Option<usize> {
         match self.location() {
             Some(l) => Some(l.accessible_size),
-            None => None
+            None => None,
         }
     }
 
@@ -1267,7 +1261,7 @@ impl CortexMRegion {
     pub(crate) fn region_size(&self) -> Option<usize> {
         match self.location() {
             Some(l) => Some(l.region_size),
-            None => None
+            None => None,
         }
     }
 }
