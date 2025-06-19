@@ -105,17 +105,20 @@ impl Display for MpuRegionDefault {
 #[flux_rs::assoc(fn is_set(r: Self) -> bool)]
 #[flux_rs::assoc(fn rnum(r: Self) -> int)]
 #[flux_rs::assoc(fn perms(r: Self) -> Permissions)]
-#[flux_rs::assoc(fn region_can_access(r: Self, start: int, end: int, perms: Permissions) -> bool {
+#[flux_rs::assoc(fn overlaps(r1: Self, r2: Self) -> bool)]
+#[flux_rs::assoc(final fn region_can_access(r: Self, start: int, end: int, perms: Permissions) -> bool {
     <Self as RegionDescriptor>::is_set(r) &&
     start >= <Self as RegionDescriptor>::astart(r) &&
     end <= <Self as RegionDescriptor>::astart(r) + <Self as RegionDescriptor>::asize(r) &&
     perms == <Self as RegionDescriptor>::perms(r)
 })]
-#[flux_rs::assoc(fn region_cant_access_at_all(r: Self, start: int, end: int) -> bool {
+#[flux_rs::assoc(final fn region_cant_access_at_all(r: Self, start: int, end: int) -> bool {
     !<Self as RegionDescriptor>::is_set(r) || 
     !(<Self as RegionDescriptor>::astart(r) < start && start < <Self as RegionDescriptor>::astart(r) + <Self as RegionDescriptor>::asize(r))
 })]
-#[flux_rs::assoc(fn overlaps(r1: Self, r2: Self) -> bool)]
+#[flux_rs::assoc(final fn region_does_not_overlap_app_block(r: Self, mem_start: int, mem_end: int) -> bool {
+    !<Self as RegionDescriptor>::is_set(r) || !(mem_start < <Self as RegionDescriptor>::astart(r) && <Self as RegionDescriptor>::astart(r) < mem_end)
+})]
 pub trait RegionDescriptor: core::marker::Sized {
     #[flux_rs::sig(fn (rnum: usize) -> Self {r: !<Self as RegionDescriptor>::is_set(r) && <Self as RegionDescriptor>::rnum(r) == rnum})]
     fn default(region_num: usize) -> Self;

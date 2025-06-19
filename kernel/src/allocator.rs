@@ -145,16 +145,18 @@ const FLASH_REGION_NUMBER: usize = 1;
     breaks: AppBreaks
 )]
 #[flux_rs::invariant(
-    true
     // flash can access
-    // <R as RegionDescriptor>::region_can_access(map_select(regions, FLASH_REGION_NUMBER), breaks.flash_start, breaks.flash_start + breaks.flash_size, mpu::Permissions { r: true, w: false, x: true }) 
-    // &&
-    // <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, FLASH_REGION_NUMBER), 0, breaks.flash_start - 1) &&
-    // <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, FLASH_REGION_NUMBER), breaks.flash_start + breaks.flash_size + 1, u32::MAX) &&
-    // // ram can access
-    // <R as RegionDescriptor>::region_can_access(map_select(regions, RAM_REGION_NUMBER), breaks.memory_start, breaks.app_break, mpu::Permissions { r: true, w: true, x: false }) &&
-    // <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, RAM_REGION_NUMBER), 0, breaks.memory_start - 1) &&
-    // <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, RAM_REGION_NUMBER), breaks.app_break + 1, u32::MAX)
+    <R as RegionDescriptor>::region_can_access(map_select(regions, FLASH_REGION_NUMBER), breaks.flash_start, breaks.flash_start + breaks.flash_size, mpu::Permissions { r: true, w: false, x: true }) &&
+    <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, FLASH_REGION_NUMBER), 0, breaks.flash_start - 1) &&
+    <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, FLASH_REGION_NUMBER), breaks.flash_start + breaks.flash_size + 1, u32::MAX) &&
+    // ram can access
+    <R as RegionDescriptor>::region_can_access(map_select(regions, RAM_REGION_NUMBER), breaks.memory_start, breaks.app_break, mpu::Permissions { r: true, w: true, x: false }) &&
+    <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, RAM_REGION_NUMBER), 0, breaks.memory_start - 1) &&
+    <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, RAM_REGION_NUMBER), breaks.app_break + 1, u32::MAX)
+    &&
+    // no overlap of app block
+    forall i: int in 1..8 { <R as RegionDescriptor>::region_does_not_overlap_app_block(map_select(regions, i), breaks.memory_start, breaks.memory_start + breaks.memory_size)
+    }
 )]
 pub(crate) struct AppMemoryAllocator<R: RegionDescriptor + Display + Copy> {
     #[field(AppBreaks[breaks])]
