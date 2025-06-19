@@ -151,9 +151,8 @@ const FLASH_REGION_NUMBER: usize = 1;
     <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, FLASH_REGION_NUMBER), breaks.flash_start + breaks.flash_size + 1, u32::MAX) &&
     // ram can access
     <R as RegionDescriptor>::region_can_access(map_select(regions, RAM_REGION_NUMBER), breaks.memory_start, breaks.app_break, mpu::Permissions { r: true, w: true, x: false }) &&
-    // <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, RAM_REGION_NUMBER), 0, breaks.memory_start - 1) &&
-    // <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, RAM_REGION_NUMBER), breaks.app_break + 1, u32::MAX)
-    // &&
+    <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, RAM_REGION_NUMBER), 0, breaks.memory_start - 1) &&
+    <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, RAM_REGION_NUMBER), breaks.app_break + 1, u32::MAX) &&
     // no IPC region overlaps from the high water mark to the end of memory
     // <R as RegionDescriptor>::no_ipc_regions_overlap_high_water_mark(regions, breaks.high_water_mark, breaks.memory_start + breaks.memory_size)
     // TODO: inlining this as a final assoc refinement causes issues... wtffffff!!!
@@ -645,15 +644,18 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
     }
 
     #[flux_rs::sig(fn (&R[@r], FluxPtrU8[@mem_start], usize[@mem_end]) 
-        requires <R as RegionDescriptor>::region_can_access(r, mem_start, mem_end, mpu::Permissions { r: true, w: true, x: false })
+        requires 
+            <R as RegionDescriptor>::region_can_access(r, mem_start, mem_end, mpu::Permissions { r: true, w: true, x: false }) &&
+            <R as RegionDescriptor>::region_cant_access_at_all(r, 0, mem_start - 1) &&
+            <R as RegionDescriptor>::region_cant_access_at_all(r, mem_end + 1, u32::MAX)
     )]
     fn check_pred(region: &R, mem_start: FluxPtrU8, mem_end: usize) {}
 
     #[flux_rs::sig(fn (self: &strg Self, new_app_break: FluxPtrU8Mut) -> Result<(), Error> ensures self: Self)]
     pub(crate) fn update_app_memory(&mut self, new_app_break: FluxPtrU8Mut) -> Result<(), Error> {
-        let memory_start = self.memory_start();
+        let memory_start = self.breaks.memory_start; // self.memory_start();
         let high_water_mark = self.breaks.high_water_mark;
-        let kernel_break = self.kernel_break();
+        let kernel_break = self.breaks.kernel_break;  // self.kernel_break();
         if new_app_break.as_usize() > kernel_break.as_usize() {
             return Err(Error::OutOfMemory);
         }
@@ -688,8 +690,9 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         self.regions.set(RAM_REGION_NUMBER, new_region);
 
         let new_region = self.regions.get(RAM_REGION_NUMBER);
-        let mem_start = self.memory_start();
-        let mem_end = self.app_break().as_usize();
+        let mem_start = self.breaks.memory_start;
+        let mem_end = self.breaks.app_break.as_usize();
+
         Self::check_pred(&new_region, mem_start, mem_end);
 
         Ok(())
