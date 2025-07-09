@@ -293,3 +293,5 @@ mut_mut = "allow"
 cast_ptr_alignment = "allow"
 used_underscore_binding = "allow"
 checked_conversions = "allow"
+[patch."https://github.com/flux-rs/flux.git"]
+flux-rs = { path = "../flux/lib/flux-rs" }
