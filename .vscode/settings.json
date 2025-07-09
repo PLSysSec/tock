@@ -3,7 +3,7 @@
     "editor.defaultFormatter": "rust-lang.rust-analyzer",
     "editor.formatOnSave": true,
     "rust-analyzer.server.extraEnv": {
-        "FLUXFLAGS": "-Fdump-checker-trace"
+	"RUSTUP_TOOLCHAIN": "nightly-2024-07-08"
     },
     "rust-analyzer.check.allTargets": false,
     "rust-analyzer.check.overrideCommand": [
