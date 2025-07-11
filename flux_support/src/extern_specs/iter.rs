@@ -11,7 +11,6 @@ struct Iter<'a, T>;
 // struct Enumerate<I>;
 
 // #[flux_rs::extern_spec(std::iter)]
-// #[flux_rs::generics(Self as base)]
 // #[flux_rs::assoc(fn done(self: Self) -> bool )]
 // #[flux_rs::assoc(fn step(self: Self, other: Self) -> bool )]
 // trait Iterator {
@@ -25,7 +24,6 @@ struct Iter<'a, T>;
 // }
 
 // #[flux_rs::extern_spec(std::slice)]
-// #[flux_rs::generics(T as base)]
 // #[flux_rs::assoc(fn done(x: Iter<T>) -> bool { x.idx >= x.len })]
 // #[flux_rs::assoc(fn step(x: Iter<T>, y: Iter<T>) -> bool { x.idx + 1 == y.idx && x.len == y.len})]
 // impl<'a, T> Iterator for Iter<'a, T> {
@@ -34,7 +32,6 @@ struct Iter<'a, T>;
 // }
 
 // #[flux_rs::extern_spec(std::iter)]
-// #[flux_rs::generics(I as base)]
 // #[flux_rs::assoc(fn done(x: Enumerate<I>) -> bool { <I as Iterator>::done(x.inner)})]
 // #[flux_rs::assoc(fn step(x: Enumerate<I>, y: Enumerate<I>) -> bool { <I as Iterator>::step(x.inner, y.inner)})]
 // impl<I: Iterator> Iterator for Enumerate<I> {

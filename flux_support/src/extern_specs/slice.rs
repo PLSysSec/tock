@@ -2,7 +2,6 @@
 use core::slice::{self, Iter, SliceIndex};
 
 // #[flux_rs::extern_spec]
-// #[generics(Self as base, T as base)]
 // #[assoc(fn in_bounds(idx: Self, v: T) -> bool)]
 // trait SliceIndex<T>
 // where
@@ -22,7 +21,6 @@ impl<T> [T] {
     #[flux_rs::sig(fn(&[T][@len]) -> Iter<T>[0, len])]
     fn iter(v: &[T]) -> Iter<'_, T>;
 
-    // #[flux_rs::generics(I as base)]
     // #[flux_rs::sig(fn(&[T][@len], I[@idx]) -> Option<_>[<I as SliceIndex<[T]>>::in_bounds(idx, len)])]
     // fn get(&self, index: I) -> Option<&<I as SliceIndex<[T]>>::Output>;
 }
