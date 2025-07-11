@@ -4,7 +4,6 @@ use core::ops::Bound;
 use core::ops::{Range, RangeBounds};
 
 #[flux_rs::extern_spec]
-#[generics(T as base)]
 #[flux_rs::refined_by(included: bool, unbounded: bool)]
 enum Bound<T> {
     #[variant((T) -> Bound<T>[true, false])]
@@ -29,7 +28,6 @@ struct Range<Idx> {
 }
 
 #[flux_rs::extern_spec(core::ops)]
-#[generics(Self as base, T as base, U as base)]
 #[flux_rs::assoc(fn start(self: Self) -> T)]
 #[flux_rs::assoc(fn end(self: Self) -> T)]
 trait RangeBounds<T> {
@@ -57,7 +55,6 @@ trait RangeBounds<T> {
 }
 
 #[flux_rs::extern_spec(core::ops)]
-#[generics(T as base)]
 #[flux_rs::assoc(fn start(self: Range<T>) -> T { self.end })]
 #[flux_rs::assoc(fn end(self: Range<T>) -> T { self.end })]
 impl<T> RangeBounds<T> for Range<T> {
