@@ -154,16 +154,7 @@ const FLASH_REGION_NUMBER: usize = 1;
     <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, RAM_REGION_NUMBER), 0, breaks.memory_start - 1) &&
     <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, RAM_REGION_NUMBER), breaks.app_break + 1, u32::MAX) &&
     // no IPC region overlaps from the high water mark to the end of memory
-    // <R as RegionDescriptor>::no_ipc_regions_overlap_high_water_mark(regions, breaks.high_water_mark, breaks.memory_start + breaks.memory_size)
-    // TODO: inlining this as a final assoc refinement causes issues... wtffffff!!!
-    forall i: int in 2..8 {
-        let region: R = map_select(regions, i);
-        let start: int = <R as RegionDescriptor>::astart(region);
-        let end: int = <R as RegionDescriptor>::astart(region) + <R as RegionDescriptor>::asize(region);
-        let high_water_mark: int = breaks.high_water_mark;
-        let mem_end: int = breaks.memory_start + breaks.memory_size;
-        !(<R as RegionDescriptor>::is_set(region) && end >= start && ((start >= high_water_mark && end <= mem_end) || (end >= high_water_mark && end <= mem_end)))
-    }
+    <R as RegionDescriptor>::no_ipc_regions_overlap_high_water_mark(regions, breaks.high_water_mark, breaks.memory_start + breaks.memory_size)
 )]
 pub(crate) struct AppMemoryAllocator<R: RegionDescriptor + Display + Copy> {
     #[field(AppBreaks[breaks])]
