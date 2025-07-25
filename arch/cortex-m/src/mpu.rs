@@ -656,10 +656,8 @@ fn next_aligned_power_of_two(po2_aligned_start: usize, min_size: usize) -> Optio
     }
 }
 
-#[flux_rs::assoc(fn astart(r: Self) -> int { r.astart })]
-#[flux_rs::assoc(fn rstart(r: Self) -> int { r.rstart })]
-#[flux_rs::assoc(fn asize(r: Self) -> int { r.asize })]
-#[flux_rs::assoc(fn rsize(r: Self) -> int { r.rsize })]
+#[flux_rs::assoc(fn start(r: Self) -> int { r.astart })]
+#[flux_rs::assoc(fn size(r: Self) -> int { r.asize })]
 #[flux_rs::assoc(fn is_set(r: Self) -> bool { r.set })]
 #[flux_rs::assoc(fn rnum(r: Self) -> int { r.region_no })]
 #[flux_rs::assoc(fn perms(r: Self) -> mpu::Permissions { r.perms })]
@@ -675,34 +673,18 @@ impl mpu::RegionDescriptor for CortexMRegion {
         }
     }
 
-    #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::astart(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
-    fn accessible_start(&self) -> Option<FluxPtrU8> {
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::start(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
+    fn start(&self) -> Option<FluxPtrU8> {
         match self.location {
             Some(loc) => Some(loc.accessible_start),
             None => None,
         }
     }
 
-    #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::rstart(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
-    fn region_start(&self) -> Option<FluxPtrU8> {
-        match self.location {
-            Some(loc) => Some(loc.region_start),
-            None => None,
-        }
-    }
-
-    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::asize(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
-    fn accessible_size(&self) -> Option<usize> {
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::size(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
+    fn size(&self) -> Option<usize> {
         match self.location {
             Some(loc) => Some(loc.accessible_size),
-            None => None,
-        }
-    }
-
-    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::rsize(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
-    fn region_size(&self) -> Option<usize> {
-        match self.location {
-            Some(loc) => Some(loc.region_size),
             None => None,
         }
     }
@@ -729,17 +711,9 @@ impl mpu::RegionDescriptor for CortexMRegion {
             <CortexMRegion as RegionDescriptor>::is_set(r) &&
             <CortexMRegion as RegionDescriptor>::rnum(r) == region_number &&
             <CortexMRegion as RegionDescriptor>::perms(r) == perms && 
-            <CortexMRegion as RegionDescriptor>::astart(r) >= available_start &&
-            <CortexMRegion as RegionDescriptor>::astart(r) == <CortexMRegion as RegionDescriptor>::rstart(r) &&
-            <CortexMRegion as RegionDescriptor>::astart(r) + <CortexMRegion as RegionDescriptor>::asize(r) <= available_start + available_size &&
-            <CortexMRegion as RegionDescriptor>::asize(r) >= region_size
-            // r.set &&
-            // r.region_no == region_number &&
-            // r.perms == perms &&
-            // r.astart >= available_start &&
-            // r.astart == r.rstart &&
-            // r.astart + r.asize <= available_start + available_size &&
-            // r.asize >= region_size
+            <CortexMRegion as RegionDescriptor>::start(r) >= available_start &&
+            <CortexMRegion as RegionDescriptor>::start(r) + <CortexMRegion as RegionDescriptor>::size(r) <= available_start + available_size &&
+            <CortexMRegion as RegionDescriptor>::size(r) >= region_size
         }>
         requires region_number < 8
     )]
@@ -804,22 +778,12 @@ impl mpu::RegionDescriptor for CortexMRegion {
             region_number: usize,
             perms: mpu::Permissions
         ) -> Option<{r. CortexMRegion[r] |
-
             <CortexMRegion as RegionDescriptor>::is_set(r) &&
             <CortexMRegion as RegionDescriptor>::rnum(r) == region_number &&
             <CortexMRegion as RegionDescriptor>::perms(r) == perms && 
-            <CortexMRegion as RegionDescriptor>::astart(r) == po2_aligned_start &&
-            <CortexMRegion as RegionDescriptor>::rstart(r) == po2_aligned_start &&
-            <CortexMRegion as RegionDescriptor>::astart(r) + <CortexMRegion as RegionDescriptor>::asize(r) <= po2_aligned_start + available_size &&
-            <CortexMRegion as RegionDescriptor>::asize(r)  >= min_size
-            // region_number < 16 &&
-            // r.set &&
-            // r.region_no == region_number &&
-            // r.perms == perms &&
-            // r.astart == po2_aligned_start &&
-            // r.rstart == po2_aligned_start &&
-            // r.astart + r.asize <= po2_aligned_start + available_size &&
-            // r.asize >= min_size
+            <CortexMRegion as RegionDescriptor>::start(r) == po2_aligned_start &&
+            <CortexMRegion as RegionDescriptor>::start(r) + <CortexMRegion as RegionDescriptor>::size(r) <= po2_aligned_start + available_size &&
+            <CortexMRegion as RegionDescriptor>::size(r)  >= min_size
         }>
         requires region_number < 8
     )]
@@ -884,8 +848,8 @@ impl mpu::RegionDescriptor for CortexMRegion {
                 <CortexMRegion as RegionDescriptor>::is_set(r) &&
                 <CortexMRegion as RegionDescriptor>::rnum(r) == region_no &&
                 <CortexMRegion as RegionDescriptor>::perms(r) == perms &&
-                <CortexMRegion as RegionDescriptor>::astart(r) == start &&
-                <CortexMRegion as RegionDescriptor>::astart(r) + <CortexMRegion as RegionDescriptor>::asize(r) == start + size
+                <CortexMRegion as RegionDescriptor>::start(r) == start &&
+                <CortexMRegion as RegionDescriptor>::start(r) + <CortexMRegion as RegionDescriptor>::size(r) == start + size
                 // r.set &&
                 // r.region_no == region_no &&
                 // r.perms == perms &&
