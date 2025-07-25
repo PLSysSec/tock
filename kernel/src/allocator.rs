@@ -8,97 +8,6 @@ use crate::{
     process::{Error, ProcessCustomGrantIdentifier},
 };
 
-flux_rs::defs! {
-
-    // fn region_can_access(region: RegionDescriptor, start: int, end: int, perms: mpu::Permissions) -> bool {
-    //     // region set
-    //     region.set &&
-    //     // region's accesible block contains the start..end (exclusive) checked
-    //     start >= region.astart &&
-    //     end <= region.astart + region.asize &&
-    //     // and perms are correct
-    //     region.perms == perms
-    // }
-
-    // fn region_cant_access_at_all(region: CortexMRegion, start: int, end: int) -> bool {
-    //     // WHY is this different than !region_can_access:
-    //     //  1. We don't want to talk about permissions at all here - it shouldn't be allocated at all
-    //     //  2. region_can_access talks about everything from start..(start + size) being
-    //     //  included in one region. However, here we want to say that there is no subslice of
-    //     //  start..(start + size) that is accessible via the current region we are looking at
-    //     let region_start = region.astart;
-    //     let region_end = region.astart + region.asize;
-    //     // Either the region is not set
-    //     !region.set ||
-    //     // or NO slice of start..(start + size) is included in the region
-    //     // i.e. the start..end is entirely before the region start
-    //     !(region_start < start && start < region_end)
-    // }
-
-    // fn app_can_access_flash_exactly(regions: RArray<CortexMRegion>, fstart: int, fend: int) -> bool {
-    //     let flash_region = map_select(regions, FLASH_REGION_NUMBER);
-    //     region_can_access(flash_region, fstart, fend, mpu::Permissions { r: true, w: false, x: true }) &&
-    //     region_cant_access_at_all(flash_region, 0, fstart - 1) &&
-    //     region_cant_access_at_all(flash_region, fend + 1, u32::MAX)
-    // }
-
-    // fn app_can_access_ram_exactly(regions: RArray<CortexMRegion>, astart: int, aend: int) -> bool {
-    //     let ram_region = map_select(regions, RAM_REGION_NUMBER);
-    //     region_can_access(ram_region, astart, aend, mpu::Permissions { r: true, w: true, x: false }) &&
-    //     region_cant_access_at_all(ram_region, 0, astart - 1) &&
-    //     region_cant_access_at_all(ram_region, aend + 1, u32::MAX)
-    // }
-
-    // fn app_regions_cant_access_at_all(regions: RArray<CortexMRegion>, start: int, end: int) -> bool {
-    //     forall i in 0..8 {
-    //         region_cant_access_at_all(map_select(regions, i), start, end)
-    //     }
-    // }
-
-    // fn app_regions_not_set(regions: RArray<CortexMRegion>) -> bool {
-    //     forall i in 0..8 {
-    //         let region = map_select(regions, i);
-    //         !region.set
-    //     }
-
-    // }
-
-    // fn regions_overlap(region1: CortexMRegion, region2: CortexMRegion) -> bool {
-    //     if region1.set && region2.set {
-    //         let fst_region_start = region1.rstart;
-    //         let fst_region_end = region1.rstart + region1.rsize;
-    //         let snd_region_start = region2.rstart;
-    //         let snd_region_end = region2.rstart + region2.rsize;
-    //         fst_region_start < snd_region_end && snd_region_start < fst_region_end
-    //     } else {
-    //         false
-    //     }
-    // }
-
-    // fn no_region_overlaps_app_block(regions: RArray<CortexMRegion>, mem_start: int, mem_end: int) -> bool {
-    //     forall i in 1..8 {
-    //         let region = map_select(regions, i);
-    //         let region_start = region.astart;
-    //         let region_end = region.astart + region.asize;
-    //         !region.set || !(mem_start < region_end && region_start < mem_end)
-    //     }
-    // }
-
-    // fn app_regions_correct(regions: RArray<CortexMRegion>, breaks: AppBreaks) -> bool {
-    //     app_can_access_flash_exactly(regions, breaks.flash_start, breaks.flash_start + breaks.flash_size) &&
-    //     app_can_access_ram_exactly(regions, breaks.memory_start, breaks.app_break) &&
-    //     no_region_overlaps_app_block(regions, breaks.memory_start, breaks.memory_start + breaks.memory_size)
-    // }
-
-    // fn rnum(region: CortexMRegion) -> int { region.region_no}
-    // fn rbar(region: CortexMRegion) -> bitvec<32>{ region.rbar.value }
-    // fn rasr(region: CortexMRegion) -> bitvec<32> { region.rasr.value }
-
-    // fn set(region: CortexMRegion) -> bool { region.set }
-    // fn astart(region: CortexMRegion) -> int { region.astart }
-    // fn asize(region: CortexMRegion) -> int { region.asize }
-}
-
 pub(crate) enum AllocateAppMemoryError {
     HeapError,
     FlashError,
@@ -153,8 +62,8 @@ const FLASH_REGION_NUMBER: usize = 1;
     <R as RegionDescriptor>::region_can_access(map_select(regions, RAM_REGION_NUMBER), breaks.memory_start, breaks.app_break, mpu::Permissions { r: true, w: true, x: false }) &&
     <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, RAM_REGION_NUMBER), 0, breaks.memory_start - 1) &&
     <R as RegionDescriptor>::region_cant_access_at_all(map_select(regions, RAM_REGION_NUMBER), breaks.app_break + 1, u32::MAX) &&
-    // no IPC region overlaps from the high water mark to the end of memory
-    <R as RegionDescriptor>::no_ipc_regions_overlap_high_water_mark(regions, breaks.high_water_mark, breaks.memory_start + breaks.memory_size)
+    // no IPC region overlaps from the start to the end of memory
+    <R as RegionDescriptor>::no_region_overlaps_app_block(regions, breaks.high_water_mark, breaks.memory_start + breaks.memory_size)
 )]
 pub(crate) struct AppMemoryAllocator<R: RegionDescriptor + Display + Copy> {
     #[field(AppBreaks[breaks])]
@@ -400,19 +309,19 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
     }
 
     #[flux_rs::sig(fn (&Self[@app], &R[@region]) -> bool[
-            <R as RegionDescriptor>::region_overlaps_high_water_mark(region, app.breaks.high_water_mark, app.breaks.memory_start + app.breaks.memory_size)
+            <R as RegionDescriptor>::region_overlaps_app_block(region, app.breaks.memory_start, app.breaks.memory_start + app.breaks.memory_size)
         ]
     )]
-    fn overlaps_high_water_mark(&self, region: &R) -> bool {
+    fn overlaps_app_block(&self, region: &R) -> bool {
         let (start, end) = match (R::start(region), R::size(region)) {
             (Some(start), Some(size)) => (start.as_usize(), start.as_usize() + size),
             _ => return false,
         };
         let mem_end = self.memory_end().as_usize();
-        let high_water_mark = self.breaks.high_water_mark.as_usize();
+        let mem_start = self.breaks.memory_start.as_usize();
         end >= start
-            && ((start >= high_water_mark && end <= mem_end)
-                || (end >= high_water_mark && end <= mem_end))
+            && ((start >= mem_start && end <= mem_end)
+                || (end >= mem_start && end <= mem_end))
     }
 
     #[flux_rs::sig(fn (self: &strg Self, _, _, _) -> Result<_, _> ensures self: Self)]
@@ -434,7 +343,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         let region = R::create_exact_region(region_idx, start, size, permissions).ok_or(())?;
 
         // make sure new region doesn't overlap
-        if self.any_overlaps(&region) || self.overlaps_high_water_mark(&region) {
+        if self.any_overlaps(&region) || self.overlaps_app_block(&region) {
             return Err(());
         }
 

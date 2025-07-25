@@ -114,24 +114,15 @@ impl Display for MpuRegionDefault {
     !<Self as RegionDescriptor>::is_set(r) || 
     !(<Self as RegionDescriptor>::start(r) < start && start < <Self as RegionDescriptor>::start(r) + <Self as RegionDescriptor>::size(r))
 })]
-#[flux_rs::assoc(final fn region_overlaps_high_water_mark(region: Self, high_water_mark: int, mem_end: int) -> bool {
+#[flux_rs::assoc(final fn region_overlaps_app_block(region: Self, mem_start: int, mem_end: int) -> bool {
     let start = <Self as RegionDescriptor>::start(region);
     let end = <Self as RegionDescriptor>::start(region) + <Self as RegionDescriptor>::size(region);
-    <Self as RegionDescriptor>::is_set(region) && end >= start && ((start >= high_water_mark && end <= mem_end) || (end >= high_water_mark && end <= mem_end))
+    <Self as RegionDescriptor>::is_set(region) && end >= start && ((start >= mem_start && end <= mem_end) || (end >= mem_start && end <= mem_end))
 })]
-#[flux_rs::assoc(final fn no_ipc_regions_overlap_high_water_mark(regions: Map<int, Self>, high_water_mark: int, mem_end: int) -> bool {
-    forall i: int in 2..8 {
+#[flux_rs::assoc(final fn no_region_overlaps_app_block(regions: Map<int, Self>, mem_start: int, mem_end: int) -> bool {
+    forall i: int in 1..8 {
         let region = map_select(regions, i);
-        !<Self as RegionDescriptor>::region_overlaps_high_water_mark(region, high_water_mark, mem_end)
-    }
-})]
-#[flux_rs::assoc(final fn no_regions_overlap(regions: Map<int, Self>) -> bool {
-    forall i: int in 0..8 {
-        let region1 = map_select(regions, i);
-        forall j: int in 0..8 {
-            let region2 = map_select(regions, j);
-            i != j => !<Self as RegionDescriptor>::overlaps(region1, region2)
-        }
+        !<Self as RegionDescriptor>::region_overlaps_app_block(region, mem_start, mem_end)
     }
 })]
 pub trait RegionDescriptor: core::marker::Sized {
