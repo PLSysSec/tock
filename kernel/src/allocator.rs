@@ -404,7 +404,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         ]
     )]
     fn overlaps_high_water_mark(&self, region: &R) -> bool {
-        let (start, end) = match (R::accessible_start(region), R::accessible_size(region)) {
+        let (start, end) = match (R::start(region), R::size(region)) {
             (Some(start), Some(size)) => (start.as_usize(), start.as_usize() + size),
             _ => return false,
         };
@@ -439,8 +439,8 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         }
 
         self.regions.set(region_idx, region);
-        let start = region.accessible_start().ok_or(())?;
-        let size = region.accessible_size().ok_or(())?;
+        let start = region.start().ok_or(())?;
+        let size = region.size().ok_or(())?;
         Ok(mpu::Region::new(start, size))
     }
 
@@ -451,8 +451,8 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         ) -> Result<{r. R[r] |
             <R as RegionDescriptor>::is_set(r) &&
             <R as RegionDescriptor>::rnum(r) == FLASH_REGION_NUMBER &&
-            <R as RegionDescriptor>::astart(r) == flash_start && 
-            <R as RegionDescriptor>::asize(r) == flash_size && 
+            <R as RegionDescriptor>::start(r) == flash_start && 
+            <R as RegionDescriptor>::size(r) == flash_size && 
             <R as RegionDescriptor>::perms(r) == mpu::Permissions { r: true, x: true, w: false }
         }, ()>
     )]
@@ -475,8 +475,8 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         ) -> Result<{r. R[r] |
             <R as RegionDescriptor>::is_set(r) &&
             <R as RegionDescriptor>::rnum(r) == RAM_REGION_NUMBER &&
-            <R as RegionDescriptor>::astart(r) >= mem_start  &&
-            <R as RegionDescriptor>::astart(r) + <R as RegionDescriptor>::asize(r) >= <R as RegionDescriptor>::astart(r) + min_size &&
+            <R as RegionDescriptor>::start(r) >= mem_start  &&
+            <R as RegionDescriptor>::start(r) + <R as RegionDescriptor>::size(r) >= <R as RegionDescriptor>::start(r) + min_size &&
             <R as RegionDescriptor>::perms(r) == mpu::Permissions { r: true, w: true, x: false }
          }, ()>
     )]
@@ -507,8 +507,8 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             flash_start: FluxPtrU8,
             flash_size: usize,
         ) -> Result<{b. AppBreaks[b] | 
-                b.memory_start == <R as RegionDescriptor>::astart(ram_region) &&
-                b.app_break == <R as RegionDescriptor>::astart(ram_region) + <R as RegionDescriptor>::asize(ram_region) &&
+                b.memory_start == <R as RegionDescriptor>::start(ram_region) &&
+                b.app_break == <R as RegionDescriptor>::start(ram_region) + <R as RegionDescriptor>::size(ram_region) &&
                 b.flash_start == flash_start &&
                 b.flash_size == flash_size &&
                 b.memory_start >= unallocated_memory_start &&
@@ -517,7 +517,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
                 b.memory_size >= initial_kernel_memory_size
             }, ()>
             requires 
-                <R as RegionDescriptor>::astart(ram_region) >= unallocated_memory_start &&
+                <R as RegionDescriptor>::start(ram_region) >= unallocated_memory_start &&
                 unallocated_memory_start + unallocated_memory_size <= u32::MAX &&
                 unallocated_memory_start > 0 &&
                 initial_kernel_memory_size > 0 &&
@@ -531,8 +531,8 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         flash_start: FluxPtrU8,
         flash_size: usize,
     ) -> Result<AppBreaks, ()> {
-        let memory_start = ram_region.accessible_start().ok_or(())?;
-        let app_memory_size = ram_region.accessible_size().ok_or(())?;
+        let memory_start = ram_region.start().ok_or(())?;
+        let app_memory_size = ram_region.size().ok_or(())?;
         let app_break = memory_start.as_usize() + app_memory_size;
 
         // compute the total block size:
@@ -668,10 +668,10 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
 
 
         let new_app_break = new_region
-            .accessible_start()
+            .start()
             .ok_or(Error::KernelError)?
             .as_usize()
-            + new_region.accessible_size().ok_or(Error::KernelError)?;
+            + new_region.size().ok_or(Error::KernelError)?;
 
 
         if new_app_break > kernel_break.as_usize() {

@@ -609,35 +609,20 @@ impl PMPUserRegion {
     }
 }
 
-#[flux_rs::assoc(fn astart(r: Self) -> int { r.start })]
-#[flux_rs::assoc(fn rstart(r: Self) -> int { r.start  })]
-#[flux_rs::assoc(fn asize(r: Self) -> int { r.end - r.start })]
-#[flux_rs::assoc(fn rsize(r: Self) -> int { r.end - r.start })]
+#[flux_rs::assoc(fn start(r: Self) -> int { r.start })]
+#[flux_rs::assoc(fn size(r: Self) -> int { r.end - r.start })]
 #[flux_rs::assoc(fn is_set(r: Self) -> bool { r.is_set })]
 #[flux_rs::assoc(fn rnum(r: Self) -> int { r.region_number })]
 #[flux_rs::assoc(fn perms(r: Self) -> mpu::Permissions { r.perms })]
 #[flux_rs::assoc(fn overlaps(r1: Self, r2: Self) -> bool { region_overlaps(r1, r2) })]
 impl RegionDescriptor for PMPUserRegion {
-    #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::astart(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
-    fn accessible_start(&self) -> Option<FluxPtrU8> {
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::start(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
+    fn start(&self) -> Option<FluxPtrU8> {
         self.start
     }
 
-    #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::rstart(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
-    fn region_start(&self) -> Option<FluxPtrU8> {
-        self.start
-    }
-
-    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::asize(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
-    fn accessible_size(&self) -> Option<usize> {
-        match (self.start, self.end) {
-            (Some(start), Some(end)) => Some(end.as_usize() - start.as_usize()),
-            _ => None,
-        }
-    }
-
-    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::rsize(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
-    fn region_size(&self) -> Option<usize> {
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::size(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
+    fn size(&self) -> Option<usize> {
         match (self.start, self.end) {
             (Some(start), Some(end)) => Some(end.as_usize() - start.as_usize()),
             _ => None,
@@ -675,8 +660,8 @@ impl RegionDescriptor for PMPUserRegion {
                 <Self as RegionDescriptor>::is_set(r) &&
                 <Self as RegionDescriptor>::rnum(r) == region_number &&
                 <Self as RegionDescriptor>::perms(r) == permissions &&
-                <Self as RegionDescriptor>::astart(r) == start &&
-                <Self as RegionDescriptor>::astart(r) + <Self as RegionDescriptor>::asize(r) == start + size
+                <Self as RegionDescriptor>::start(r) == start &&
+                <Self as RegionDescriptor>::start(r) + <Self as RegionDescriptor>::size(r) == start + size
             }>
         requires region_number < 8
     )]
@@ -700,10 +685,9 @@ impl RegionDescriptor for PMPUserRegion {
         <Self as RegionDescriptor>::is_set(r) &&
         <Self as RegionDescriptor>::perms(r) == permissions &&
         <Self as RegionDescriptor>::rnum(r) == region_number &&
-        <Self as RegionDescriptor>::astart(r) >= available_start &&
-        <Self as RegionDescriptor>::astart(r) == <Self as RegionDescriptor>::rstart(r) &&
-        <Self as RegionDescriptor>::astart(r) + <Self as RegionDescriptor>::asize(r) <= available_start + available_size &&
-        <Self as RegionDescriptor>::asize(r) >= region_size
+        <Self as RegionDescriptor>::start(r) >= available_start &&
+        <Self as RegionDescriptor>::start(r) + <Self as RegionDescriptor>::size(r) <= available_start + available_size &&
+        <Self as RegionDescriptor>::size(r) >= region_size
     }> requires region_number < 8)]
     fn create_bounded_region(
         region_number: usize,
@@ -790,10 +774,9 @@ impl RegionDescriptor for PMPUserRegion {
         <Self as RegionDescriptor>::is_set(r) &&
         <Self as RegionDescriptor>::rnum(r) == region_number &&
         <Self as RegionDescriptor>::perms(r) == permissions &&
-        <Self as RegionDescriptor>::astart(r) == region_start &&
-        <Self as RegionDescriptor>::rstart(r) == region_start &&
-        <Self as RegionDescriptor>::astart(r) + <Self as RegionDescriptor>::asize(r) <= region_start + available_size &&
-        <Self as RegionDescriptor>::asize(r)  >= region_size
+        <Self as RegionDescriptor>::start(r) == region_start &&
+        <Self as RegionDescriptor>::start(r) + <Self as RegionDescriptor>::size(r) <= region_start + available_size &&
+        <Self as RegionDescriptor>::size(r)  >= region_size
     }> requires region_number < 8)]
     fn update_region(
         region_start: FluxPtrU8,
