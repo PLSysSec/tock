@@ -57,20 +57,20 @@ const FLASH_REGION_NUMBER: usize = 2;
     // flash can access
     <R as RegionDescriptor>::region_can_access_exactly(map_select(regions, FLASH_REGION_NUMBER), breaks.flash_start, breaks.flash_start + breaks.flash_size, mpu::Permissions { r: true, w: false, x: true }) &&
     !<R as RegionDescriptor>::overlaps(map_select(regions, FLASH_REGION_NUMBER), 0, breaks.flash_start - 1) &&
-    !<R as RegionDescriptor>::overlaps(map_select(regions, FLASH_REGION_NUMBER), breaks.flash_start + breaks.flash_size + 1, u32::MAX) &&
+    !<R as RegionDescriptor>::overlaps(map_select(regions, FLASH_REGION_NUMBER), breaks.flash_start + breaks.flash_size, u32::MAX) &&
     // ram can access
     <R as RegionDescriptor>::regions_can_access_exactly(
         map_select(regions, MAX_RAM_REGION_NUMBER - 1),
         map_select(regions, MAX_RAM_REGION_NUMBER),
         breaks.memory_start, breaks.app_break, mpu::Permissions { r: true, w: true, x: false }
     ) 
-    // &&
-    // !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER - 1), 0, breaks.memory_start - 1) &&
-    // !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER - 1), breaks.app_break + 1, u32::MAX) &&
-    // !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER), 0, breaks.memory_start - 1) &&
-    // !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER), breaks.app_break + 1, u32::MAX) &&
-    // // no IPC region overlaps from the start to the end of memory
-    // <R as RegionDescriptor>::no_region_overlaps_app_block(regions, breaks.high_water_mark, breaks.memory_start + breaks.memory_size)
+    &&
+    !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER - 1), 0, breaks.memory_start - 1) &&
+    !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER - 1), breaks.app_break, u32::MAX) &&
+    !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER), 0, breaks.memory_start - 1) &&
+    !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER), breaks.app_break, u32::MAX) &&
+    // no IPC region overlaps from the start to the end of memory
+    <R as RegionDescriptor>::no_region_overlaps_app_block(regions, breaks.high_water_mark, breaks.memory_start + breaks.memory_size)
 )]
 pub(crate) struct AppMemoryAllocator<R: RegionDescriptor + Display + Copy> {
     #[field(AppBreaks[breaks])]
@@ -370,11 +370,10 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             flash_start: FluxPtrU8,
             flash_size: usize
         ) -> Result<R { r:
-            <Self as RegionDescriptor>::is_set(r) &&
-            flash_start == <Self as RegionDescriptor>::start(r) &&
-            flash_start + flash_size == <Self as RegionDescriptor>::start(r) + <Self as RegionDescriptor>::size(r) &&
-            <Self as RegionDescriptor>::perms(r) == mpu::Permissions { r: true, x: true, w: false }
-            // <R as RegionDescriptor>::region_can_access_exactly(r, flash_start, flash_start + flash_size, mpu::Permissions { r: true, x: true, w: false })
+            <R as RegionDescriptor>::is_set(r) &&
+            flash_start == <R as RegionDescriptor>::start(r) &&
+            flash_start + flash_size == <R as RegionDescriptor>::start(r) + <R as RegionDescriptor>::size(r) &&
+            <R as RegionDescriptor>::perms(r) == mpu::Permissions { r: true, x: true, w: false }
         }, ()>
     )]
     fn get_flash_region(flash_start: FluxPtrU8, flash_size: usize) -> Result<R, ()> {
@@ -543,20 +542,22 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         let flash_region = Self::get_flash_region(flash_start, flash_size)
             .map_err(|_| AllocateAppMemoryError::FlashError)?;
 
-        flash_region.lemma_can_access_exactly_implies_no_overlap(flash_start, flash_start.wrapping_add(flash_size), mpu::Permissions::ReadExecuteOnly);
+        flash_region.lemma_region_can_access_exactly_implies_no_overlap(flash_start, flash_start.wrapping_add(flash_size), mpu::Permissions::ReadExecuteOnly);
 
         // set the flash region
         app_regions.set(FLASH_REGION_NUMBER, flash_region);
 
         // ask MPU for a region covering RAM
-        let ram_regions = Self::get_ram_regions(
+        let ram_regions = match Self::get_ram_regions(
             unallocated_memory_start,
             unallocated_memory_size,
             min_memory_size,
             initial_app_memory_size,
-        ) 
-        .map_err(|_| AllocateAppMemoryError::HeapError)?;
-
+        )  {
+            Ok(r) => r,
+            Err(_) => return Err(AllocateAppMemoryError::HeapError)
+        };
+        // .map_err(|_| AllocateAppMemoryError::HeapError)?;
 
         // For some reason flux needs this to prove our pre and post conditions
         flux_rs::assert(flash_start.as_usize() + flash_size < unallocated_memory_start.as_usize());
@@ -572,6 +573,13 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         )
         .map_err(|_| AllocateAppMemoryError::HeapError)?;
 
+        R::lemma_regions_can_access_exactly_implies_no_overlap(
+            &ram_regions.fst, 
+            &ram_regions.snd, 
+            breaks.memory_start,
+            breaks.memory_start.wrapping_add(breaks.memory_size),
+            mpu::Permissions::ReadWriteOnly
+        );
 
         // Set the RAM region
         app_regions.set(MAX_RAM_REGION_NUMBER - 1, ram_regions.fst);
@@ -585,9 +593,9 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
 
     #[flux_rs::sig(fn (self: &strg Self, new_app_break: FluxPtrU8Mut) -> Result<(), Error> ensures self: Self)]
     pub(crate) fn update_app_memory(&mut self, new_app_break: FluxPtrU8Mut) -> Result<(), Error> {
-        let memory_start = self.breaks.memory_start; // self.memory_start();
+        let memory_start = self.breaks.memory_start; 
         let high_water_mark = self.breaks.high_water_mark;
-        let kernel_break = self.breaks.kernel_break;  // self.kernel_break();
+        let kernel_break = self.breaks.kernel_break; 
         if new_app_break.as_usize() > kernel_break.as_usize() {
             return Err(Error::OutOfMemory);
         }
