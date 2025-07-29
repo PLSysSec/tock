@@ -721,7 +721,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
                 <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) >= region_size &&
                 <Self as RegionDescriptor>::perms(p.snd) == permissions
             ))
-        }> requires max_region_number < 8
+        }> requires max_region_number > 0 && max_region_number < 8
     )] 
     fn allocate_regions(
         region_number: usize,
@@ -801,7 +801,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
             <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) >= region_size &&
             <Self as RegionDescriptor>::perms(p.snd) == permissions
         ))
-    }> requires max_region_number < 8)]
+    }> requires max_region_number > 0 && max_region_number < 8)]
     fn update_regions(
         region_start: FluxPtrU8,
         available_size: usize,
