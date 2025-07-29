@@ -221,12 +221,12 @@ flux_rs::defs! {
 
 
     // region specific
-    fn regions_overlap(region1: CortexMRegion, region2: CortexMRegion) -> bool {
-        if region1.set && region2.set {
+    fn region_overlaps(region1: CortexMRegion, start: int, end: int) -> bool {
+        if region1.set {
             let fst_region_start = region1.astart;
             let fst_region_end = region1.astart + region1.asize;
-            let snd_region_start = region2.astart;
-            let snd_region_end = region2.astart + region2.asize;
+            let snd_region_start = start;
+            let snd_region_end = end; 
             fst_region_start < snd_region_end && snd_region_start < fst_region_end
         } else {
             false
@@ -661,7 +661,7 @@ fn next_aligned_power_of_two(po2_aligned_start: usize, min_size: usize) -> Optio
 #[flux_rs::assoc(fn is_set(r: Self) -> bool { r.set })]
 #[flux_rs::assoc(fn rnum(r: Self) -> int { r.region_no })]
 #[flux_rs::assoc(fn perms(r: Self) -> mpu::Permissions { r.perms })]
-#[flux_rs::assoc(fn overlaps(region1: Self, region2: Self) -> bool { regions_overlap(region1, region2)})]
+#[flux_rs::assoc(fn overlaps(region1: Self, start: int, end: int) -> bool { region_overlaps(region1, start, end)})]
 impl mpu::RegionDescriptor for CortexMRegion {
     #[flux_rs::sig(fn (rnum: usize) -> Self {r: !<Self as RegionDescriptor>::is_set(r) && <Self as RegionDescriptor>::rnum(r) == rnum})]
     fn default(region_num: usize) -> Self {
@@ -694,37 +694,43 @@ impl mpu::RegionDescriptor for CortexMRegion {
         self.location.is_some()
     }
 
-    #[flux_rs::sig(fn (&Self[@r1], &Self[@r2]) -> bool[<Self as RegionDescriptor>::overlaps(r1, r2)])]
+    #[flux_rs::sig(fn (&Self[@r1], &Self[@r2]) -> bool[<Self as RegionDescriptor>::overlaps(r1, r2.astart, r2.asize)])]
     fn overlaps(&self, other: &CortexMRegion) -> bool {
         self.region_overlaps(other)
     }
 
     #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
-    #[flux_rs::sig(
-        fn (
-            region_number: usize,
-            available_start: FluxPtrU8,
-            available_size: usize,
-            region_size: usize,
-            perms: mpu::Permissions
-        ) -> Option<{r. CortexMRegion[r] |
-            <CortexMRegion as RegionDescriptor>::is_set(r) &&
-            <CortexMRegion as RegionDescriptor>::rnum(r) == region_number &&
-            <CortexMRegion as RegionDescriptor>::perms(r) == perms && 
-            <CortexMRegion as RegionDescriptor>::start(r) >= available_start &&
-            <CortexMRegion as RegionDescriptor>::start(r) + <CortexMRegion as RegionDescriptor>::size(r) <= available_start + available_size &&
-            <CortexMRegion as RegionDescriptor>::size(r) >= region_size
-        }>
-        requires region_number < 8
-    )]
-    fn create_bounded_region(
+    #[flux_rs::sig(fn (
+        max_region_number: usize,
+        available_start: FluxPtrU8,
+        available_size: usize,
+        region_size: usize,
+        permissions: Permissions,
+    ) -> Option<{p. Pair<Self, Self>[p] |
+            <Self as RegionDescriptor>::is_set(p.fst) &&
+            <Self as RegionDescriptor>::rnum(p.fst) == max_region_number - 1 &&
+            <Self as RegionDescriptor>::rnum(p.snd) == max_region_number &&
+            <Self as RegionDescriptor>::perms(p.fst) == permissions &&
+            <Self as RegionDescriptor>::start(p.fst) >= available_start &&
+            !<Self as RegionDescriptor>::is_set(p.fst) => (
+                <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) <= available_start + available_size
+            ) &&
+            <Self as RegionDescriptor>::is_set(p.fst) => (
+                <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) == <Self as RegionDescriptor>::start(p.snd) &&
+                <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) <= available_start + available_size &&
+                <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) >= region_size &&
+                <Self as RegionDescriptor>::perms(p.snd) == permissions
+            )
+        }> requires max_region_number < 8
+    )] 
+    fn allocate_regions(
         region_number: usize,
         available_start: FluxPtrU8,
         available_size: usize,
         region_size: usize,
         permissions: mpu::Permissions,
-    ) -> Option<CortexMRegion> {
-        // creates a region with region_start and region_end = region_start + region_size within available start + available size
+    ) -> Option<Pair<CortexMRegion, CortexMRegion>> {
+        // creates <= 2 regions with region_start and region_end = region_start + region_size within available start + available size
 
         let mut start = available_start.as_usize();
         let mut size = region_size;
@@ -756,44 +762,60 @@ impl mpu::RegionDescriptor for CortexMRegion {
             return None;
         }
 
-        // create the region
-        Some(CortexMRegion::new_with_srd(
-            FluxPtr::from(start),
-            num_subregions_enabled * subregion_size,
-            FluxPtr::from(start),
-            size,
-            region_number,
-            0,
-            num_subregions_enabled - 1,
-            permissions,
-        ))
+        Some(
+            Pair {
+                fst: CortexMRegion::new_with_srd(
+                    FluxPtr::from(start),
+                    num_subregions_enabled * subregion_size,
+                    FluxPtr::from(start),
+                    size,
+                    region_number,
+                    0,
+                    num_subregions_enabled - 1,
+                    permissions,
+                ),
+                snd: mpu::RegionDescriptor::default(region_number + 1)
+            }
+        )
     }
 
     #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
-    #[flux_rs::sig(
-        fn (
-            po2_aligned_start: FluxPtrU8,
-            available_size: usize,
-            min_size: usize,
-            region_number: usize,
-            perms: mpu::Permissions
-        ) -> Option<{r. CortexMRegion[r] |
-            <CortexMRegion as RegionDescriptor>::is_set(r) &&
-            <CortexMRegion as RegionDescriptor>::rnum(r) == region_number &&
-            <CortexMRegion as RegionDescriptor>::perms(r) == perms && 
-            <CortexMRegion as RegionDescriptor>::start(r) == po2_aligned_start &&
-            <CortexMRegion as RegionDescriptor>::start(r) + <CortexMRegion as RegionDescriptor>::size(r) <= po2_aligned_start + available_size &&
-            <CortexMRegion as RegionDescriptor>::size(r)  >= min_size
-        }>
-        requires region_number < 8
-    )]
-    fn update_region(
+    #[flux_rs::sig(fn (
         region_start: FluxPtrU8,
         available_size: usize,
         region_size: usize,
-        region_number: usize,
+        max_region_number: usize,
+        permissions: Permissions,
+    ) -> Option<{p. Pair<Self, Self>[p] | 
+        <Self as RegionDescriptor>::is_set(p.fst) &&
+        <Self as RegionDescriptor>::rnum(p.fst) == max_region_number - 1 &&
+        <Self as RegionDescriptor>::rnum(p.snd) == max_region_number &&
+        <Self as RegionDescriptor>::perms(p.fst) == permissions &&
+        <Self as RegionDescriptor>::start(p.fst) >= region_start && 
+        !<Self as RegionDescriptor>::is_set(p.fst) => (
+            <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) <= region_start + available_size
+        ) &&
+        <Self as RegionDescriptor>::is_set(p.fst) => (
+            <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) == <Self as RegionDescriptor>::start(p.snd) &&
+            <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) <= region_start + available_size &&
+            <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) >= region_size &&
+            <Self as RegionDescriptor>::perms(p.snd) == permissions
+        )
+
+        // <Self as RegionDescriptor>::is_set(r) &&
+        // <Self as RegionDescriptor>::rnum(r) == region_number &&
+        // <Self as RegionDescriptor>::perms(r) == permissions &&
+        // <Self as RegionDescriptor>::start(r) == region_start &&
+        // <Self as RegionDescriptor>::start(r) + <Self as RegionDescriptor>::size(r) <= region_start + available_size &&
+        // <Self as RegionDescriptor>::size(r)  >= region_size
+    }> requires max_region_number < 8)]
+    fn update_regions(
+        region_start: FluxPtrU8,
+        available_size: usize,
+        region_size: usize,
+        max_region_number: usize,
         permissions: mpu::Permissions,
-    ) -> Option<CortexMRegion> {
+    ) -> Option<Pair<CortexMRegion, CortexMRegion>> {
         let overflow_bound = (u32::MAX / 2 + 1) as usize;
         if region_size == 0
             || region_size > overflow_bound
@@ -825,16 +847,21 @@ impl mpu::RegionDescriptor for CortexMRegion {
             region_start.as_usize() + num_subregions_enabled * subregion_size;
 
         // create the region
-        Some(CortexMRegion::new_with_srd(
-            region_start,
-            num_subregions_enabled * subregion_size,
-            region_start,
-            underlying_region_size,
-            region_number,
-            0,
-            num_subregions_enabled - 1,
-            permissions,
-        ))
+        Some(
+            Pair {
+                fst: CortexMRegion::new_with_srd(
+                    region_start,
+                    num_subregions_enabled * subregion_size,
+                    region_start,
+                    underlying_region_size,
+                    max_region_number - 1,
+                    0,
+                    num_subregions_enabled - 1,
+                    permissions,
+                ),
+                snd: RegionDescriptor::default(max_region_number)
+            }
+        )
     }
 
     #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
@@ -1189,7 +1216,7 @@ impl CortexMRegion {
         self.location.is_some()
     }
 
-    #[flux_rs::sig(fn (&Self[@region1], &CortexMRegion[@region2]) -> bool[regions_overlap(region1, region2)])]
+    #[flux_rs::sig(fn (&Self[@region1], &CortexMRegion[@region2]) -> bool[region_overlaps(region1, region2)])]
     pub(crate) fn region_overlaps(&self, other: &CortexMRegion) -> bool {
         match (self.location(), other.location()) {
             (Some(fst_region_loc), Some(snd_region_loc)) => {
