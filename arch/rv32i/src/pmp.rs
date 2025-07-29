@@ -652,14 +652,8 @@ impl RegionDescriptor for PMPUserRegion {
             region_number: usize,
             start: FluxPtrU8,
             size: usize,
-            permissions: mpu::Permissions,
-        ) -> Option<{r. Self[r] | 
-                <Self as RegionDescriptor>::is_set(r) &&
-                <Self as RegionDescriptor>::rnum(r) == region_number &&
-                <Self as RegionDescriptor>::perms(r) == permissions &&
-                <Self as RegionDescriptor>::start(r) == start &&
-                <Self as RegionDescriptor>::start(r) + <Self as RegionDescriptor>::size(r) == start + size
-            }>
+            permissions: Permissions,
+        ) -> Option<Self{r: <Self as RegionDescriptor>::region_can_access_exactly(r, start, start + size, permissions)}>
         requires region_number < 8
     )]
     fn create_exact_region(
@@ -678,21 +672,21 @@ impl RegionDescriptor for PMPUserRegion {
         available_size: usize,
         region_size: usize,
         permissions: Permissions,
-    ) -> Option<{p. Pair<Self, Self>[p] |
+    ) -> Option<Pair<Self, Self>{p: 
             <Self as RegionDescriptor>::is_set(p.fst) &&
             <Self as RegionDescriptor>::rnum(p.fst) == max_region_number - 1 &&
             <Self as RegionDescriptor>::rnum(p.snd) == max_region_number &&
             <Self as RegionDescriptor>::perms(p.fst) == permissions &&
             <Self as RegionDescriptor>::start(p.fst) >= available_start &&
-            !<Self as RegionDescriptor>::is_set(p.fst) => (
+            ((!<Self as RegionDescriptor>::is_set(p.snd)) => (
                 <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) <= available_start + available_size
-            ) &&
-            <Self as RegionDescriptor>::is_set(p.fst) => (
+            )) &&
+            (<Self as RegionDescriptor>::is_set(p.snd) => (
                 <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) == <Self as RegionDescriptor>::start(p.snd) &&
                 <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) <= available_start + available_size &&
                 <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) >= region_size &&
                 <Self as RegionDescriptor>::perms(p.snd) == permissions
-            )
+            ))
         }> requires max_region_number < 8
     )] 
     fn allocate_regions(
@@ -787,22 +781,15 @@ impl RegionDescriptor for PMPUserRegion {
         <Self as RegionDescriptor>::rnum(p.snd) == max_region_number &&
         <Self as RegionDescriptor>::perms(p.fst) == permissions &&
         <Self as RegionDescriptor>::start(p.fst) >= region_start &&
-        !<Self as RegionDescriptor>::is_set(p.fst) => (
+        ((!<Self as RegionDescriptor>::is_set(p.snd)) => (
             <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) <= region_start + available_size
-        ) &&
-        <Self as RegionDescriptor>::is_set(p.fst) => (
+        )) &&
+        (<Self as RegionDescriptor>::is_set(p.snd) => (
             <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) == <Self as RegionDescriptor>::start(p.snd) &&
             <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) <= region_start + available_size &&
             <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) >= region_size &&
             <Self as RegionDescriptor>::perms(p.snd) == permissions
-        )
-
-        // <Self as RegionDescriptor>::is_set(r) &&
-        // <Self as RegionDescriptor>::rnum(r) == region_number &&
-        // <Self as RegionDescriptor>::perms(r) == permissions &&
-        // <Self as RegionDescriptor>::start(r) == region_start &&
-        // <Self as RegionDescriptor>::start(r) + <Self as RegionDescriptor>::size(r) <= region_start + available_size &&
-        // <Self as RegionDescriptor>::size(r)  >= region_size
+        ))
     }> requires max_region_number < 8)]
     fn update_regions(
         region_start: FluxPtrU8,

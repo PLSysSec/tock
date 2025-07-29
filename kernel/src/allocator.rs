@@ -369,7 +369,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         fn (
             flash_start: FluxPtrU8,
             flash_size: usize
-        ) -> Result<{r. R[r] |
+        ) -> Result<R{r:
             <R as RegionDescriptor>::region_can_access_exactly(r, flash_start, flash_start + flash_size, mpu::Permissions { r: true, x: true, w: false })
         }, ()>
     )]
@@ -389,23 +389,23 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             mem_size: usize, 
             min_size: usize, 
             app_mem_size: usize
-        ) -> Result<{p. Pair<R, R>[p] | 
+        ) -> Result<Pair<R, R>{p: 
             <R as RegionDescriptor>::is_set(p.fst) &&
             <R as RegionDescriptor>::rnum(p.fst) == MAX_RAM_REGION_NUMBER - 1 &&
             <R as RegionDescriptor>::rnum(p.snd) == MAX_RAM_REGION_NUMBER &&
             <R as RegionDescriptor>::perms(p.fst) == mpu::Permissions { r: true, w: true, x: false } &&
             <R as RegionDescriptor>::start(p.fst) >= mem_start &&
-            !<R as RegionDescriptor>::is_set(p.snd) => (
-                <R as RegionDescriptor>::start(p.fst) + <R as RegionDescriptor>::size(p.fst) >= <R as RegionDescriptor>::start(p.fst) + app_mem_size
+            ((!<R as RegionDescriptor>::is_set(p.snd)) => 
+                <R as RegionDescriptor>::start(p.fst) + <R as RegionDescriptor>::size(p.fst) <= mem_start + mem_size
             )
             &&
-            <R as RegionDescriptor>::is_set(p.snd) => (
+            (<R as RegionDescriptor>::is_set(p.snd) => (
                 <R as RegionDescriptor>::start(p.fst) + <R as RegionDescriptor>::size(p.fst) == <R as RegionDescriptor>::start(p.snd) &&
                 <R as RegionDescriptor>::start(p.fst) + <R as RegionDescriptor>::size(p.fst) + <R as RegionDescriptor>::size(p.snd) <= mem_start + mem_size &&
                 <R as RegionDescriptor>::size(p.fst) + <R as RegionDescriptor>::size(p.snd) >= min_size &&
                 <R as RegionDescriptor>::perms(p.snd) == mpu::Permissions { r: true, w: true, x: false }
-            )
-        }, ()>
+            ))
+        }, ()>    
     )]
     fn get_ram_regions(
         unallocated_memory_start: FluxPtrU8,
@@ -416,7 +416,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         // set our stack, data, and heap up
         let ideal_region_size = flux_support::max_usize(min_memory_size, initial_app_memory_size);
         R::allocate_regions(
-            MAX_RAM_REGION_NUMBER - 1,
+            MAX_RAM_REGION_NUMBER,
             unallocated_memory_start,
             unallocated_memory_size,
             ideal_region_size,
@@ -542,6 +542,8 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         };
         // .map_err(|_| AllocateAppMemoryError::FlashError)?;
 
+        app_regions.set(FLASH_REGION_NUMBER, flash_region);
+
         // ask MPU for a region covering RAM
         let ram_regions = match Self::get_ram_regions(
             unallocated_memory_start,
@@ -571,7 +573,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         .map_err(|_| AllocateAppMemoryError::HeapError)?;
 
         // set the flash region
-        app_regions.set(FLASH_REGION_NUMBER, flash_region);
+
         // Set the RAM region
         app_regions.set(MAX_RAM_REGION_NUMBER - 1, ram_regions.fst);
         app_regions.set(MAX_RAM_REGION_NUMBER, ram_regions.snd);

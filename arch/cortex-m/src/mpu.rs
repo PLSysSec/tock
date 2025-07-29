@@ -706,21 +706,21 @@ impl mpu::RegionDescriptor for CortexMRegion {
         available_size: usize,
         region_size: usize,
         permissions: Permissions,
-    ) -> Option<{p. Pair<Self, Self>[p] |
+    ) -> Option<Pair<Self, Self>{p: 
             <Self as RegionDescriptor>::is_set(p.fst) &&
             <Self as RegionDescriptor>::rnum(p.fst) == max_region_number - 1 &&
             <Self as RegionDescriptor>::rnum(p.snd) == max_region_number &&
             <Self as RegionDescriptor>::perms(p.fst) == permissions &&
             <Self as RegionDescriptor>::start(p.fst) >= available_start &&
-            !<Self as RegionDescriptor>::is_set(p.fst) => (
+            ((!<Self as RegionDescriptor>::is_set(p.snd)) => (
                 <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) <= available_start + available_size
-            ) &&
-            <Self as RegionDescriptor>::is_set(p.fst) => (
+            )) &&
+            (<Self as RegionDescriptor>::is_set(p.snd) => (
                 <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) == <Self as RegionDescriptor>::start(p.snd) &&
                 <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) <= available_start + available_size &&
                 <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) >= region_size &&
                 <Self as RegionDescriptor>::perms(p.snd) == permissions
-            )
+            ))
         }> requires max_region_number < 8
     )] 
     fn allocate_regions(
@@ -792,22 +792,15 @@ impl mpu::RegionDescriptor for CortexMRegion {
         <Self as RegionDescriptor>::rnum(p.snd) == max_region_number &&
         <Self as RegionDescriptor>::perms(p.fst) == permissions &&
         <Self as RegionDescriptor>::start(p.fst) >= region_start && 
-        !<Self as RegionDescriptor>::is_set(p.fst) => (
+        ((!<Self as RegionDescriptor>::is_set(p.snd)) => (
             <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) <= region_start + available_size
-        ) &&
-        <Self as RegionDescriptor>::is_set(p.fst) => (
+        )) &&
+        (<Self as RegionDescriptor>::is_set(p.snd) => (
             <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) == <Self as RegionDescriptor>::start(p.snd) &&
             <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) <= region_start + available_size &&
             <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) >= region_size &&
             <Self as RegionDescriptor>::perms(p.snd) == permissions
-        )
-
-        // <Self as RegionDescriptor>::is_set(r) &&
-        // <Self as RegionDescriptor>::rnum(r) == region_number &&
-        // <Self as RegionDescriptor>::perms(r) == permissions &&
-        // <Self as RegionDescriptor>::start(r) == region_start &&
-        // <Self as RegionDescriptor>::start(r) + <Self as RegionDescriptor>::size(r) <= region_start + available_size &&
-        // <Self as RegionDescriptor>::size(r)  >= region_size
+        ))
     }> requires max_region_number < 8)]
     fn update_regions(
         region_start: FluxPtrU8,
@@ -867,23 +860,12 @@ impl mpu::RegionDescriptor for CortexMRegion {
     #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
     #[flux_rs::sig(
         fn (
-            usize[@region_no],
-            FluxPtrU8[@start],
-            usize[@size],
-            mpu::Permissions[@perms],
-        ) -> Option<{r. CortexMRegion[r] | 
-                <CortexMRegion as RegionDescriptor>::is_set(r) &&
-                <CortexMRegion as RegionDescriptor>::rnum(r) == region_no &&
-                <CortexMRegion as RegionDescriptor>::perms(r) == perms &&
-                <CortexMRegion as RegionDescriptor>::start(r) == start &&
-                <CortexMRegion as RegionDescriptor>::start(r) + <CortexMRegion as RegionDescriptor>::size(r) == start + size
-                // r.set &&
-                // r.region_no == region_no &&
-                // r.perms == perms &&
-                // r.astart == start &&
-                // r.astart + r.asize == start + size
-            }>
-            requires region_no < 8
+            region_number: usize,
+            start: FluxPtrU8,
+            size: usize,
+            permissions: Permissions,
+        ) -> Option<Self{r: <Self as RegionDescriptor>::region_can_access_exactly(r, start, start + size, permissions)}>
+        requires region_number < 8
     )]
     fn create_exact_region(
         region_number: usize,
