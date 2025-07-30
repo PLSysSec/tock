@@ -111,10 +111,6 @@ impl Display for MpuRegionDefault {
     perms == <Self as RegionDescriptor>::perms(r)
 })]
 #[flux_rs::assoc(final fn regions_can_access_exactly(r1: Self, r2: Self, start: int, end: int, perms: Permissions) -> bool {
-    let r1_start = <Self as RegionDescriptor>::start(r1);
-    let r1_size = <Self as RegionDescriptor>::size(r1);
-    let r2_start = <Self as RegionDescriptor>::start(r2);
-    let r2_size = <Self as RegionDescriptor>::size(r2);
     <Self as RegionDescriptor>::is_set(r1) &&
     <Self as RegionDescriptor>::perms(r1) == perms &&
     start == <Self as RegionDescriptor>::start(r1) &&
@@ -160,20 +156,25 @@ pub trait RegionDescriptor: core::marker::Sized {
         region_size: usize,
         permissions: Permissions,
     ) -> Option<Pair<Self, Self>{p: 
-            <Self as RegionDescriptor>::is_set(p.fst) &&
-            <Self as RegionDescriptor>::rnum(p.fst) == max_region_number - 1 &&
-            <Self as RegionDescriptor>::rnum(p.snd) == max_region_number &&
-            <Self as RegionDescriptor>::perms(p.fst) == permissions &&
             <Self as RegionDescriptor>::start(p.fst) >= available_start &&
-            ((!<Self as RegionDescriptor>::is_set(p.snd)) => (
-                <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) <= available_start + available_size
-            )) &&
-            (<Self as RegionDescriptor>::is_set(p.snd) => (
-                <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) == <Self as RegionDescriptor>::start(p.snd) &&
-                <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) <= available_start + available_size &&
-                <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) >= region_size &&
-                <Self as RegionDescriptor>::perms(p.snd) == permissions
-            ))
+            ((!<Self as RegionDescriptor>::is_set(p.snd)) => 
+                <Self as RegionDescriptor>::regions_can_access_exactly(
+                    p.fst,
+                    p.snd,
+                    <Self as RegionDescriptor>::start(p.fst),
+                    <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst),
+                    permissions
+                )
+            ) &&
+            (<Self as RegionDescriptor>::is_set(p.snd) => 
+                <Self as RegionDescriptor>::regions_can_access_exactly(
+                    p.fst,
+                    p.snd,
+                    <Self as RegionDescriptor>::start(p.fst),
+                    <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd),
+                    permissions
+                )
+            )
         }> requires max_region_number > 0 && max_region_number < 8
     )] 
     fn allocate_regions(
@@ -191,19 +192,23 @@ pub trait RegionDescriptor: core::marker::Sized {
         max_region_number: usize,
         permissions: Permissions,
     ) -> Option<Pair<Self, Self>{p: 
-        <Self as RegionDescriptor>::is_set(p.fst) &&
-        <Self as RegionDescriptor>::rnum(p.fst) == max_region_number - 1 &&
-        <Self as RegionDescriptor>::rnum(p.snd) == max_region_number &&
-        <Self as RegionDescriptor>::perms(p.fst) == permissions &&
-        <Self as RegionDescriptor>::start(p.fst) == region_start &&
-        !<Self as RegionDescriptor>::is_set(p.snd) => (
-            <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) <= region_start + available_size
+        ((!<Self as RegionDescriptor>::is_set(p.snd)) => 
+            <Self as RegionDescriptor>::regions_can_access_exactly(
+                p.fst,
+                p.snd,
+                region_start,
+                region_start + <Self as RegionDescriptor>::size(p.fst),
+                permissions
+            )
         ) &&
-        <Self as RegionDescriptor>::is_set(p.snd) => (
-            <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) == <Self as RegionDescriptor>::start(p.snd) &&
-            <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) <= region_start + available_size &&
-            <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) >= region_size &&
-            <Self as RegionDescriptor>::perms(p.snd) == permissions
+        (<Self as RegionDescriptor>::is_set(p.snd) => 
+            <Self as RegionDescriptor>::regions_can_access_exactly(
+                p.fst,
+                p.snd,
+                region_start,
+                region_start + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd),
+                permissions
+            )
         )
     }> requires max_region_number > 0 && max_region_number < 8)]
     fn update_regions(
@@ -240,7 +245,18 @@ pub trait RegionDescriptor: core::marker::Sized {
     fn lemma_region_can_access_exactly_implies_no_overlap(&self, _start: FluxPtrU8, _end: FluxPtrU8, _perms: Permissions);
 
     #[flux_rs::sig(fn (&Self[@r1], &Self[@r2], start: FluxPtrU8, end: FluxPtrU8, perms: Permissions) 
-        requires <Self as RegionDescriptor>::regions_can_access_exactly(r1, r2, start, end, perms)
+        requires 
+            <Self as RegionDescriptor>::is_set(r1) &&
+            <Self as RegionDescriptor>::perms(r1) == perms &&
+            start == <Self as RegionDescriptor>::start(r1) &&
+            ((!<Self as RegionDescriptor>::is_set(r2)) => (
+                end == <Self as RegionDescriptor>::start(r1) + <Self as RegionDescriptor>::size(r1)
+            )) &&
+            (<Self as RegionDescriptor>::is_set(r2) => (
+                end == <Self as RegionDescriptor>::start(r1) + <Self as RegionDescriptor>::size(r1) + <Self as RegionDescriptor>::size(r2) &&
+                <Self as RegionDescriptor>::perms(r2) == perms
+            ))
+        // <Self as RegionDescriptor>::regions_can_access_exactly(r1, r2, start, end, perms)
         ensures 
             !<Self as RegionDescriptor>::overlaps(r1, 0, start - 1) &&
             !<Self as RegionDescriptor>::overlaps(r1, end, u32::MAX) &&
@@ -310,21 +326,26 @@ impl RegionDescriptor for MpuRegionDefault {
         region_size: usize,
         permissions: Permissions,
     ) -> Option<Pair<Self, Self>{p: 
-        <Self as RegionDescriptor>::is_set(p.fst) &&
-        <Self as RegionDescriptor>::rnum(p.fst) == max_region_number - 1 &&
-        <Self as RegionDescriptor>::rnum(p.snd) == max_region_number &&
-        <Self as RegionDescriptor>::perms(p.fst) == permissions &&
-        <Self as RegionDescriptor>::start(p.fst) >= available_start &&
-        ((!<Self as RegionDescriptor>::is_set(p.snd)) => (
-            <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) <= available_start + available_size
-        )) &&
-        (<Self as RegionDescriptor>::is_set(p.snd) => (
-            <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) == <Self as RegionDescriptor>::start(p.snd) &&
-            <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) <= available_start + available_size &&
-            <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) >= region_size &&
-            <Self as RegionDescriptor>::perms(p.snd) == permissions
-        ))
-    }> requires max_region_number > 0 && max_region_number < 8)]
+            <Self as RegionDescriptor>::start(p.fst) >= available_start &&
+            ((!<Self as RegionDescriptor>::is_set(p.snd)) => 
+                <Self as RegionDescriptor>::regions_can_access_exactly(
+                    p.fst,
+                    p.snd,
+                    <Self as RegionDescriptor>::start(p.fst),
+                    <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst),
+                    permissions
+                )
+            ) &&
+            (<Self as RegionDescriptor>::is_set(p.snd) => 
+                <Self as RegionDescriptor>::regions_can_access_exactly(
+                    p.fst,
+                    p.snd,
+                    <Self as RegionDescriptor>::start(p.fst),
+                    <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd),
+                    permissions
+                )
+            )
+        }> requires max_region_number > 0 && max_region_number < 8)]
     fn allocate_regions(
         max_region_number: usize,
         available_start: FluxPtrU8,
@@ -355,27 +376,24 @@ impl RegionDescriptor for MpuRegionDefault {
         max_region_number: usize,
         permissions: Permissions,
     ) -> Option<Pair<Self, Self>{p:
-        <Self as RegionDescriptor>::is_set(p.fst) &&
-        <Self as RegionDescriptor>::rnum(p.fst) == max_region_number - 1 &&
-        <Self as RegionDescriptor>::rnum(p.snd) == max_region_number &&
-        <Self as RegionDescriptor>::perms(p.fst) == permissions &&
-        <Self as RegionDescriptor>::start(p.fst) == region_start &&
-        ((!<Self as RegionDescriptor>::is_set(p.snd)) => (
-            <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) <= region_start + available_size
-        )) &&
-        (<Self as RegionDescriptor>::is_set(p.snd) => (
-            <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) == <Self as RegionDescriptor>::start(p.snd) &&
-            <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) <= region_start + available_size &&
-            <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) >= region_size &&
-            <Self as RegionDescriptor>::perms(p.snd) == permissions
-        ))
-
-        // <Self as RegionDescriptor>::is_set(r) &&
-        // <Self as RegionDescriptor>::rnum(r) == region_number &&
-        // <Self as RegionDescriptor>::perms(r) == permissions &&
-        // <Self as RegionDescriptor>::start(r) == region_start &&
-        // <Self as RegionDescriptor>::start(r) + <Self as RegionDescriptor>::size(r) <= region_start + available_size &&
-        // <Self as RegionDescriptor>::size(r)  >= region_size
+        ((!<Self as RegionDescriptor>::is_set(p.snd)) => 
+            <Self as RegionDescriptor>::regions_can_access_exactly(
+                p.fst,
+                p.snd,
+                region_start,
+                region_start + <Self as RegionDescriptor>::size(p.fst),
+                permissions
+            )
+        ) &&
+        (<Self as RegionDescriptor>::is_set(p.snd) => 
+            <Self as RegionDescriptor>::regions_can_access_exactly(
+                p.fst,
+                p.snd,
+                region_start,
+                region_start + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd),
+                permissions
+            )
+        )
     }> requires max_region_number > 0 && max_region_number < 8)]
     fn update_regions(
         region_start: FluxPtrU8,

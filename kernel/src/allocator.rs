@@ -394,21 +394,25 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             min_size: usize, 
             app_mem_size: usize
         ) -> Result<Pair<R, R>{p: 
-            <R as RegionDescriptor>::is_set(p.fst) &&
-            <R as RegionDescriptor>::rnum(p.fst) == MAX_RAM_REGION_NUMBER - 1 &&
-            <R as RegionDescriptor>::rnum(p.snd) == MAX_RAM_REGION_NUMBER &&
-            <R as RegionDescriptor>::perms(p.fst) == mpu::Permissions { r: true, w: true, x: false } &&
             <R as RegionDescriptor>::start(p.fst) >= mem_start &&
             ((!<R as RegionDescriptor>::is_set(p.snd)) => 
-                <R as RegionDescriptor>::start(p.fst) + <R as RegionDescriptor>::size(p.fst) <= mem_start + mem_size
+                <R as RegionDescriptor>::regions_can_access_exactly(
+                    p.fst,
+                    p.snd,
+                    <R as RegionDescriptor>::start(p.fst),
+                    <R as RegionDescriptor>::start(p.fst) + <R as RegionDescriptor>::size(p.fst),
+                    mpu::Permissions { r: true, w: true, x: false }
+                )
+            ) &&
+            (<R as RegionDescriptor>::is_set(p.snd) => 
+                <R as RegionDescriptor>::regions_can_access_exactly(
+                    p.fst,
+                    p.snd,
+                    <R as RegionDescriptor>::start(p.fst),
+                    <R as RegionDescriptor>::start(p.fst) + <R as RegionDescriptor>::size(p.fst) + <R as RegionDescriptor>::size(p.snd),
+                    mpu::Permissions { r: true, w: true, x: false }
+                )
             )
-            &&
-            (<R as RegionDescriptor>::is_set(p.snd) => (
-                <R as RegionDescriptor>::start(p.fst) + <R as RegionDescriptor>::size(p.fst) == <R as RegionDescriptor>::start(p.snd) &&
-                <R as RegionDescriptor>::start(p.fst) + <R as RegionDescriptor>::size(p.fst) + <R as RegionDescriptor>::size(p.snd) <= mem_start + mem_size &&
-                <R as RegionDescriptor>::size(p.fst) + <R as RegionDescriptor>::size(p.snd) >= min_size &&
-                <R as RegionDescriptor>::perms(p.snd) == mpu::Permissions { r: true, w: true, x: false }
-            ))
         }, ()>    
     )]
     fn get_ram_regions(
@@ -628,25 +632,17 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         .ok_or(Error::OutOfMemory)?;
 
 
-        let new_app_break = match new_regions.snd.size() {
-            Some(sn_size) =>  {
-                new_regions.fst.start()
-                    .ok_or(Error::KernelError)?
-                    .as_usize() 
-                    + new_regions.fst.size().ok_or(Error::KernelError)?
-                    + sn_size
-            },
-            None => {
-                new_regions.fst.start()
-                    .ok_or(Error::KernelError)?
-                    .as_usize() 
-                    + new_regions.fst.size().ok_or(Error::KernelError)?
-            }
+        let snd_region_size = match new_regions.snd.size() {
+            Some(s) => s,
+            None => 0
         };
+        let app_memory_size = new_regions.fst.size().ok_or(Error::KernelError)? + snd_region_size;
+        let new_app_break = memory_start.as_usize() + app_memory_size;
 
         if new_app_break > kernel_break.as_usize() {
             return Err(Error::OutOfMemory);
         }
+
         self.breaks.app_break = FluxPtrU8::from(new_app_break);
 
         R::lemma_regions_can_access_exactly_implies_no_overlap(
