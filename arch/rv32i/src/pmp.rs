@@ -780,7 +780,7 @@ impl RegionDescriptor for PMPUserRegion {
         <Self as RegionDescriptor>::rnum(p.fst) == max_region_number - 1 &&
         <Self as RegionDescriptor>::rnum(p.snd) == max_region_number &&
         <Self as RegionDescriptor>::perms(p.fst) == permissions &&
-        <Self as RegionDescriptor>::start(p.fst) >= region_start &&
+        <Self as RegionDescriptor>::start(p.fst) == region_start &&
         ((!<Self as RegionDescriptor>::is_set(p.snd)) => (
             <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) <= region_start + available_size
         )) &&
@@ -843,6 +843,21 @@ impl RegionDescriptor for PMPUserRegion {
             !<Self as RegionDescriptor>::overlaps(r2, end, u32::MAX)
     )]
     fn lemma_regions_can_access_exactly_implies_no_overlap(_r1: &Self, _r2: &Self, start: FluxPtrU8, end: FluxPtrU8, _perms: Permissions) {}
+
+    #[flux_rs::sig(fn (&Self[@r], access_end: FluxPtrU8, desired_end: FluxPtrU8) 
+        requires 
+            !<Self as RegionDescriptor>::overlaps(r, access_end, u32::MAX) &&
+            access_end <= desired_end
+        ensures !<Self as RegionDescriptor>::overlaps(r, desired_end, u32::MAX)
+    )]
+    fn lemma_no_overlap_le_addr_implies_no_overlap_addr(&self, _access_end: FluxPtrU8, _desired_end: FluxPtrU8) {}
+
+
+    #[flux_rs::sig(fn (&Self[@r], start: FluxPtrU8, end: FluxPtrU8) 
+        requires !<Self as RegionDescriptor>::is_set(r)
+        ensures !<Self as RegionDescriptor>::overlaps(r, start, end)
+    )]
+    fn lemma_region_not_set_implies_no_overlap(&self, start: FluxPtrU8, end: FluxPtrU8) {}
 }
 
 impl fmt::Display for PMPUserRegion {

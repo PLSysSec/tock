@@ -1,6 +1,6 @@
 use core::{fmt::Display, ptr::NonNull};
 
-use flux_support::capability::*;
+use flux_support::{capability::*, FluxPtrExt};
 use flux_support::{max_ptr, max_usize, FluxPtrU8, FluxPtrU8Mut, RArray, Pair};
 
 use crate::{
@@ -68,9 +68,10 @@ const FLASH_REGION_NUMBER: usize = 2;
     !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER - 1), 0, breaks.memory_start - 1) &&
     !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER - 1), breaks.app_break, u32::MAX) &&
     !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER), 0, breaks.memory_start - 1) &&
-    !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER), breaks.app_break, u32::MAX) &&
+    !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER), breaks.app_break, u32::MAX) 
+    &&
     // no IPC region overlaps from the start to the end of memory
-    <R as RegionDescriptor>::no_region_overlaps_app_block(regions, breaks.high_water_mark, breaks.memory_start + breaks.memory_size)
+    <R as RegionDescriptor>::no_region_overlaps_app_block(regions, breaks.memory_start, breaks.memory_start + breaks.memory_size)
 )]
 pub(crate) struct AppMemoryAllocator<R: RegionDescriptor + Display + Copy> {
     #[field(AppBreaks[breaks])]
@@ -577,14 +578,25 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             &ram_regions.fst, 
             &ram_regions.snd, 
             breaks.memory_start,
-            breaks.memory_start.wrapping_add(breaks.memory_size),
+            breaks.app_break,
             mpu::Permissions::ReadWriteOnly
         );
+        let memory_end = breaks.memory_start.wrapping_add(breaks.memory_size);
+        ram_regions.fst.lemma_no_overlap_le_addr_implies_no_overlap_addr(breaks.app_break, memory_end);
+        ram_regions.snd.lemma_no_overlap_le_addr_implies_no_overlap_addr(breaks.app_break, memory_end);
+
+
+        app_regions.get(3).lemma_region_not_set_implies_no_overlap(breaks.memory_start, memory_end);
+        app_regions.get(4).lemma_region_not_set_implies_no_overlap(breaks.memory_start, memory_end);
+        app_regions.get(5).lemma_region_not_set_implies_no_overlap(breaks.memory_start, memory_end);
+        app_regions.get(6).lemma_region_not_set_implies_no_overlap(breaks.memory_start, memory_end);
+        app_regions.get(7).lemma_region_not_set_implies_no_overlap(breaks.memory_start, memory_end);
 
         // Set the RAM region
         app_regions.set(MAX_RAM_REGION_NUMBER - 1, ram_regions.fst);
         app_regions.set(MAX_RAM_REGION_NUMBER, ram_regions.snd);
 
+        // TODO: need a lemma to establish that flash_region won't overlap with app block
         Ok(Self {
             breaks,
             regions: app_regions,
@@ -616,16 +628,39 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         .ok_or(Error::OutOfMemory)?;
 
 
-        let new_app_break = new_regions.fst.start()
-            .ok_or(Error::KernelError)?
-            .as_usize() 
-            + new_regions.fst.size().ok_or(Error::KernelError)?
-            + new_regions.snd.size().unwrap_or(0);
+        let new_app_break = match new_regions.snd.size() {
+            Some(sn_size) =>  {
+                new_regions.fst.start()
+                    .ok_or(Error::KernelError)?
+                    .as_usize() 
+                    + new_regions.fst.size().ok_or(Error::KernelError)?
+                    + sn_size
+            },
+            None => {
+                new_regions.fst.start()
+                    .ok_or(Error::KernelError)?
+                    .as_usize() 
+                    + new_regions.fst.size().ok_or(Error::KernelError)?
+            }
+        };
 
         if new_app_break > kernel_break.as_usize() {
             return Err(Error::OutOfMemory);
         }
         self.breaks.app_break = FluxPtrU8::from(new_app_break);
+
+        R::lemma_regions_can_access_exactly_implies_no_overlap(
+            &new_regions.fst, 
+            &new_regions.snd, 
+            self.breaks.memory_start,
+            self.breaks.app_break,
+            mpu::Permissions::ReadWriteOnly
+        );
+
+        let mem_end = self.breaks.memory_start.wrapping_add(self.breaks.memory_size);
+        new_regions.fst.lemma_no_overlap_le_addr_implies_no_overlap_addr(self.breaks.app_break, mem_end);
+        new_regions.snd.lemma_no_overlap_le_addr_implies_no_overlap_addr(self.breaks.app_break, mem_end);
+
         self.regions.set(MAX_RAM_REGION_NUMBER - 1, new_regions.fst);
         self.regions.set(MAX_RAM_REGION_NUMBER, new_regions.snd);
 

@@ -117,7 +117,7 @@ impl Display for MpuRegionDefault {
     let r2_size = <Self as RegionDescriptor>::size(r2);
     <Self as RegionDescriptor>::is_set(r1) &&
     <Self as RegionDescriptor>::perms(r1) == perms &&
-    start >= <Self as RegionDescriptor>::start(r1) &&
+    start == <Self as RegionDescriptor>::start(r1) &&
     ((!<Self as RegionDescriptor>::is_set(r2)) => (
         end == <Self as RegionDescriptor>::start(r1) + <Self as RegionDescriptor>::size(r1)
     )) &&
@@ -127,7 +127,7 @@ impl Display for MpuRegionDefault {
     ))
 })]
 #[flux_rs::assoc(final fn no_region_overlaps_app_block(regions: Map<int, Self>, mem_start: int, mem_end: int) -> bool {
-    forall i: int in 2..9 {
+    forall i: int in 2..8 {
         let region = map_select(regions, i);
         !<Self as RegionDescriptor>::overlaps(region, mem_start, mem_end)
     }
@@ -195,7 +195,7 @@ pub trait RegionDescriptor: core::marker::Sized {
         <Self as RegionDescriptor>::rnum(p.fst) == max_region_number - 1 &&
         <Self as RegionDescriptor>::rnum(p.snd) == max_region_number &&
         <Self as RegionDescriptor>::perms(p.fst) == permissions &&
-        <Self as RegionDescriptor>::start(p.fst) >= region_start &&
+        <Self as RegionDescriptor>::start(p.fst) == region_start &&
         !<Self as RegionDescriptor>::is_set(p.snd) => (
             <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) <= region_start + available_size
         ) &&
@@ -248,6 +248,20 @@ pub trait RegionDescriptor: core::marker::Sized {
             !<Self as RegionDescriptor>::overlaps(r2, end, u32::MAX)
     )]
     fn lemma_regions_can_access_exactly_implies_no_overlap(_r1: &Self, _r2: &Self, start: FluxPtrU8, end: FluxPtrU8, _perms: Permissions);
+
+    #[flux_rs::sig(fn (&Self[@r], access_end: FluxPtrU8, desired_end: FluxPtrU8) 
+        requires 
+            !<Self as RegionDescriptor>::overlaps(r, access_end, u32::MAX) &&
+            access_end <= desired_end
+        ensures !<Self as RegionDescriptor>::overlaps(r, desired_end, u32::MAX)
+    )]
+    fn lemma_no_overlap_le_addr_implies_no_overlap_addr(&self, _access_end: FluxPtrU8, _desired_end: FluxPtrU8);
+
+    #[flux_rs::sig(fn (&Self[@r], start: FluxPtrU8, end: FluxPtrU8) 
+        requires !<Self as RegionDescriptor>::is_set(r)
+        ensures !<Self as RegionDescriptor>::overlaps(r, start, end)
+    )]
+    fn lemma_region_not_set_implies_no_overlap(&self, start: FluxPtrU8, end: FluxPtrU8);
 }
 
 #[flux_rs::assoc(fn start(r: Self) -> int { r.start })]
@@ -345,7 +359,7 @@ impl RegionDescriptor for MpuRegionDefault {
         <Self as RegionDescriptor>::rnum(p.fst) == max_region_number - 1 &&
         <Self as RegionDescriptor>::rnum(p.snd) == max_region_number &&
         <Self as RegionDescriptor>::perms(p.fst) == permissions &&
-        <Self as RegionDescriptor>::start(p.fst) >= region_start &&
+        <Self as RegionDescriptor>::start(p.fst) == region_start &&
         ((!<Self as RegionDescriptor>::is_set(p.snd)) => (
             <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) <= region_start + available_size
         )) &&
@@ -429,6 +443,20 @@ impl RegionDescriptor for MpuRegionDefault {
             !<Self as RegionDescriptor>::overlaps(r2, end, u32::MAX)
     )]
     fn lemma_regions_can_access_exactly_implies_no_overlap(_r1: &Self, _r2: &Self, _start: FluxPtrU8, _end: FluxPtrU8, _perms: Permissions) {}
+
+    #[flux_rs::sig(fn (&Self[@r], access_end: FluxPtrU8, desired_end: FluxPtrU8) 
+        requires 
+            !<Self as RegionDescriptor>::overlaps(r, access_end, u32::MAX) &&
+            access_end <= desired_end
+        ensures !<Self as RegionDescriptor>::overlaps(r, desired_end, u32::MAX)
+    )]
+    fn lemma_no_overlap_le_addr_implies_no_overlap_addr(&self, _access_end: FluxPtrU8, _desired_end: FluxPtrU8) {}
+
+    #[flux_rs::sig(fn (&Self[@r], start: FluxPtrU8, end: FluxPtrU8) 
+        requires !<Self as RegionDescriptor>::is_set(r)
+        ensures !<Self as RegionDescriptor>::overlaps(r, start, end)
+    )]
+    fn lemma_region_not_set_implies_no_overlap(&self, _start: FluxPtrU8, _end: FluxPtrU8) {}
 }
 
 /// The generic trait that particular memory protection unit implementations
