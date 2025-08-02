@@ -8,7 +8,7 @@ use core::num::NonZeroUsize;
 
 use crate::csr;
 use flux_support::capability::MpuEnabledCapability;
-use flux_support::{FluxPtr, FluxPtrU8, FluxRange, RArray};
+use flux_support::{FluxPtr, FluxPtrU8, FluxRange, RArray, Pair};
 use kernel::platform::mpu::{self, RegionDescriptor};
 use kernel::utilities::cells::OptionalCell;
 use kernel::utilities::registers::{register_bitfields, LocalRegisterCopy};
@@ -663,7 +663,7 @@ impl RegionDescriptor for PMPUserRegion {
         permissions: mpu::Permissions,
     ) -> Option<Self> {
         // logic for allocate_regions is exactly the same here
-        Self::allocate_regions(region_num, start, size, size, permissions)
+        Some(Self::allocate_regions(region_num, start, size, size, permissions)?.fst)
     }
 
     #[flux_rs::sig(fn (
@@ -780,7 +780,7 @@ impl RegionDescriptor for PMPUserRegion {
         region_size: usize,
         max_region_number: usize,
         permissions: Permissions,
-    ) -> Option<{p. Pair<Self, Self>[p] | 
+    ) -> Option<Pair<Self, Self>{p: 
         ((!<Self as RegionDescriptor>::is_set(p.snd)) => 
             <Self as RegionDescriptor>::regions_can_access_exactly(
                 p.fst,
@@ -788,7 +788,8 @@ impl RegionDescriptor for PMPUserRegion {
                 region_start,
                 region_start + <Self as RegionDescriptor>::size(p.fst),
                 permissions
-            )
+            ) &&
+            <Self as RegionDescriptor>::size(p.fst) >= region_size
         ) &&
         (<Self as RegionDescriptor>::is_set(p.snd) => 
             <Self as RegionDescriptor>::regions_can_access_exactly(
@@ -797,16 +798,17 @@ impl RegionDescriptor for PMPUserRegion {
                 region_start,
                 region_start + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd),
                 permissions
-            )
+            ) &&
+            <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) >= region_size
         )
-    }> requires max_region_number < 8)]
+    }> requires max_region_number > 0 && max_region_number < 8)]
     fn update_regions(
         region_start: FluxPtrU8,
         available_size: usize,
         region_size: usize,
         max_region_number: usize,
         permissions: mpu::Permissions,
-    ) -> Option<Self> {
+    ) -> Option<Pair<Self, Self>> {
         let mut end = region_start.as_usize() + region_size;
         // Ensure that the requested app_memory_break complies with PMP
         // alignment constraints, namely that the region's end address is 4 byte
@@ -824,7 +826,7 @@ impl RegionDescriptor for PMPUserRegion {
         Some(
             Pair {
                 fst: PMPUserRegion::new(
-                    region_number,
+                    max_region_number - 1,
                     permissions.into(),
                     region_start,
                     FluxPtrU8::from(end),
@@ -835,15 +837,15 @@ impl RegionDescriptor for PMPUserRegion {
         )
     }
 
-    #[flux_rs::sig(fn (&Self[@r], start: FluxPtrU8, end: FluxPtrU8, perms: Permissions) 
+    #[flux_rs::sig(fn (&Self[@r], start: FluxPtrU8, end: FluxPtrU8, perms: mpu::Permissions) 
         requires <Self as RegionDescriptor>::region_can_access_exactly(r, start, end, perms)
         ensures 
             !<Self as RegionDescriptor>::overlaps(r, 0, start - 1) &&
             !<Self as RegionDescriptor>::overlaps(r, end, u32::MAX)
     )]
-    fn lemma_region_can_access_exactly_implies_no_overlap(&self, _start: FluxPtrU8, _end: FluxPtrU8, _perms: Permissions) {}
+    fn lemma_region_can_access_exactly_implies_no_overlap(&self, _start: FluxPtrU8, _end: FluxPtrU8, _perms: mpu::Permissions) {}
 
-    #[flux_rs::sig(fn (&Self[@r1], &Self[@r2], start: FluxPtrU8, end: FluxPtrU8, perms: Permissions) 
+    #[flux_rs::sig(fn (&Self[@r1], &Self[@r2], start: FluxPtrU8, end: FluxPtrU8, perms: mpu::Permissions) 
         requires <Self as RegionDescriptor>::regions_can_access_exactly(r1, r2, start, end, perms)
         ensures 
             !<Self as RegionDescriptor>::overlaps(r1, 0, start - 1) &&
@@ -851,7 +853,7 @@ impl RegionDescriptor for PMPUserRegion {
             !<Self as RegionDescriptor>::overlaps(r2, 0, start - 1) &&
             !<Self as RegionDescriptor>::overlaps(r2, end, u32::MAX)
     )]
-    fn lemma_regions_can_access_exactly_implies_no_overlap(_r1: &Self, _r2: &Self, start: FluxPtrU8, end: FluxPtrU8, _perms: Permissions) {}
+    fn lemma_regions_can_access_exactly_implies_no_overlap(_r1: &Self, _r2: &Self, start: FluxPtrU8, end: FluxPtrU8, _perms: mpu::Permissions) {}
 
     #[flux_rs::sig(fn (&Self[@r], access_end: FluxPtrU8, desired_end: FluxPtrU8) 
         requires 
@@ -867,6 +869,22 @@ impl RegionDescriptor for PMPUserRegion {
         ensures !<Self as RegionDescriptor>::overlaps(r, start, end)
     )]
     fn lemma_region_not_set_implies_no_overlap(&self, start: FluxPtrU8, end: FluxPtrU8) {}
+
+    #[flux_rs::sig(fn (&Self[@r], 
+            flash_start: FluxPtrU8,
+            flash_end: FluxPtrU8, 
+            mem_start: FluxPtrU8, 
+            mem_end: FluxPtrU8
+        )
+        requires 
+            <Self as RegionDescriptor>::region_can_access_exactly(r, flash_start, flash_end, Permissions { r: true, x: true, w: false })
+            &&
+            flash_end <= mem_start 
+        ensures 
+            !<Self as RegionDescriptor>::overlaps(r, mem_start, mem_end)
+
+    )] 
+    fn lemma_region_can_access_flash_implies_no_app_block_overlaps(&self, _flash_start: FluxPtrU8, _flash_end: FluxPtrU8, _mem_start: FluxPtrU8, _mem_end: FluxPtrU8) {}
 }
 
 impl fmt::Display for PMPUserRegion {

@@ -589,7 +589,14 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         ram_regions.fst.lemma_no_overlap_le_addr_implies_no_overlap_addr(breaks.app_break, memory_end);
         ram_regions.snd.lemma_no_overlap_le_addr_implies_no_overlap_addr(breaks.app_break, memory_end);
 
-
+        
+        app_regions.get(FLASH_REGION_NUMBER)
+            .lemma_region_can_access_flash_implies_no_app_block_overlaps(
+                breaks.flash_start, 
+                breaks.flash_start.wrapping_add(breaks.flash_size),
+                breaks.memory_start, 
+                memory_end
+            );
         app_regions.get(3).lemma_region_not_set_implies_no_overlap(breaks.memory_start, memory_end);
         app_regions.get(4).lemma_region_not_set_implies_no_overlap(breaks.memory_start, memory_end);
         app_regions.get(5).lemma_region_not_set_implies_no_overlap(breaks.memory_start, memory_end);
@@ -660,6 +667,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         self.regions.set(MAX_RAM_REGION_NUMBER - 1, new_regions.fst);
         self.regions.set(MAX_RAM_REGION_NUMBER, new_regions.snd);
 
+        flux_rs::assert(self.breaks.app_break >= self.breaks.high_water_mark);
         Ok(())
     }
 

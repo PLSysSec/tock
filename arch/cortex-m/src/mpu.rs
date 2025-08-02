@@ -694,9 +694,9 @@ impl mpu::RegionDescriptor for CortexMRegion {
         self.location.is_some()
     }
 
-    #[flux_rs::sig(fn (&Self[@r1], &Self[@r2]) -> bool[<Self as RegionDescriptor>::overlaps(r1, r2.astart, r2.asize)])]
-    fn overlaps(&self, other: &CortexMRegion) -> bool {
-        self.region_overlaps(other)
+    #[flux_rs::sig(fn (&Self[@r], start: usize, end: usize) -> bool[<Self as RegionDescriptor>::overlaps(r, start, end)])]
+    fn overlaps(&self, start: usize, end: usize) -> bool {
+        self.region_overlaps(start, end)
     }
 
     #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
@@ -791,7 +791,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
         region_size: usize,
         max_region_number: usize,
         permissions: Permissions,
-    ) -> Option<{p. Pair<Self, Self>[p] | 
+    ) -> Option<Pair<Self, Self>{p: 
         ((!<Self as RegionDescriptor>::is_set(p.snd)) => 
             <Self as RegionDescriptor>::regions_can_access_exactly(
                 p.fst,
@@ -799,7 +799,8 @@ impl mpu::RegionDescriptor for CortexMRegion {
                 region_start,
                 region_start + <Self as RegionDescriptor>::size(p.fst),
                 permissions
-            )
+            ) &&
+            <Self as RegionDescriptor>::size(p.fst) >= region_size
         ) &&
         (<Self as RegionDescriptor>::is_set(p.snd) => 
             <Self as RegionDescriptor>::regions_can_access_exactly(
@@ -808,7 +809,8 @@ impl mpu::RegionDescriptor for CortexMRegion {
                 region_start,
                 region_start + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd),
                 permissions
-            )
+            ) &&
+            <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) >= region_size
         )
     }> requires max_region_number > 0 && max_region_number < 8)]
     fn update_regions(
@@ -939,15 +941,15 @@ impl mpu::RegionDescriptor for CortexMRegion {
         }
     }
 
-    #[flux_rs::sig(fn (&Self[@r], start: FluxPtrU8, end: FluxPtrU8, perms: Permissions) 
+    #[flux_rs::sig(fn (&Self[@r], start: FluxPtrU8, end: FluxPtrU8, perms: mpu::Permissions) 
         requires <Self as RegionDescriptor>::region_can_access_exactly(r, start, end, perms)
         ensures 
             !<Self as RegionDescriptor>::overlaps(r, 0, start - 1) &&
             !<Self as RegionDescriptor>::overlaps(r, end, u32::MAX)
     )]
-    fn lemma_region_can_access_exactly_implies_no_overlap(&self, _start: FluxPtrU8, _end: FluxPtrU8, _perms: Permissions) {}
+    fn lemma_region_can_access_exactly_implies_no_overlap(&self, _start: FluxPtrU8, _end: FluxPtrU8, _perms: mpu::Permissions) {}
 
-    #[flux_rs::sig(fn (&Self[@r1], &Self[@r2], start: FluxPtrU8, end: FluxPtrU8, perms: Permissions) 
+    #[flux_rs::sig(fn (&Self[@r1], &Self[@r2], start: FluxPtrU8, end: FluxPtrU8, perms: mpu::Permissions) 
         requires <Self as RegionDescriptor>::regions_can_access_exactly(r1, r2, start, end, perms)
         ensures 
             !<Self as RegionDescriptor>::overlaps(r1, 0, start - 1) &&
@@ -955,7 +957,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
             !<Self as RegionDescriptor>::overlaps(r2, 0, start - 1) &&
             !<Self as RegionDescriptor>::overlaps(r2, end, u32::MAX)
     )]
-    fn lemma_regions_can_access_exactly_implies_no_overlap(_r1: &Self, _r2: &Self, start: FluxPtrU8, end: FluxPtrU8, _perms: Permissions) {}
+    fn lemma_regions_can_access_exactly_implies_no_overlap(_r1: &Self, _r2: &Self, start: FluxPtrU8, end: FluxPtrU8, _perms: mpu::Permissions) {}
 
     #[flux_rs::sig(fn (&Self[@r], access_end: FluxPtrU8, desired_end: FluxPtrU8) 
         requires 
@@ -971,6 +973,22 @@ impl mpu::RegionDescriptor for CortexMRegion {
         ensures !<Self as RegionDescriptor>::overlaps(r, start, end)
     )]
     fn lemma_region_not_set_implies_no_overlap(&self, _start: FluxPtrU8, _end: FluxPtrU8) {}
+
+    #[flux_rs::sig(fn (&Self[@r], 
+            flash_start: FluxPtrU8,
+            flash_end: FluxPtrU8, 
+            mem_start: FluxPtrU8, 
+            mem_end: FluxPtrU8
+        )
+        requires 
+            <Self as RegionDescriptor>::region_can_access_exactly(r, flash_start, flash_end, Permissions { r: true, x: true, w: false })
+            &&
+            flash_end <= mem_start 
+        ensures 
+            !<Self as RegionDescriptor>::overlaps(r, mem_start, mem_end)
+
+    )] 
+    fn lemma_region_can_access_flash_implies_no_app_block_overlaps(&self, _flash_start: FluxPtrU8, _flash_end: FluxPtrU8, _mem_start: FluxPtrU8, _mem_end: FluxPtrU8) {}
 }
 
 impl CortexMRegion {
@@ -1240,19 +1258,16 @@ impl CortexMRegion {
         self.location.is_some()
     }
 
-    #[flux_rs::sig(fn (&Self[@region1], &CortexMRegion[@region2]) -> bool[region_overlaps(region1, region2)])]
-    pub(crate) fn region_overlaps(&self, other: &CortexMRegion) -> bool {
-        match (self.location(), other.location()) {
-            (Some(fst_region_loc), Some(snd_region_loc)) => {
-                let fst_region_start = fst_region_loc.accessible_start.as_usize();
-                let fst_region_end = fst_region_start + fst_region_loc.accessible_size;
+    #[flux_rs::sig(fn (&Self[@region], start: usize, end: usize) -> bool[region_overlaps(region, start, end)])]
+    pub(crate) fn region_overlaps(&self, start: usize, end: usize) -> bool {
+        match self.location() {
+            Some(region_loc) => {
+                let region_start = region_loc.accessible_start.as_usize();
+                let region_end = region_start + region_loc.accessible_size;
 
-                let snd_region_start = snd_region_loc.accessible_start.as_usize();
-                let snd_region_end = snd_region_start + snd_region_loc.accessible_size;
-
-                fst_region_start < snd_region_end && snd_region_start < fst_region_end
+                region_start < end && start < region_end
             }
-            _ => false,
+            None => false
         }
     }
 

@@ -199,7 +199,8 @@ pub trait RegionDescriptor: core::marker::Sized {
                 region_start,
                 region_start + <Self as RegionDescriptor>::size(p.fst),
                 permissions
-            )
+            ) &&
+            <Self as RegionDescriptor>::size(p.fst) >= region_size
         ) &&
         (<Self as RegionDescriptor>::is_set(p.snd) => 
             <Self as RegionDescriptor>::regions_can_access_exactly(
@@ -208,7 +209,8 @@ pub trait RegionDescriptor: core::marker::Sized {
                 region_start,
                 region_start + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd),
                 permissions
-            )
+            ) &&
+            <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) >= region_size
         )
     }> requires max_region_number > 0 && max_region_number < 8)]
     fn update_regions(
@@ -278,6 +280,22 @@ pub trait RegionDescriptor: core::marker::Sized {
         ensures !<Self as RegionDescriptor>::overlaps(r, start, end)
     )]
     fn lemma_region_not_set_implies_no_overlap(&self, start: FluxPtrU8, end: FluxPtrU8);
+
+    #[flux_rs::sig(fn (&Self[@r], 
+            flash_start: FluxPtrU8,
+            flash_end: FluxPtrU8, 
+            mem_start: FluxPtrU8, 
+            mem_end: FluxPtrU8
+        )
+        requires 
+            <Self as RegionDescriptor>::region_can_access_exactly(r, flash_start, flash_end, Permissions { r: true, x: true, w: false })
+            &&
+            flash_end <= mem_start 
+        ensures 
+            !<Self as RegionDescriptor>::overlaps(r, mem_start, mem_end)
+
+    )] 
+    fn lemma_region_can_access_flash_implies_no_app_block_overlaps(&self, flash_start: FluxPtrU8, flash_end: FluxPtrU8, mem_start: FluxPtrU8, mem_end: FluxPtrU8);
 }
 
 #[flux_rs::assoc(fn start(r: Self) -> int { r.start })]
@@ -375,7 +393,7 @@ impl RegionDescriptor for MpuRegionDefault {
         region_size: usize,
         max_region_number: usize,
         permissions: Permissions,
-    ) -> Option<Pair<Self, Self>{p:
+    ) -> Option<Pair<Self, Self>{p: 
         ((!<Self as RegionDescriptor>::is_set(p.snd)) => 
             <Self as RegionDescriptor>::regions_can_access_exactly(
                 p.fst,
@@ -383,7 +401,8 @@ impl RegionDescriptor for MpuRegionDefault {
                 region_start,
                 region_start + <Self as RegionDescriptor>::size(p.fst),
                 permissions
-            )
+            ) &&
+            <Self as RegionDescriptor>::size(p.fst) >= region_size
         ) &&
         (<Self as RegionDescriptor>::is_set(p.snd) => 
             <Self as RegionDescriptor>::regions_can_access_exactly(
@@ -392,7 +411,8 @@ impl RegionDescriptor for MpuRegionDefault {
                 region_start,
                 region_start + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd),
                 permissions
-            )
+            ) &&
+            <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) >= region_size
         )
     }> requires max_region_number > 0 && max_region_number < 8)]
     fn update_regions(
@@ -475,6 +495,22 @@ impl RegionDescriptor for MpuRegionDefault {
         ensures !<Self as RegionDescriptor>::overlaps(r, start, end)
     )]
     fn lemma_region_not_set_implies_no_overlap(&self, _start: FluxPtrU8, _end: FluxPtrU8) {}
+
+    #[flux_rs::sig(fn (&Self[@r], 
+            flash_start: FluxPtrU8,
+            flash_end: FluxPtrU8, 
+            mem_start: FluxPtrU8, 
+            mem_end: FluxPtrU8
+        )
+        requires 
+            <Self as RegionDescriptor>::region_can_access_exactly(r, flash_start, flash_end, Permissions { r: true, x: true, w: false })
+            &&
+            flash_end <= mem_start 
+        ensures 
+            !<Self as RegionDescriptor>::overlaps(r, mem_start, mem_end)
+
+    )] 
+    fn lemma_region_can_access_flash_implies_no_app_block_overlaps(&self, _flash_start: FluxPtrU8, _flash_end: FluxPtrU8, _mem_start: FluxPtrU8, _mem_end: FluxPtrU8) {}
 }
 
 /// The generic trait that particular memory protection unit implementations
