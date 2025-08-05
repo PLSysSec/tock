@@ -10,6 +10,7 @@ edition.workspace = true
 
 [package.metadata.flux]
 enabled = true
+check_overflow = "lazy"
 
 [dependencies]
 tock-registers = { path = "../libraries/tock-register-interface" }

@@ -18,9 +18,16 @@ use flux_rs::{refined_by, sig};
 
 use crate::Pair;
 
+flux_rs::defs! {
+    fn valid_size(x: int) -> bool {
+        x <= u32::MAX
+    }
+}
+
 #[flux_rs::opaque]
 #[derive(Clone, Copy, Debug, Eq)]
 #[refined_by(ptr: int)]
+#[flux_rs::invariant(valid_size(ptr))]
 pub struct FluxPtr {
     inner: *mut u8,
 }

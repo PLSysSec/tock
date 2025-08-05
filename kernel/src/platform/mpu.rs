@@ -9,6 +9,12 @@ use flux_support::capability::*;
 #[allow(clippy::wildcard_imports)]
 use flux_support::*;
 
+flux_rs::defs! {
+    fn valid_size(x: int) -> bool {
+        x <= u32::MAX
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 #[flux_rs::refined_by(r: bool, w: bool, x: bool)]
 pub enum Permissions {
@@ -111,7 +117,7 @@ impl Display for MpuRegionDefault {
     perms == <Self as RegionDescriptor>::perms(r)
 })]
 #[flux_rs::assoc(final fn region_cant_access_at_all(r: Self, start: int, end: int) -> bool {
-    !<Self as RegionDescriptor>::is_set(r) || 
+    !<Self as RegionDescriptor>::is_set(r) ||
     !(<Self as RegionDescriptor>::start(r) < start && start < <Self as RegionDescriptor>::start(r) + <Self as RegionDescriptor>::size(r))
 })]
 #[flux_rs::assoc(final fn region_overlaps_app_block(region: Self, mem_start: int, mem_end: int) -> bool {
@@ -132,7 +138,7 @@ pub trait RegionDescriptor: core::marker::Sized {
     #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::start(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
     fn start(&self) -> Option<FluxPtrU8>;
 
-    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::size(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{sz: <Self as RegionDescriptor>::size(r) == sz && valid_size(<Self as RegionDescriptor>::start(r) + sz)}>[<Self as RegionDescriptor>::is_set(r)])]
     fn size(&self) -> Option<usize>;
 
     #[flux_rs::sig(fn (&Self[@r]) -> bool[<Self as RegionDescriptor>::is_set(r)])]
@@ -152,14 +158,15 @@ pub trait RegionDescriptor: core::marker::Sized {
         available_size: usize,
         region_size: usize,
         permissions: Permissions,
-    ) -> Option<{r. Self[r] | 
+    ) -> Option<{r. Self[r] |
         <Self as RegionDescriptor>::is_set(r) &&
         <Self as RegionDescriptor>::perms(r) == permissions &&
         <Self as RegionDescriptor>::rnum(r) == region_number &&
         <Self as RegionDescriptor>::start(r) >= available_start &&
         <Self as RegionDescriptor>::start(r) + <Self as RegionDescriptor>::size(r) <= available_start + available_size &&
-        <Self as RegionDescriptor>::size(r) >= region_size
-    }> requires region_number < 8)]
+        <Self as RegionDescriptor>::size(r) >= region_size &&
+        valid_size(<Self as RegionDescriptor>::start(r) + <Self as RegionDescriptor>::size(r))
+    }> requires valid_size(available_start + available_size) && region_number < 8)]
     fn create_bounded_region(
         region_number: usize,
         available_start: FluxPtrU8,
@@ -174,14 +181,15 @@ pub trait RegionDescriptor: core::marker::Sized {
         region_size: usize,
         region_number: usize,
         permissions: Permissions,
-    ) -> Option<{r. Self[r] | 
+    ) -> Option<{r. Self[r] |
         <Self as RegionDescriptor>::is_set(r) &&
         <Self as RegionDescriptor>::rnum(r) == region_number &&
         <Self as RegionDescriptor>::perms(r) == permissions &&
         <Self as RegionDescriptor>::start(r) == region_start &&
         <Self as RegionDescriptor>::start(r) + <Self as RegionDescriptor>::size(r) <= region_start + available_size &&
-        <Self as RegionDescriptor>::size(r)  >= region_size
-    }> requires region_number < 8)]
+        <Self as RegionDescriptor>::size(r)  >= region_size &&
+        valid_size(<Self as RegionDescriptor>::start(r) + <Self as RegionDescriptor>::size(r))
+    }> requires valid_size(region_start + available_size) && region_number < 8)]
     fn update_region(
         region_start: FluxPtrU8,
         available_size: usize,
@@ -196,14 +204,15 @@ pub trait RegionDescriptor: core::marker::Sized {
             start: FluxPtrU8,
             size: usize,
             permissions: Permissions,
-        ) -> Option<{r. Self[r] | 
+        ) -> Option<{r. Self[r] |
                 <Self as RegionDescriptor>::is_set(r) &&
                 <Self as RegionDescriptor>::rnum(r) == region_number &&
                 <Self as RegionDescriptor>::perms(r) == permissions &&
                 <Self as RegionDescriptor>::start(r) == start &&
-                <Self as RegionDescriptor>::start(r) + <Self as RegionDescriptor>::size(r) == start + size
+                <Self as RegionDescriptor>::start(r) + <Self as RegionDescriptor>::size(r) == start + size &&
+                valid_size(<Self as RegionDescriptor>::start(r) + <Self as RegionDescriptor>::size(r))
             }>
-        requires region_number < 8
+        requires valid_size(start + size) && region_number < 8
     )]
     fn create_exact_region(
         region_number: usize,
@@ -258,10 +267,10 @@ impl RegionDescriptor for MpuRegionDefault {
         available_size: usize,
         region_size: usize,
         permissions: Permissions,
-    ) -> Option<{r. Self[r] | 
+    ) -> Option<{r. Self[r] |
         <MpuRegionDefault as RegionDescriptor>::is_set(r) &&
         <MpuRegionDefault as RegionDescriptor>::rnum(r) == region_number &&
-        <MpuRegionDefault as RegionDescriptor>::perms(r) == permissions && 
+        <MpuRegionDefault as RegionDescriptor>::perms(r) == permissions &&
         <MpuRegionDefault as RegionDescriptor>::start(r) >= available_start &&
         <MpuRegionDefault as RegionDescriptor>::start(r) + <MpuRegionDefault as RegionDescriptor>::size(r) <= available_start + available_size &&
         <MpuRegionDefault as RegionDescriptor>::size(r) >= region_size
@@ -292,7 +301,7 @@ impl RegionDescriptor for MpuRegionDefault {
         region_size: usize,
         region_number: usize,
         permissions: Permissions,
-    ) -> Option<{r. Self[r] | 
+    ) -> Option<{r. Self[r] |
         <MpuRegionDefault as RegionDescriptor>::is_set(r) &&
         <MpuRegionDefault as RegionDescriptor>::rnum(r) == region_number &&
         <MpuRegionDefault as RegionDescriptor>::perms(r) == permissions &&
@@ -326,7 +335,7 @@ impl RegionDescriptor for MpuRegionDefault {
             start: FluxPtrU8,
             size: usize,
             permissions: Permissions,
-        ) -> Option<{r. Self[r] | 
+        ) -> Option<{r. Self[r] |
                 <MpuRegionDefault as RegionDescriptor>::is_set(r) &&
                 <MpuRegionDefault as RegionDescriptor>::rnum(r) == region_number &&
                 <MpuRegionDefault as RegionDescriptor>::perms(r) == permissions &&
