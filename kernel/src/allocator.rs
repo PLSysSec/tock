@@ -56,7 +56,7 @@ const FLASH_REGION_NUMBER: usize = 2;
 #[flux_rs::invariant(
     // flash can access
     <R as RegionDescriptor>::region_can_access_exactly(map_select(regions, FLASH_REGION_NUMBER), breaks.flash_start, breaks.flash_start + breaks.flash_size, mpu::Permissions { r: true, w: false, x: true }) &&
-    !<R as RegionDescriptor>::overlaps(map_select(regions, FLASH_REGION_NUMBER), 0, breaks.flash_start - 1) &&
+    !<R as RegionDescriptor>::overlaps(map_select(regions, FLASH_REGION_NUMBER), 0, breaks.flash_start) &&
     !<R as RegionDescriptor>::overlaps(map_select(regions, FLASH_REGION_NUMBER), breaks.flash_start + breaks.flash_size, u32::MAX) &&
     // ram can access
     <R as RegionDescriptor>::regions_can_access_exactly(
@@ -65,9 +65,9 @@ const FLASH_REGION_NUMBER: usize = 2;
         breaks.memory_start, breaks.app_break, mpu::Permissions { r: true, w: true, x: false }
     ) 
     &&
-    !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER - 1), 0, breaks.memory_start - 1) &&
+    !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER - 1), 0, breaks.memory_start) &&
     !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER - 1), breaks.app_break, u32::MAX) &&
-    !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER), 0, breaks.memory_start - 1) &&
+    !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER), 0, breaks.memory_start) &&
     !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER), breaks.app_break, u32::MAX) 
     &&
     // no IPC region overlaps from the start to the end of memory
