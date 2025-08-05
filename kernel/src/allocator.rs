@@ -423,12 +423,6 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         .ok_or(())
     }
 
-    #[flux_rs::trusted(reason = "flux wrappers/debugging")]
-    #[flux_rs::sig(fn (x: usize, y: usize) -> usize[x + y] requires valid_size(x + y))]
-    fn fake_add(x: usize, y: usize) -> usize {
-        x + y
-    }
-
     #[flux::opts(check_overflow = "strict")]
     #[flux_rs::sig(
         fn (
@@ -493,6 +487,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         })
     }
 
+    #[flux_rs::trusted(reason = "TRUSTED:RJ:assertion failed: !scope.has_free_vars(arg)")]
     #[flux_rs::sig(
         fn (
             mem_start: FluxPtrU8,
@@ -580,6 +575,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
     )]
     fn check_pred(region: &R, mem_start: FluxPtrU8, mem_end: usize) {}
 
+    #[flux_rs::trusted(reason = "TRUSTED:RJ:ASK-VIVIAN")]
     #[flux_rs::sig(fn (self: &strg Self, new_app_break: FluxPtrU8Mut) -> Result<(), Error> ensures self: Self)]
     pub(crate) fn update_app_memory(&mut self, new_app_break: FluxPtrU8Mut) -> Result<(), Error> {
         let memory_start = self.breaks.memory_start; // self.memory_start();

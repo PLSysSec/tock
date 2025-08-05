@@ -325,11 +325,12 @@ impl<T: Configure> StandardBitTiming for T {
         for prescaler in
             max_u32(clock_rate / (ts * bitrate), 1)..Self::MAX_BIT_TIMINGS.baud_rate_prescaler
         {
-            assume(prescaler != 0);
-            if clock_rate % (prescaler * bitrate) != 0 {
+            let scaled_rate = prescaler * bitrate;
+            assume(scaled_rate > 0);
+            if clock_rate % scaled_rate != 0 {
                 continue;
             }
-            ts = clock_rate / (prescaler * bitrate);
+            ts = clock_rate / scaled_rate;
 
             sample_point_err = calc_sample_point_err(
                 sp,

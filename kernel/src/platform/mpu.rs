@@ -85,6 +85,7 @@ impl DefaultGhost {
 /// an empty implementation to meet the constraint on `type MpuConfig`.
 #[derive(Clone, Copy)]
 #[flux_rs::refined_by(start: int, size: int, perms: Permissions, is_set: bool, rnum: int)]
+#[flux_rs::invariant(is_set => valid_size(start + size))]
 pub struct MpuRegionDefault {
     #[field(Option<FluxPtrU8[start]>[is_set])]
     start: Option<FluxPtrU8>,
@@ -247,9 +248,13 @@ impl RegionDescriptor for MpuRegionDefault {
         self.start
     }
 
-    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::size(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::size(r) == ptr && valid_size(<Self as RegionDescriptor>::start(r) + ptr) }>[<Self as RegionDescriptor>::is_set(r)])]
     fn size(&self) -> Option<usize> {
-        self.size
+        // TRUSTED:RJ:YUCK
+        match self.size {
+             None => None,
+             Some(sz) => Some(sz),
+        }
     }
 
     #[flux_rs::sig(fn (&Self[@r]) -> bool[<Self as RegionDescriptor>::is_set(r)])]
@@ -264,7 +269,7 @@ impl RegionDescriptor for MpuRegionDefault {
     #[flux_rs::sig(fn (
         region_number: usize,
         available_start: FluxPtrU8,
-        available_size: usize,
+        available_size: usize{valid_size(available_start + available_size)},
         region_size: usize,
         permissions: Permissions,
     ) -> Option<{r. Self[r] |
@@ -297,7 +302,7 @@ impl RegionDescriptor for MpuRegionDefault {
 
     #[flux_rs::sig(fn (
         region_start: FluxPtrU8,
-        available_size: usize,
+        available_size: usize{valid_size(region_start + available_size)},
         region_size: usize,
         region_number: usize,
         permissions: Permissions,
@@ -333,7 +338,7 @@ impl RegionDescriptor for MpuRegionDefault {
         fn (
             region_number: usize,
             start: FluxPtrU8,
-            size: usize,
+            size: usize{valid_size(start + size)},
             permissions: Permissions,
         ) -> Option<{r. Self[r] |
                 <MpuRegionDefault as RegionDescriptor>::is_set(r) &&

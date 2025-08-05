@@ -1283,7 +1283,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         fn (
             _,
             _,
-            ProcessBinary, 
+            ProcessBinary,
             &mut [u8],
             _,
             ShortId,
