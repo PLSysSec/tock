@@ -749,8 +749,12 @@ impl Default for SavedAllowRo {
 /// read-write allow in a process' kernel managed grant space without wasting
 /// memory duplicating information such as process ID.
 #[repr(C)]
+#[flux_rs::refined_by(ptr:int, len: int)]
+#[flux_rs::invariant(valid_size(ptr+len))]
 struct SavedAllowRw {
+    #[flux_rs::field(FluxPtrU8Mut[ptr])]
     ptr: FluxPtrU8Mut,
+    #[flux_rs::field(usize[len])]
     len: usize,
 }
 
@@ -904,6 +908,7 @@ pub(crate) fn allow_ro(
 /// Stores the specified read-write process buffer in the kernel managed grant
 /// region for this process and driver. The previous read-write process buffer
 /// stored at the same allow_num id is returned.
+#[flux_rs::trusted(reason = "TODO:RJ:ASK-NICO type invariant may not hold when place is folded")]
 pub(crate) fn allow_rw(
     process: &dyn Process,
     driver_num: usize,
@@ -938,15 +943,24 @@ pub(crate) fn allow_rw(
                 unsafe { ReadWriteProcessBuffer::new(saved.ptr, saved.len, process.processid()) };
 
             // Replace old values with current buffer.
-            let (ptr, len) = buffer.consume();
-            saved.ptr = ptr;
-            saved.len = len;
+            update_saved_allow_rw(saved, buffer); // TODO:RJ:ASK-NICO "type invariant may not hold when place is folded"
 
             // Success!
             Ok(old_allow)
         }
         None => Err((buffer, ErrorCode::NOSUPPORT)),
     }
+}
+
+#[flux_rs::sig(fn(saved: &mut SavedAllowRw, buffer: ReadWriteProcessBuffer) ensures saved: SavedAllowRw)] // TRUSTED:RJ:ASK-VIVIAN
+fn update_saved_allow_rw(
+    saved: &mut SavedAllowRw,
+    buffer: ReadWriteProcessBuffer,
+)  {
+
+    let (ptr, len) = buffer.consume();
+    saved.ptr = ptr;
+    saved.len = len;
 }
 
 /// An instance of a grant allocated for a particular process.

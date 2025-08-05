@@ -533,6 +533,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             .expect("Fatal kernel bug in setting up MPU - cannot branch to process as it would be unsafe")
     }
 
+    #[flux_rs::sig(fn (_, start: FluxPtrU8, size: usize{valid_size(start+size)}) -> _)]
     fn add_mpu_region(&self, start: FluxPtrU8, size: usize) -> Option<mpu::Region> {
         self.app_memory_allocator.and_then(|am| {
             am.allocate_ipc_region(start, size, mpu::Permissions::ReadWriteOnly)
@@ -569,6 +570,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
     }
 
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
+    // RJ:no the check happens inside #[flux_rs::sig(fn (&Self, buf_start_addr: FluxPtrU8Mut, size: usize{valid_size(buf_start_addr + size)}) -> _)]
     fn build_readwrite_process_buffer(
         &self,
         buf_start_addr: FluxPtrU8Mut,
@@ -1279,6 +1281,8 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     const PROCESS_STRUCT_OFFSET: usize = mem::size_of::<ProcessStandard<C>>();
 
     /// Create a `ProcessStandard` object based on the found `ProcessBinary`.
+    // #[flux_rs::opts(check_overflow = "strict")]
+    #[flux_rs::opts(solver = "z3")]
     #[flux_rs::sig(
         fn (
             _,
@@ -1328,7 +1332,15 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let process_struct_offset = Self::PROCESS_STRUCT_OFFSET;
         assume(process_struct_offset < isize_into_usize(isize::MAX));
         let initial_kernel_memory_size =
-            grant_ptrs_offset + callbacks_offset + process_struct_offset + usize_size;
+            flux_support::flux_unchecked_add(
+                flux_support::flux_unchecked_add(
+                    flux_support::flux_unchecked_add(
+                        grant_ptrs_offset,
+                        callbacks_offset),
+                    process_struct_offset),
+                usize_size);
+            // grant_ptrs_offset + callbacks_offset + process_struct_offset + usize_size;
+        assume(initial_kernel_memory_size > 0); // TRUSTED:RJ:ASK-VIVIAN
 
         // By default we start with the initial size of process-accessible
         // memory set to 0. This maximizes the flexibility that processes have
@@ -1426,6 +1438,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             snd: remaining_mem_ptrs,
         } = mem_slices_to_raw_ptrs(pb.flash, remaining_memory);
 
+        flux_rs::assert(initial_kernel_memory_size > 0);
         // Initialize MPU region configuration.
         let app_memory_alloc = match AppMemoryAllocator::allocate_app_memory(
             remaining_mem_ptrs.start,
@@ -1772,8 +1785,10 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let grant_ptrs_num = self.kernel.get_grant_count_and_finalize();
         let grant_ptrs_offset = grant_ptrs_num * grant_ptr_size;
 
+        let size_offset = Self::CALLBACKS_OFFSET + Self::PROCESS_STRUCT_OFFSET;
+        assume(size_offset > 0);
         let initial_kernel_memory_size =
-            grant_ptrs_offset + Self::CALLBACKS_OFFSET + Self::PROCESS_STRUCT_OFFSET;
+            flux_support::flux_unchecked_add(grant_ptrs_offset, size_offset);
 
         let maybe_app_mem_alloc = AppMemoryAllocator::allocate_app_memory(
             app_breaks.memory_start,

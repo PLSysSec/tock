@@ -320,6 +320,7 @@ flux_rs::defs! {
 }
 
 #[flux_rs::refined_by(start: int, len: int)]
+#[flux_rs::invariant(valid_size(start + len))]
 pub struct SlicesToRaw {
     #[field(FluxPtr[start])]
     pub start: FluxPtr,

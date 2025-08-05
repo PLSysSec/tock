@@ -675,6 +675,7 @@ pub trait Process {
     ///
     /// It is not valid to call this function when the process is inactive (i.e.
     /// the process will not run again).
+    #[flux_rs::sig(fn (_, start: FluxPtrU8, size: usize{valid_size(start+size)}) -> Option<mpu::Region>)]
     fn add_mpu_region(&self, start: FluxPtrU8Mut, size: usize) -> Option<mpu::Region>;
 
     // grants

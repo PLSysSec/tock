@@ -177,14 +177,15 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         }
     }
 
-    #[flux_rs::sig(fn (self: &strg Self, _, _) -> Result<(), ()> ensures self: Self)]
+    // #[flux_rs::trusted(reason = "TODO:RJ:ASK-VIVIAN")]
+    #[flux_rs::sig(fn (self: &strg Self, buf_start_addr: FluxPtrU8Mut, size: usize) -> Result<{() | valid_size(buf_start_addr + size)}, ()> ensures self: Self)]
     pub(crate) fn add_shared_readwrite_buffer(
         &mut self,
         buf_start_addr: FluxPtrU8Mut,
         size: usize,
     ) -> Result<(), ()> {
         // let breaks = &mut self.breaks.ok_or(())?;
-        let buf_end_addr = buf_start_addr.wrapping_add(size);
+        let buf_end_addr = buf_start_addr.wrapping_add(size); // TODO:RJ: seems wrong
         if self.in_app_ram_memory(buf_start_addr, buf_end_addr) {
             // TODO: Check for buffer aliasing here
             // Valid buffer, we need to adjust the app's watermark
