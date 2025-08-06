@@ -69,6 +69,14 @@ fn theorem_pow2_div2_pow2(_n: usize) {}
 fn theorem_div_octet(_n: usize) {}
 
 #[flux_rs::trusted(reason = "math")]
+#[flux_rs::sig(fn (n:usize) requires pow2(n) ensures 2 * (n / 2) == n)]
+fn theorem_div_pow2(_n: usize) {}
+
+#[flux_rs::trusted(reason = "math")]
+#[flux_rs::sig(fn (x: usize, y: usize) requires aligned(x, y) ensures aligned(x + y, y))]
+fn theorem_aligned_plus_aligned_to_is_aligned(_x: usize, _y: usize) {}
+
+#[flux_rs::trusted(reason = "math")]
 #[flux_rs::sig(fn (x: usize, y: usize) requires y >= 32 && pow2(y) && aligned(x, y) ensures least_five_bits(bv32(x)) == 0)]
 fn theorem_aligned_value_ge32_lowest_five_bits0(x: usize, y: usize) {}
 
@@ -857,26 +865,33 @@ impl mpu::RegionDescriptor for CortexMRegion {
 
         // get the smallest size >= region size which is a power of two and aligned to the start
         let mut min_region_size = flux_support::max_usize(512, region_size);
-        min_region_size /= 2;
         let mut underlying_region_size =
             next_aligned_power_of_two(region_start.as_usize(), min_region_size)?;
 
+        theorem_pow2_div2_pow2(underlying_region_size);
+        theorem_pow2_le_aligned(region_start.as_usize(), underlying_region_size, underlying_region_size / 2);
+        theorem_div_pow2(underlying_region_size);
 
-        if underlying_region_size > available_size
-            || underlying_region_size > (u32::MAX / 2 + 1) as usize
-        {
-            return None;
-        }
+        underlying_region_size /= 2;
 
+        flux_rs::assert(underlying_region_size * 2 >= region_size);
+
+        theorem_pow2_octet(underlying_region_size);
         theorem_div_octet(underlying_region_size);
 
-        // calculate subreigons
+        // calculate subregions
         let subregion_size = underlying_region_size / 8;
 
         let num_enabled_subregions = region_size.div_ceil(subregion_size);
 
         let subregions_enabled_end =
             region_start.as_usize() + num_enabled_subregions * subregion_size;
+
+        if subregions_enabled_end > region_start.as_usize() + available_size
+            || underlying_region_size > (u32::MAX / 2 + 1) as usize
+        {
+            return None;
+        }
 
         let num_subregions0 = min_usize(num_enabled_subregions, 8);
         let num_subregions1 = num_enabled_subregions.saturating_sub(8);
@@ -885,10 +900,11 @@ impl mpu::RegionDescriptor for CortexMRegion {
         let snd_region = if num_subregions1 == 0 {
             mpu::RegionDescriptor::default(max_region_number)
         } else {
+            theorem_aligned_plus_aligned_to_is_aligned(region_start.as_usize(), underlying_region_size);
             CortexMRegion::new_with_srd(
-                FluxPtr::from(region_start.as_usize() + region_size),
+                FluxPtr::from(region_start.as_usize() + underlying_region_size),
                 num_subregions1 * subregion_size,
-                FluxPtr::from(region_start.as_usize() + region_size),
+                FluxPtr::from(region_start.as_usize() + underlying_region_size),
                 underlying_region_size,
                 max_region_number,
                 0,
@@ -909,7 +925,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
                     num_subregions0 - 1,
                     permissions,
                 ),
-                snd:snd_region 
+                snd: snd_region 
             }
         )
 
