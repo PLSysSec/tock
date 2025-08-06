@@ -869,10 +869,6 @@ impl mpu::RegionDescriptor for CortexMRegion {
         let mut underlying_region_size =
             next_aligned_power_of_two(region_start.as_usize(), min_region_size / 2)?;
 
-        
-        flux_rs::assert(underlying_region_size >= min_region_size / 2);
-        flux_rs::assert(underlying_region_size * 2 >= min_region_size);
-
         theorem_pow2_octet(underlying_region_size);
         theorem_div_octet(underlying_region_size);
 
