@@ -185,7 +185,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
     ) -> Result<(), ()> {
         // let breaks = &mut self.breaks.ok_or(())?;
         let buf_end_addr = buf_start_addr.wrapping_add(size);
-        if buf_start_addr.in_bounds(size) // TODO:RJ:ASK-VIVIAN original seems wrong; I added `in_bounds`
+        if buf_start_addr.in_bounds(size)
            && self.in_app_ram_memory(buf_start_addr, buf_end_addr) {
             // TODO: Check for buffer aliasing here
             // Valid buffer, we need to adjust the app's watermark
@@ -449,7 +449,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
                 unallocated_memory_start > 0 &&
                 initial_kernel_memory_size > 0 &&
                 flash_start + flash_size < unallocated_memory_start &&
-                valid_size(<R as RegionDescriptor>::size(ram_region) + initial_kernel_memory_size)
+                valid_size(<R as RegionDescriptor>::size(ram_region) + initial_kernel_memory_size) // TODO:RJ:ASSERTION:FAILURE
     )]
     fn get_app_breaks(
         ram_region: R,
@@ -488,7 +488,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         })
     }
 
-    #[flux_rs::trusted(reason = "TRUSTED:RJ:assertion failed: !scope.has_free_vars(arg)")]
+    #[flux_rs::trusted(reason = "TODO:RJ:assertion failed: !scope.has_free_vars(arg)")]
     #[flux_rs::sig(
         fn (
             mem_start: FluxPtrU8,
@@ -576,7 +576,6 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
     )]
     fn check_pred(_region: &R, _mem_start: FluxPtrU8, _mem_end: usize) {}
 
-    #[flux_rs::trusted(reason = "TRUSTED:RJ:ASK-VIVIAN")]
     #[flux_rs::sig(fn (self: &strg Self, new_app_break: FluxPtrU8Mut) -> Result<(), Error> ensures self: Self)]
     pub(crate) fn update_app_memory(&mut self, new_app_break: FluxPtrU8Mut) -> Result<(), Error> {
         let memory_start = self.breaks.memory_start; // self.memory_start();
@@ -594,7 +593,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         let new_region_size = new_app_break.as_usize() - memory_start.as_usize();
         let new_region = R::update_region(
             memory_start,
-            memory_start.as_usize() + self.memory_size(),
+            self.memory_size(),
             new_region_size,
             RAM_REGION_NUMBER,
             mpu::Permissions::ReadWriteOnly,

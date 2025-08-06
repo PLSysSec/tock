@@ -1333,21 +1333,21 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // that the below kernel-owned data structures still fit into the
         // kernel-owned memory even with padding for alignment, add an extra
         // `sizeof(usize)` bytes.
+        let upper_bound = (u32::MAX / 4) as usize;
         let usize_size = core::mem::size_of::<usize>();
-        assume(usize_size > 0 && usize_size <= 8);
         let callbacks_offset = Self::CALLBACKS_OFFSET;
         let process_struct_offset = Self::PROCESS_STRUCT_OFFSET;
-        assume(process_struct_offset < isize_into_usize(isize::MAX));
-        let initial_kernel_memory_size =
-            flux_support::flux_unchecked_add(
-                flux_support::flux_unchecked_add(
-                    flux_support::flux_unchecked_add(
-                        grant_ptrs_offset,
-                        callbacks_offset),
-                    process_struct_offset),
-                usize_size);
-            // grant_ptrs_offset + callbacks_offset + process_struct_offset + usize_size;
-        assume(initial_kernel_memory_size > 0); // TRUSTED:RJ:ASK-VIVIAN
+
+        if !(process_struct_offset < isize_into_usize(isize::MAX) &&
+            0 < process_struct_offset && process_struct_offset < upper_bound &&
+            0 < callbacks_offset && callbacks_offset < upper_bound &&
+            0 < usize_size && usize_size <= 8 &&
+            grant_ptrs_offset < upper_bound)
+        {
+            return Err((ProcessLoadError::NotEnoughMemory, remaining_memory));
+        }
+
+        let initial_kernel_memory_size = grant_ptrs_offset + callbacks_offset + process_struct_offset + usize_size;
 
         // By default we start with the initial size of process-accessible
         // memory set to 0. This maximizes the flexibility that processes have

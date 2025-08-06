@@ -134,7 +134,7 @@ use core::ptr::{write, NonNull};
 use core::slice;
 
 use crate::kernel::Kernel;
-use crate::process::{Error, Process, ProcessCustomGrantIdentifier, ProcessId};
+use crate::process::{self, Error, Process, ProcessCustomGrantIdentifier, ProcessId};
 use crate::processbuffer::{ReadOnlyProcessBuffer, ReadWriteProcessBuffer};
 use crate::processbuffer::{ReadOnlyProcessBufferRef, ReadWriteProcessBufferRef};
 use crate::upcall::{Upcall, UpcallError, UpcallId};
@@ -358,7 +358,7 @@ impl<'a> EnteredGrantKernelManagedLayout<'a> {
         grant_t_align: GrantDataAlign,
     ) -> usize {
         #[flux_rs::trusted(reason = "arithmetic operation may overflow (bitwise arithmetic)")]
-        #[flux_rs::sig(fn(usize, usize{align: align > 0}) -> usize{n: n > 0})]
+        #[flux_rs::sig(fn(usize, align:usize{0 < align}) -> usize{n: 0 < n && n < align})]
         fn calc_padding(kernel_managed_size: usize, align: usize) -> usize {
             // We know that grant_t_align is a power of 2, so we can make a mask
             // that will save only the remainder bits.
@@ -750,7 +750,7 @@ impl Default for SavedAllowRo {
 /// memory duplicating information such as process ID.
 #[repr(C)]
 #[flux_rs::refined_by(ptr:int, len: int)]
-#[flux_rs::invariant(valid_size(ptr+len))]
+#[flux_rs::invariant(valid_size(ptr + len))]
 struct SavedAllowRw {
     #[flux_rs::field(FluxPtrU8Mut[ptr])]
     ptr: FluxPtrU8Mut,
@@ -908,7 +908,6 @@ pub(crate) fn allow_ro(
 /// Stores the specified read-write process buffer in the kernel managed grant
 /// region for this process and driver. The previous read-write process buffer
 /// stored at the same allow_num id is returned.
-#[flux_rs::trusted(reason = "TODO:RJ:ASK-NICO type invariant may not hold when place is folded")]
 pub(crate) fn allow_rw(
     process: &dyn Process,
     driver_num: usize,
@@ -933,34 +932,36 @@ pub(crate) fn allow_rw(
 
     // Index into the saved slice to get the old value. Use .get in case
     // userspace passed us a bad allow number.
-    match saved_allow_rw_slice.get_mut(allow_num) {
+    let bob = saved_allow_rw_slice.get_mut(allow_num);
+    match bob {
         Some(saved) => {
             // # Safety
             //
             // The pointer has already been validated to be within application
             // memory before storing the values in the saved slice.
-            let old_allow =
-                unsafe { ReadWriteProcessBuffer::new(saved.ptr, saved.len, process.processid()) };
-
             // Replace old values with current buffer.
-            update_saved_allow_rw(saved, buffer); // TODO:RJ:ASK-NICO "type invariant may not hold when place is folded"
+            Ok(update_saved_allow_rw(saved, buffer, process)) // TODO:FLUX:ISSUE need a "strong reference"
 
             // Success!
-            Ok(old_allow)
+            // Ok(old_allow)
         }
         None => Err((buffer, ErrorCode::NOSUPPORT)),
     }
 }
 
-#[flux_rs::sig(fn(saved: &mut SavedAllowRw, buffer: ReadWriteProcessBuffer) ensures saved: SavedAllowRw)] // TRUSTED:RJ:ASK-VIVIAN
+#[flux_rs::sig(fn(saved: &mut SavedAllowRw, buffer: ReadWriteProcessBuffer, _) -> _ ensures saved: SavedAllowRw)]
 fn update_saved_allow_rw(
     saved: &mut SavedAllowRw,
     buffer: ReadWriteProcessBuffer,
-)  {
+    process: &dyn Process,
+)  -> ReadWriteProcessBuffer {
+    let old_allow =
+      unsafe { ReadWriteProcessBuffer::new(saved.ptr, saved.len, process.processid()) };
 
     let (ptr, len) = buffer.consume();
     saved.ptr = ptr;
     saved.len = len;
+    old_allow
 }
 
 /// An instance of a grant allocated for a particular process.

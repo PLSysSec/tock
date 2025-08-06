@@ -250,7 +250,7 @@ impl RegionDescriptor for MpuRegionDefault {
 
     #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::size(r) == ptr && valid_size(<Self as RegionDescriptor>::start(r) + ptr) }>[<Self as RegionDescriptor>::is_set(r)])]
     fn size(&self) -> Option<usize> {
-        // TRUSTED:RJ:YUCK
+        // TODO:RJ:YUCK
         match self.size {
              None => None,
              Some(sz) => Some(sz),
