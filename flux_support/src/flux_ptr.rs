@@ -151,6 +151,19 @@ impl FluxPtr {
         self.inner.is_null()
     }
 
+    #[flux_rs::opts(check_overflow = "strict")]
+    #[sig(fn(&Self[@n], offset: usize) -> bool[valid_size(n + offset)] )]
+    pub fn in_bounds(&self, offset: usize) -> bool {
+        let n = self.as_usize();
+        if offset <= u32::MAX as usize {
+            // offset in bounds; test addition
+            n + offset <= (u32::MAX as usize)
+        } else {
+            // offset itself is out of bounds
+            false
+        }
+    }
+
     #[flux_rs::trusted(reason = "flux wrappers")]
     #[sig(fn(self: Self[@n]) -> usize[n])]
     pub fn as_usize(self) -> usize {

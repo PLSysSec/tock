@@ -185,8 +185,8 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         size: usize,
     ) -> Result<(), ()> {
         // let breaks = &mut self.breaks.ok_or(())?;
-        let buf_end_addr = buf_start_addr.wrapping_add(size); // TODO:RJ: seems wrong
-        if self.in_app_ram_memory(buf_start_addr, buf_end_addr) {
+        let buf_end_addr = buf_start_addr.wrapping_add(size); // TODO:RJ:ASK-VIVIAN seems wrong; I added `in_bounds`
+        if buf_start_addr.in_bounds(size) && self.in_app_ram_memory(buf_start_addr, buf_end_addr) {
             // TODO: Check for buffer aliasing here
             // Valid buffer, we need to adjust the app's watermark
             // note: `in_app_owned_memory` ensures this offset does not wrap
@@ -574,7 +574,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             <R as RegionDescriptor>::region_cant_access_at_all(r, 0, mem_start - 1) &&
             <R as RegionDescriptor>::region_cant_access_at_all(r, mem_end + 1, u32::MAX)
     )]
-    fn check_pred(region: &R, mem_start: FluxPtrU8, mem_end: usize) {}
+    fn check_pred(_region: &R, _mem_start: FluxPtrU8, _mem_end: usize) {}
 
     #[flux_rs::trusted(reason = "TRUSTED:RJ:ASK-VIVIAN")]
     #[flux_rs::sig(fn (self: &strg Self, new_app_break: FluxPtrU8Mut) -> Result<(), Error> ensures self: Self)]
