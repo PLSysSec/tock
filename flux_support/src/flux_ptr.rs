@@ -20,7 +20,7 @@ use crate::Pair;
 
 flux_rs::defs! {
     fn valid_size(x: int) -> bool {
-        x <= u32::MAX
+        0 <= x && x <= u32::MAX
     }
 }
 

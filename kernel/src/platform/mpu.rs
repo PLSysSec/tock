@@ -11,7 +11,7 @@ use flux_support::*;
 
 flux_rs::defs! {
     fn valid_size(x: int) -> bool {
-        x <= u32::MAX
+        0 <= x && x <= u32::MAX
     }
 }
 
@@ -278,7 +278,8 @@ impl RegionDescriptor for MpuRegionDefault {
         <MpuRegionDefault as RegionDescriptor>::perms(r) == permissions &&
         <MpuRegionDefault as RegionDescriptor>::start(r) >= available_start &&
         <MpuRegionDefault as RegionDescriptor>::start(r) + <MpuRegionDefault as RegionDescriptor>::size(r) <= available_start + available_size &&
-        <MpuRegionDefault as RegionDescriptor>::size(r) >= region_size
+        <MpuRegionDefault as RegionDescriptor>::size(r) >= region_size &&
+        valid_size(<MpuRegionDefault as RegionDescriptor>::start(r) + <MpuRegionDefault as RegionDescriptor>::size(r))
     }>)]
     fn create_bounded_region(
         region_number: usize,
@@ -312,7 +313,8 @@ impl RegionDescriptor for MpuRegionDefault {
         <MpuRegionDefault as RegionDescriptor>::perms(r) == permissions &&
         <MpuRegionDefault as RegionDescriptor>::start(r) == region_start &&
         <MpuRegionDefault as RegionDescriptor>::start(r) + <MpuRegionDefault as RegionDescriptor>::size(r) <= region_start + available_size &&
-        <MpuRegionDefault as RegionDescriptor>::size(r)  >= region_size
+        <MpuRegionDefault as RegionDescriptor>::size(r)  >= region_size &&
+        valid_size(<MpuRegionDefault as RegionDescriptor>::start(r) + <MpuRegionDefault as RegionDescriptor>::size(r))
     }>)]
     fn update_region(
         region_start: FluxPtrU8,

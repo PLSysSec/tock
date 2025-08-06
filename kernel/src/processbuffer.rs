@@ -421,7 +421,7 @@ impl Deref for ReadOnlyProcessBufferRef<'_> {
 /// userspace is required, as the compiler is free to reorder reads
 /// and writes, even through [`Cell`]s.
 #[flux_rs::refined_by(ptr: int, len: int)]
-#[flux_rs::invariant(valid_size(ptr + len))]
+#[flux_rs::invariant(valid_size(len) && valid_size(ptr) && valid_size(ptr + len))]
 pub struct ReadWriteProcessBuffer {
     #[flux_rs::field(FluxPtrU8Mut[ptr])]
     ptr: FluxPtrU8Mut,
@@ -525,12 +525,14 @@ impl ReadWriteProcessBuffer {
 
 impl ReadableProcessBuffer for ReadWriteProcessBuffer {
     /// Return the length of the buffer in bytes.
+    #[flux_rs::sig(fn (&Self[@p]) -> usize{len: valid_size(p.ptr + len)})]
     fn len(&self) -> usize {
         self.process_id
             .map_or(0, |pid| pid.kernel.process_map_or(0, pid, |_| self.len))
     }
 
     /// Return the pointer to the start of the buffer.
+    #[flux_rs::sig(fn (&Self[@p]) -> FluxPtrU8Mut{res: res.ptr == 0 || res.ptr == p.ptr})]
     fn ptr(&self) -> FluxPtrU8Mut {
         if self.len == 0 {
             FluxPtr::null()
