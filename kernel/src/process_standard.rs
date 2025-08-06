@@ -20,7 +20,7 @@ use flux_support::*;
 use crate::allocator::{self, AppMemoryAllocator};
 use crate::collections::queue::Queue;
 use crate::collections::ring_buffer::RingBuffer;
-use crate::config;
+use crate::{config, process};
 use crate::debug;
 use crate::errorcode::ErrorCode;
 use crate::kernel::Kernel;
@@ -570,7 +570,6 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
     }
 
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
-    // RJ:no the check happens inside #[flux_rs::sig(fn (&Self, buf_start_addr: FluxPtrU8Mut, size: usize{valid_size(buf_start_addr + size)}) -> _)]
     fn build_readwrite_process_buffer(
         &self,
         buf_start_addr: FluxPtrU8Mut,
@@ -603,12 +602,16 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             // Therefore, we can encapsulate the unsafe.
             Ok(unsafe { ReadWriteProcessBuffer::new(buf_start_addr, 0, self.processid()) })
         } else {
-            let _ = self
-                .app_memory_allocator
-                .map_or(Err(ErrorCode::FAIL), |app_mem| {
-                    Ok(app_mem.add_shared_readwrite_buffer(buf_start_addr, size))
-                })
-                .map_err(|_| ErrorCode::INVAL)?;
+            let process_buffer = self
+                 .app_memory_allocator
+                 .map(|app_mem| {
+                     if let Ok(_) = app_mem.add_shared_readwrite_buffer(buf_start_addr, size) {
+                       Ok(unsafe { ReadWriteProcessBuffer::new(buf_start_addr, size, self.processid()) })
+                     } else {
+                       Err(ErrorCode::INVAL)
+                     }
+                 });
+
             // Clippy complains that we're dereferencing a pointer in a public
             // and safe function here. While we are not dereferencing the
             // pointer here, we pass it along to an unsafe function, which is as
@@ -628,7 +631,11 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             // We encapsulate the unsafe here on the condition in the TODO
             // above, as we must ensure that this `ReadWriteProcessBuffer` will
             // be the only reference to this memory.
-            Ok(unsafe { ReadWriteProcessBuffer::new(buf_start_addr, size, self.processid()) })
+            match process_buffer {
+                Some(Ok(process_buffer)) => return Ok(process_buffer),
+                _ => return Err(ErrorCode::INVAL),
+
+            }
         }
     }
 
