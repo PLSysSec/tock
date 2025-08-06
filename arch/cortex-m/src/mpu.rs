@@ -68,10 +68,6 @@ fn theorem_pow2_div2_pow2(_n: usize) {}
 #[flux_rs::sig(fn (r:usize) requires octet(r) ensures 8 * (r / 8) == r)]
 fn theorem_div_octet(_n: usize) {}
 
-#[flux_rs::reveal(pow2)]
-#[flux_rs::sig(fn (n:usize) requires n > 1 && n <= u32::MAX && pow2(n) ensures 2 * (n / 2) == n)]
-fn theorem_div_pow2(_n: usize) {}
-
 #[flux_rs::reveal(aligned)]
 #[flux_rs::sig(fn (x: usize, y: usize) requires aligned(x, y) ensures aligned(x + y, y))]
 fn theorem_aligned_plus_aligned_to_is_aligned(_x: usize, _y: usize) {}
@@ -863,18 +859,15 @@ impl mpu::RegionDescriptor for CortexMRegion {
             return None;
         }
 
-        // get the smallest size >= region size which is a power of two and aligned to the start
+        // get the smallest size >= region size / 2 which is a power of two and aligned to the start
         let mut min_region_size = flux_support::max_usize(512, region_size);
+
+        if min_region_size % 2 != 0 {
+            min_region_size += 1;
+        }
+
         let mut underlying_region_size =
-            next_aligned_power_of_two(region_start.as_usize(), min_region_size)?;
-
-        theorem_pow2_div2_pow2(underlying_region_size);
-        theorem_pow2_le_aligned(region_start.as_usize(), underlying_region_size, underlying_region_size / 2);
-        theorem_div_pow2(underlying_region_size);
-
-        underlying_region_size /= 2;
-
-        flux_rs::assert(underlying_region_size * 2 >= region_size);
+            next_aligned_power_of_two(region_start.as_usize(), min_region_size / 2)?;
 
         theorem_pow2_octet(underlying_region_size);
         theorem_div_octet(underlying_region_size);
