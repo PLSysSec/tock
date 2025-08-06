@@ -61,18 +61,18 @@ fn theorem_pow2_le_aligned(x: usize, y: usize, z: usize) {}
 fn theorem_pow2_octet(_n: usize) {}
 
 #[flux_rs::trusted(reason = "math")]
-#[flux_rs::sig(fn (r:usize) requires pow2(r) && r >= 4 ensures pow2(r / 2))]
+#[flux_rs::sig(fn (n:usize) requires pow2(n) && n >= 4 ensures pow2(n / 2))]
 fn theorem_pow2_div2_pow2(_n: usize) {}
 
 #[flux_rs::reveal(octet)]
 #[flux_rs::sig(fn (r:usize) requires octet(r) ensures 8 * (r / 8) == r)]
 fn theorem_div_octet(_n: usize) {}
 
-#[flux_rs::trusted(reason = "math")]
-#[flux_rs::sig(fn (n:usize) requires pow2(n) ensures 2 * (n / 2) == n)]
+#[flux_rs::reveal(pow2)]
+#[flux_rs::sig(fn (n:usize) requires n > 1 && n <= u32::MAX && pow2(n) ensures 2 * (n / 2) == n)]
 fn theorem_div_pow2(_n: usize) {}
 
-#[flux_rs::trusted(reason = "math")]
+#[flux_rs::reveal(aligned)]
 #[flux_rs::sig(fn (x: usize, y: usize) requires aligned(x, y) ensures aligned(x + y, y))]
 fn theorem_aligned_plus_aligned_to_is_aligned(_x: usize, _y: usize) {}
 
@@ -628,7 +628,7 @@ fn usize_to_u32(n: usize) -> u32 {
 
 #[flux_rs::sig(
     fn (start: usize, min_size: usize) -> Option<usize{size: 
-        size >= min_size && pow2(size) && aligned(start, size) && octet(size)
+        size >= min_size && pow2(size) && aligned(start, size) && octet(size) && half_max(size)
     }>
     requires 
         half_max(min_size) &&
