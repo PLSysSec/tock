@@ -177,7 +177,6 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         }
     }
 
-    // #[flux_rs::trusted(reason = "TODO:RJ:ASK-VIVIAN")]
     #[flux_rs::sig(fn (self: &strg Self, buf_start_addr: FluxPtrU8Mut, size: usize) -> Result<{() | valid_size(buf_start_addr + size)}, ()> ensures self: Self)]
     pub(crate) fn add_shared_readwrite_buffer(
         &mut self,
@@ -185,8 +184,9 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         size: usize,
     ) -> Result<(), ()> {
         // let breaks = &mut self.breaks.ok_or(())?;
-        let buf_end_addr = buf_start_addr.wrapping_add(size); // TODO:RJ:ASK-VIVIAN seems wrong; I added `in_bounds`
-        if buf_start_addr.in_bounds(size) && self.in_app_ram_memory(buf_start_addr, buf_end_addr) {
+        let buf_end_addr = buf_start_addr.wrapping_add(size);
+        if buf_start_addr.in_bounds(size) // TODO:RJ:ASK-VIVIAN original seems wrong; I added `in_bounds`
+           && self.in_app_ram_memory(buf_start_addr, buf_end_addr) {
             // TODO: Check for buffer aliasing here
             // Valid buffer, we need to adjust the app's watermark
             // note: `in_app_owned_memory` ensures this offset does not wrap
