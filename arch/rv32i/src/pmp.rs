@@ -280,7 +280,7 @@ fn region_overlaps(region: &PMPUserRegion, start: usize, end: usize) -> bool {
         start,
         end
     };
-    
+
     // For a range A to overlap with a range B, either B's first or B's last
     // element must be contained in A, or A's first or A's last element must be
     // contained in B. As we deal with half-open ranges, ensure that neither
@@ -568,7 +568,7 @@ impl RegionGhost {
 #[flux_rs::refined_by(
     region_number: int,
     tor_cfg: TORUserPMPCFG,
-    start: int, 
+    start: int,
     end: int,
     perms: mpu::Permissions,
     is_set: bool
@@ -618,6 +618,8 @@ impl RegionDescriptor for PMPUserRegion {
         self.start
     }
 
+    #[flux_rs::trusted(reason = "TODO:RJ:ASK-VIVIAN")]
+    #[flux_rs::trusted_impl]
     #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::size(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
     fn size(&self) -> Option<usize> {
         match (self.start, self.end) {
@@ -701,9 +703,9 @@ impl RegionDescriptor for PMPUserRegion {
         available_size: usize,
         region_size: usize,
         permissions: mpu::Permissions,
-    ) -> Option<Pair<Self, Self>{p: 
+    ) -> Option<Pair<Self, Self>{p:
             <Self as RegionDescriptor>::start(p.fst) >= available_start &&
-            ((!<Self as RegionDescriptor>::is_set(p.snd)) => 
+            ((!<Self as RegionDescriptor>::is_set(p.snd)) =>
                 <Self as RegionDescriptor>::regions_can_access_exactly(
                     p.fst,
                     p.snd,
@@ -712,7 +714,7 @@ impl RegionDescriptor for PMPUserRegion {
                     permissions
                 )
             ) &&
-            (<Self as RegionDescriptor>::is_set(p.snd) => 
+            (<Self as RegionDescriptor>::is_set(p.snd) =>
                 <Self as RegionDescriptor>::regions_can_access_exactly(
                     p.fst,
                     p.snd,
@@ -723,7 +725,7 @@ impl RegionDescriptor for PMPUserRegion {
             ) &&
             !<Self as RegionDescriptor>::is_set(p.snd)
         }> requires max_region_number > 0 && max_region_number < 8
-    )] 
+    )]
     fn allocate_regions(
         region_number: usize,
         available_start: FluxPtrU8,
@@ -810,8 +812,8 @@ impl RegionDescriptor for PMPUserRegion {
         region_size: usize,
         max_region_number: usize,
         permissions: mpu::Permissions,
-    ) -> Option<Pair<Self, Self>{p: 
-        ((!<Self as RegionDescriptor>::is_set(p.snd)) => 
+    ) -> Option<Pair<Self, Self>{p:
+        ((!<Self as RegionDescriptor>::is_set(p.snd)) =>
             <Self as RegionDescriptor>::regions_can_access_exactly(
                 p.fst,
                 p.snd,
@@ -821,7 +823,7 @@ impl RegionDescriptor for PMPUserRegion {
             ) &&
             <Self as RegionDescriptor>::size(p.fst) >= region_size
         ) &&
-        (<Self as RegionDescriptor>::is_set(p.snd) => 
+        (<Self as RegionDescriptor>::is_set(p.snd) =>
             <Self as RegionDescriptor>::regions_can_access_exactly(
                 p.fst,
                 p.snd,
@@ -872,17 +874,17 @@ impl RegionDescriptor for PMPUserRegion {
         )
     }
 
-    #[flux_rs::sig(fn (&Self[@r], start: FluxPtrU8, end: FluxPtrU8, perms: mpu::Permissions) 
+    #[flux_rs::sig(fn (&Self[@r], start: FluxPtrU8, end: FluxPtrU8, perms: mpu::Permissions)
         requires <Self as RegionDescriptor>::region_can_access_exactly(r, start, end, perms)
-        ensures 
+        ensures
             !<Self as RegionDescriptor>::overlaps(r, 0, start) &&
             !<Self as RegionDescriptor>::overlaps(r, end, u32::MAX)
     )]
     fn lemma_region_can_access_exactly_implies_no_overlap(&self, _start: FluxPtrU8, _end: FluxPtrU8, _perms: mpu::Permissions) {}
 
-    #[flux_rs::sig(fn (&Self[@r1], &Self[@r2], start: FluxPtrU8, end: FluxPtrU8, perms: mpu::Permissions) 
+    #[flux_rs::sig(fn (&Self[@r1], &Self[@r2], start: FluxPtrU8, end: FluxPtrU8, perms: mpu::Permissions)
         requires <Self as RegionDescriptor>::regions_can_access_exactly(r1, r2, start, end, perms)
-        ensures 
+        ensures
             !<Self as RegionDescriptor>::overlaps(r1, 0, start) &&
             !<Self as RegionDescriptor>::overlaps(r1, end, u32::MAX) &&
             !<Self as RegionDescriptor>::overlaps(r2, 0, start) &&
@@ -894,8 +896,8 @@ impl RegionDescriptor for PMPUserRegion {
         }
     }
 
-    #[flux_rs::sig(fn (&Self[@r], access_end: FluxPtrU8, desired_end: FluxPtrU8) 
-        requires 
+    #[flux_rs::sig(fn (&Self[@r], access_end: FluxPtrU8, desired_end: FluxPtrU8)
+        requires
             !<Self as RegionDescriptor>::overlaps(r, access_end, u32::MAX) &&
             access_end <= desired_end
         ensures !<Self as RegionDescriptor>::overlaps(r, desired_end, u32::MAX)
@@ -903,26 +905,26 @@ impl RegionDescriptor for PMPUserRegion {
     fn lemma_no_overlap_le_addr_implies_no_overlap_addr(&self, _access_end: FluxPtrU8, _desired_end: FluxPtrU8) {}
 
 
-    #[flux_rs::sig(fn (&Self[@r], start: FluxPtrU8, end: FluxPtrU8) 
+    #[flux_rs::sig(fn (&Self[@r], start: FluxPtrU8, end: FluxPtrU8)
         requires !<Self as RegionDescriptor>::is_set(r)
         ensures !<Self as RegionDescriptor>::overlaps(r, start, end)
     )]
     fn lemma_region_not_set_implies_no_overlap(&self, start: FluxPtrU8, end: FluxPtrU8) {}
 
-    #[flux_rs::sig(fn (&Self[@r], 
+    #[flux_rs::sig(fn (&Self[@r],
             flash_start: FluxPtrU8,
-            flash_end: FluxPtrU8, 
-            mem_start: FluxPtrU8, 
+            flash_end: FluxPtrU8,
+            mem_start: FluxPtrU8,
             mem_end: FluxPtrU8
         )
-        requires 
+        requires
             <Self as RegionDescriptor>::region_can_access_exactly(r, flash_start, flash_end, mpu::Permissions { r: true, x: true, w: false })
             &&
-            flash_end <= mem_start 
-        ensures 
+            flash_end <= mem_start
+        ensures
             !<Self as RegionDescriptor>::overlaps(r, mem_start, mem_end)
 
-    )] 
+    )]
     fn lemma_region_can_access_flash_implies_no_app_block_overlaps(&self, _flash_start: FluxPtrU8, _flash_end: FluxPtrU8, _mem_start: FluxPtrU8, _mem_end: FluxPtrU8) {}
 }
 

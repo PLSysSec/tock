@@ -476,7 +476,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
                 unallocated_memory_start > 0 &&
                 initial_kernel_memory_size > 0 &&
                 flash_start + flash_size < unallocated_memory_start &&
-                valid_size(<R as RegionDescriptor>::size(ram_regions.fst) + initial_kernel_memory_size) // TODO:RJ:ASSERTION:FAILURE
+                valid_size(<R as RegionDescriptor>::size(ram_regions.fst) + initial_kernel_memory_size)
     )]
     fn get_app_breaks(
         ram_regions: Pair<R, R>,
@@ -519,7 +519,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         })
     }
 
-    #[flux_rs::trusted(reason = "TODO:RJ:assertion failed: !scope.has_free_vars(arg)")]
+    #[flux_rs::trusted(reason = "TODO:RJ:ASK-NICO:assertion failed: !scope.has_free_vars(arg)")]
     #[flux_rs::sig(
         fn (
             mem_start: FluxPtrU8,

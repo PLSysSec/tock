@@ -1,4 +1,4 @@
 {
     "rust-analyzer.checkOnSave": false,
-    "flux.command": "cargo flux -p kernel"
+    "flux.command": "cargo flux"
 }
