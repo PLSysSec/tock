@@ -587,6 +587,7 @@ pub struct PMPUserRegion {
     pub ghost: RegionGhost,
 }
 
+
 impl PMPUserRegion {
     #[flux_rs::sig(fn (region_number: usize, tor: TORUserPMPCFG, start: FluxPtrU8, end: FluxPtrU8, perms: mpu::Permissions) -> Self[region_number, tor, start, end, perms, true] requires end >= start)]
     pub fn new(
