@@ -476,7 +476,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
                 unallocated_memory_start > 0 &&
                 initial_kernel_memory_size > 0 &&
                 flash_start + flash_size < unallocated_memory_start &&
-                valid_size(<R as RegionDescriptor>::size(ram_region) + initial_kernel_memory_size) // TODO:RJ:ASSERTION:FAILURE
+                valid_size(<R as RegionDescriptor>::size(ram_regions.fst) + initial_kernel_memory_size) // TODO:RJ:ASSERTION:FAILURE
     )]
     fn get_app_breaks(
         ram_regions: Pair<R, R>,
@@ -587,7 +587,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         // ram_region.start() + ram_region.size() <=u32::MAX,
         // which combines with initial_app_memory_size <= ram_region.size()
         // to check get_app_breaks
-        let _ = ram_region.size();
+        // TODO:RJ:MERGE let _ = ram_region.size();
 
         // Get the app breaks using the RAM region
         let breaks = Self::get_app_breaks(
@@ -650,13 +650,6 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         })
     }
 
-    #[flux_rs::sig(fn (&R[@r], FluxPtrU8[@mem_start], usize[@mem_end])
-        requires
-            <R as RegionDescriptor>::region_can_access(r, mem_start, mem_end, mpu::Permissions { r: true, w: true, x: false }) &&
-            <R as RegionDescriptor>::region_cant_access_at_all(r, 0, mem_start - 1) &&
-            <R as RegionDescriptor>::region_cant_access_at_all(r, mem_end + 1, u32::MAX)
-    )]
-    fn check_pred(_region: &R, _mem_start: FluxPtrU8, _mem_end: usize) {}
 
     #[flux_rs::sig(fn (self: &strg Self, new_app_break: FluxPtrU8Mut) -> Result<(), Error> ensures self: Self)]
     pub(crate) fn update_app_memory(&mut self, new_app_break: FluxPtrU8Mut) -> Result<(), Error> {
