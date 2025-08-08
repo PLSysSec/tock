@@ -795,12 +795,6 @@ impl mpu::RegionDescriptor for CortexMRegion {
         let snd_region = if num_subregions1 == 0 {
             mpu::RegionDescriptor::default(max_region_number)
         } else {
-            if (!check_valid_size(start, size)
-                || !check_valid_size(start + size, num_subregions1 * subregion_size))
-            {
-                return None;
-            }
-
             CortexMRegion::new_with_srd(
                 FluxPtr::from(start + size),
                 num_subregions1 * subregion_size,
@@ -810,12 +804,8 @@ impl mpu::RegionDescriptor for CortexMRegion {
                 0,
                 num_subregions1 - 1,
                 permissions,
-            )
+            )?
         };
-
-        if (!check_valid_size(start, num_subregions0 * subregion_size)) {
-            return None;
-        }
 
         Some(Pair {
             fst: CortexMRegion::new_with_srd(
@@ -827,7 +817,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
                 0,
                 num_subregions0 - 1,
                 permissions,
-            ),
+            )?,
             snd: snd_region,
         })
     }
@@ -907,21 +897,9 @@ impl mpu::RegionDescriptor for CortexMRegion {
         let num_subregions0 = min_usize(num_enabled_subregions, 8);
         let num_subregions1 = num_enabled_subregions.saturating_sub(8);
 
-        if (!check_valid_size(region_start.as_usize(), num_subregions0 * subregion_size)) {
-            return None;
-        }
-
         let snd_region = if num_subregions1 == 0 {
             mpu::RegionDescriptor::default(max_region_number)
         } else {
-            if (!check_valid_size(region_start.as_usize(), underlying_region_size)
-                || !check_valid_size(
-                    region_start.as_usize() + underlying_region_size,
-                    num_subregions1 * subregion_size,
-                ))
-            {
-                return None;
-            }
             theorem_aligned_plus_aligned_to_is_aligned(
                 region_start.as_usize(),
                 underlying_region_size,
@@ -935,7 +913,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
                 0,
                 num_subregions1 - 1,
                 permissions,
-            )
+            )?
         };
 
         Some(Pair {
@@ -948,7 +926,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
                 0,
                 num_subregions0 - 1,
                 permissions,
-            ),
+            )?,
             snd: snd_region,
         })
     }
@@ -983,7 +961,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
                 size,
                 region_number,
                 permissions,
-            ))
+            )?)
         } else {
             let min_size = flux_support::max_usize(size, 256);
             let underlying_region_start = start.as_usize();
@@ -1024,7 +1002,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
                 0,
                 num_subregions_enabled - 1,
                 permissions,
-            ))
+            )?)
         }
     }
 
@@ -1203,7 +1181,7 @@ impl CortexMRegion {
             usize[@fsr],
             usize[@lsr],
             mpu::Permissions[@perms]
-        ) -> CortexMRegion {r:
+        ) -> Option<CortexMRegion {r:
                 r.astart == astart &&
                 r.asize == asize &&
                 r.rstart == rstart &&
@@ -1211,7 +1189,7 @@ impl CortexMRegion {
                 r.region_no == rnum &&
                 r.perms == perms &&
                 r.set
-            }
+            }>
         requires
             rnum < 8 &&
             rsize >= 32 &&
@@ -1222,8 +1200,7 @@ impl CortexMRegion {
             lsr < 8 &&
             first_subregion_from_logical(rstart, rsize, astart, asize) == fsr &&
             last_subregion_from_logical(rstart, rsize, astart, asize) == lsr &&
-            rsize <= u32::MAX / 2 + 1 &&
-            valid_size(astart + asize)
+            rsize <= u32::MAX / 2 + 1
     )]
     fn new_with_srd(
         logical_start: FluxPtrU8,
@@ -1234,7 +1211,11 @@ impl CortexMRegion {
         fsr: usize,
         lsr: usize,
         permissions: mpu::Permissions,
-    ) -> CortexMRegion {
+    ) -> Option<CortexMRegion> {
+        if !check_valid_size(logical_start.as_usize(), logical_size) {
+            return None;
+        }
+
         theorem_pow2_octet(region_size);
         // Base address register
         let base_address = Self::base_address_register(region_start, region_num, region_size);
@@ -1263,12 +1244,12 @@ impl CortexMRegion {
         // the ones in the inclusive range [min_subregion, max_subregion].
         let mask = subregion_mask(fsr, lsr);
         attributes += RegionAttributes::SRD().val(mask as u32);
-        Self {
+        Some(Self {
             location: Some(location),
             base_address,
             attributes,
             ghost_region_state,
-        }
+        })
     }
 
     #[flux_rs::sig(
@@ -1279,7 +1260,7 @@ impl CortexMRegion {
             usize[@rsize],
             usize[@no],
             mpu::Permissions[@perms]
-        ) -> CortexMRegion {r:
+        ) -> Option<CortexMRegion {r:
                 r.astart == astart &&
                 r.asize == asize &&
                 r.rstart == rstart &&
@@ -1287,7 +1268,7 @@ impl CortexMRegion {
                 r.region_no == no &&
                 r.perms == perms &&
                 r.set
-            }
+            }>
         requires
             no < 8 &&
             rsize == asize &&
@@ -1295,8 +1276,7 @@ impl CortexMRegion {
             rsize >= 32 &&
             pow2(rsize) &&
             aligned(rstart, rsize) &&
-            rsize <= u32::MAX / 2 + 1 &&
-            valid_size(astart + asize)
+            rsize <= u32::MAX / 2 + 1
     )]
     fn new_no_srd(
         logical_start: FluxPtrU8,
@@ -1305,7 +1285,10 @@ impl CortexMRegion {
         region_size: usize,
         region_num: usize,
         permissions: mpu::Permissions,
-    ) -> CortexMRegion {
+    ) -> Option<CortexMRegion> {
+        if !check_valid_size(logical_start.as_usize(), logical_size) {
+            return None;
+        }
         theorem_pow2_octet(region_size);
         // Base address register
         let base_address = Self::base_address_register(region_start, region_num, region_size);
@@ -1332,12 +1315,12 @@ impl CortexMRegion {
             permissions,
         );
 
-        Self {
+        Some(Self {
             location: Some(location),
             base_address,
             attributes,
             ghost_region_state,
-        }
+        })
     }
 
     #[flux_rs::reveal(subregions_enabled_bit_set, subregions_disabled_bit_set)]
