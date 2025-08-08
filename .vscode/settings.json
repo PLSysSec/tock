@@ -1,4 +1,4 @@
 {
     "rust-analyzer.checkOnSave": false,
-    "flux.command": "cargo flux"
+    "flux.command": "cargo flux -p kernel -p cortexm -p rv32i"
 }

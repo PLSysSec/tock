@@ -1793,10 +1793,11 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let grant_ptrs_offset = grant_ptrs_num * grant_ptr_size;
 
         let size_offset = Self::CALLBACKS_OFFSET + Self::PROCESS_STRUCT_OFFSET;
-        assume(size_offset > 0);
         let initial_kernel_memory_size =
-            flux_support::flux_unchecked_add(grant_ptrs_offset, size_offset);
-
+            flux_support::flux_trusted_add(grant_ptrs_offset, size_offset);
+        if !(0 < initial_kernel_memory_size && initial_kernel_memory_size <= u32::MAX as usize) {
+            return Err(ErrorCode::FAIL);
+        }
         let maybe_app_mem_alloc = AppMemoryAllocator::allocate_app_memory(
             app_breaks.memory_start,
             app_breaks.memory_size,

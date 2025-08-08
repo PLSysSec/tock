@@ -470,13 +470,13 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
                 b.memory_size >= initial_kernel_memory_size
             }, ()>
             requires
+                valid_size(<R as RegionDescriptor>::size(ram_regions.fst) + initial_kernel_memory_size) &&
                 <R as RegionDescriptor>::is_set(ram_regions.fst) &&
                 <R as RegionDescriptor>::start(ram_regions.fst) >= unallocated_memory_start &&
                 unallocated_memory_start + unallocated_memory_size <= u32::MAX &&
                 unallocated_memory_start > 0 &&
                 initial_kernel_memory_size > 0 &&
-                flash_start + flash_size < unallocated_memory_start &&
-                valid_size(<R as RegionDescriptor>::size(ram_regions.fst) + initial_kernel_memory_size)
+                flash_start + flash_size < unallocated_memory_start
     )]
     fn get_app_breaks(
         ram_regions: Pair<R, R>,
@@ -519,14 +519,13 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         })
     }
 
-    #[flux_rs::trusted(reason = "TODO:RJ:ASK-NICO:assertion failed: !scope.has_free_vars(arg)")]
     #[flux_rs::sig(
         fn (
             mem_start: FluxPtrU8,
             mem_size: usize,
             min_mem_size: usize,
             app_mem_size: usize,
-            kernel_mem_size: usize,
+            initial_kernel_memory_size: usize{valid_size(initial_kernel_memory_size) && initial_kernel_memory_size > 0},
             flash_start: FluxPtrU8,
             flash_size: usize,
         ) -> Result<Self { app:
@@ -535,9 +534,9 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
                 app.breaks.memory_start >= mem_start &&
                 valid_size(app.breaks.memory_start + app.breaks.memory_size) &&
                 app.breaks.memory_start > 0 &&
-                app.breaks.memory_size >= kernel_mem_size
+                app.breaks.memory_size >= initial_kernel_memory_size
             }, AllocateAppMemoryError>
-        requires valid_size(mem_start + mem_size) && flash_start + flash_size < mem_start && kernel_mem_size > 0
+        requires valid_size(mem_start + mem_size) && flash_start + flash_size < mem_start
     )]
     pub(crate) fn allocate_app_memory(
         unallocated_memory_start: FluxPtrU8,
@@ -583,6 +582,13 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
 
         // For some reason flux needs this to prove our pre and post conditions
         flux_rs::assert(flash_start.as_usize() + flash_size < unallocated_memory_start.as_usize());
+
+        let Some(ram0_size) = ram_regions.fst.size() else {
+            return Err(AllocateAppMemoryError::HeapError);
+        };
+        if ram0_size > (u32::MAX as usize) - initial_kernel_memory_size{
+            return Err(AllocateAppMemoryError::HeapError);
+        }
 
         // Get the app breaks using the RAM region
         let breaks = Self::get_app_breaks(
