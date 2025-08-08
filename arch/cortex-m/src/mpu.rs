@@ -620,7 +620,7 @@ fn region_start_rs32(region_start: FluxPtrU8) -> u32 {
 }
 
 #[flux_rs::reveal(valid_size)]
-#[flux_rs::sig(fn (x: usize, y: usize) -> bool[valid_size(x + y)])]
+#[flux_rs::sig(fn (x: usize, y: usize) -> bool[valid_size(x + y)] requires y <= u32::MAX)]
 fn check_valid_size(x: usize, y: usize) -> bool {
     x <= u32::MAX as usize - y
 }
@@ -698,8 +698,8 @@ impl mpu::RegionDescriptor for CortexMRegion {
         }
     }
 
-    #[flux_rs::trusted_impl]
-    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::size(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
+    #[flux_rs::reveal(valid_size)]
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{sz: <Self as RegionDescriptor>::size(r) == sz && valid_size(sz) && valid_size(<Self as RegionDescriptor>::start(r) + sz)}>[<Self as RegionDescriptor>::is_set(r)])]
     fn size(&self) -> Option<usize> {
         match self.location {
             Some(loc) => Some(loc.accessible_size),
@@ -746,6 +746,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
             )
         }> requires max_region_number > 0 && max_region_number < 8
     )]
+    #[flux_rs::opts(solver = "z3")]
     fn allocate_regions(
         max_region_number: usize,
         available_start: FluxPtrU8,

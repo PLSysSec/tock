@@ -618,8 +618,7 @@ impl RegionDescriptor for PMPUserRegion {
         self.start
     }
 
-    #[flux_rs::trusted_impl]
-    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::size(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{sz: <Self as RegionDescriptor>::size(r) == sz && valid_size(sz) && valid_size(<Self as RegionDescriptor>::start(r) + sz)}>[<Self as RegionDescriptor>::is_set(r)])]
     fn size(&self) -> Option<usize> {
         match (self.start, self.end) {
             (Some(start), Some(end)) => Some(end.as_usize() - start.as_usize()),
