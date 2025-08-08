@@ -583,11 +583,6 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
 
         // For some reason flux needs this to prove our pre and post conditions
         flux_rs::assert(flash_start.as_usize() + flash_size < unallocated_memory_start.as_usize());
-        // flux wants this to cough up the invariant
-        // ram_region.start() + ram_region.size() <=u32::MAX,
-        // which combines with initial_app_memory_size <= ram_region.size()
-        // to check get_app_breaks
-        // TODO:RJ:MERGE let _ = ram_region.size();
 
         // Get the app breaks using the RAM region
         let breaks = Self::get_app_breaks(
