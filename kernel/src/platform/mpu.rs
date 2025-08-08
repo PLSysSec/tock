@@ -85,7 +85,7 @@ impl DefaultGhost {
 /// an empty implementation to meet the constraint on `type MpuConfig`.
 #[derive(Clone, Copy)]
 #[flux_rs::refined_by(start: int, size: int, perms: Permissions, is_set: bool, rnum: int)]
-#[flux_rs::invariant(is_set => valid_size(start + size))]
+#[flux_rs::invariant(is_set => (valid_size(size) && valid_size(start + size)))]
 pub struct MpuRegionDefault {
     #[field(Option<FluxPtrU8[start]>[is_set])]
     start: Option<FluxPtrU8>,
@@ -145,7 +145,7 @@ pub trait RegionDescriptor: core::marker::Sized {
     #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::start(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
     fn start(&self) -> Option<FluxPtrU8>;
 
-    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{sz: <Self as RegionDescriptor>::size(r) == sz && valid_size(<Self as RegionDescriptor>::start(r) + sz)}>[<Self as RegionDescriptor>::is_set(r)])]
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{sz: <Self as RegionDescriptor>::size(r) == sz && valid_size(sz) && valid_size(<Self as RegionDescriptor>::start(r) + sz)}>[<Self as RegionDescriptor>::is_set(r)])]
     fn size(&self) -> Option<usize>;
 
     #[flux_rs::sig(fn (&Self[@r]) -> bool[<Self as RegionDescriptor>::is_set(r)])]
@@ -344,7 +344,7 @@ impl RegionDescriptor for MpuRegionDefault {
         self.start
     }
 
-    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::size(r) == ptr && valid_size(<Self as RegionDescriptor>::start(r) + ptr) }>[<Self as RegionDescriptor>::is_set(r)])]
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::size(r) == ptr && valid_size(ptr) && valid_size(<Self as RegionDescriptor>::start(r) + ptr) }>[<Self as RegionDescriptor>::is_set(r)])]
     fn size(&self) -> Option<usize> {
         // TODO:RJ:YUCK
         match self.size {
