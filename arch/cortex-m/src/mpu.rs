@@ -112,6 +112,9 @@ fn theorem_subregions_enabled_bit_set_0_7(attributes: &FieldValueU32<RegionAttri
 /* our actual flux defs */
 
 flux_rs::defs! {
+    #[hide]
+    fn valid_size(x: int) -> bool { 0 <= x && x <= u32::MAX }
+
     fn half_max(r: int) -> bool { r <= u32::MAX / 2 + 1}
 
     fn bv32(x:int) -> bitvec<32> { bv_int_to_bv32(x) }
@@ -473,7 +476,7 @@ impl fmt::Display for CortexMRegion {
 struct CortexMLocation {
     #[field(FluxPtrU8[astart])]
     pub accessible_start: FluxPtrU8,
-    #[field(usize[asize])]
+    #[field({usize[asize] | valid_size(astart + asize) })]
     pub accessible_size: usize,
     #[field(FluxPtrU8[rstart])]
     pub region_start: FluxPtrU8,
@@ -616,6 +619,12 @@ fn region_start_rs32(region_start: FluxPtrU8) -> u32 {
     region_start.as_u32() >> 5
 }
 
+#[flux_rs::reveal(valid_size)]
+#[flux_rs::sig(fn (x: usize, y: usize) -> bool[valid_size(x + y)])]
+fn check_valid_size(x: usize, y: usize) -> bool {
+    x <= u32::MAX as usize - y
+}
+
 #[flux_rs::trusted(reason = "math support (valid usize to u32 cast)")]
 #[flux_rs::sig(fn ({ usize[@n] | n <= u32::MAX }) -> u32[n])]
 fn usize_to_u32(n: usize) -> u32 {
@@ -689,7 +698,6 @@ impl mpu::RegionDescriptor for CortexMRegion {
         }
     }
 
-    #[flux_rs::trusted(reason = "TODO:RJ:ASK-VIVIAN")]
     #[flux_rs::trusted_impl]
     #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::size(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
     fn size(&self) -> Option<usize> {
@@ -787,6 +795,12 @@ impl mpu::RegionDescriptor for CortexMRegion {
         let snd_region = if num_subregions1 == 0 {
             mpu::RegionDescriptor::default(max_region_number)
         } else {
+            if (!check_valid_size(start, size)
+                || !check_valid_size(start + size, num_subregions1 * subregion_size))
+            {
+                return None;
+            }
+
             CortexMRegion::new_with_srd(
                 FluxPtr::from(start + size),
                 num_subregions1 * subregion_size,
@@ -799,21 +813,23 @@ impl mpu::RegionDescriptor for CortexMRegion {
             )
         };
 
-        Some(
-            Pair {
-                fst: CortexMRegion::new_with_srd(
-                    FluxPtr::from(start),
-                    num_subregions0 * subregion_size,
-                    FluxPtr::from(start),
-                    size,
-                    max_region_number - 1,
-                    0,
-                    num_subregions0 - 1,
-                    permissions,
-                ),
-                snd: snd_region
-            }
-        )
+        if (!check_valid_size(start, num_subregions0 * subregion_size)) {
+            return None;
+        }
+
+        Some(Pair {
+            fst: CortexMRegion::new_with_srd(
+                FluxPtr::from(start),
+                num_subregions0 * subregion_size,
+                FluxPtr::from(start),
+                size,
+                max_region_number - 1,
+                0,
+                num_subregions0 - 1,
+                permissions,
+            ),
+            snd: snd_region,
+        })
     }
 
     #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
@@ -891,11 +907,25 @@ impl mpu::RegionDescriptor for CortexMRegion {
         let num_subregions0 = min_usize(num_enabled_subregions, 8);
         let num_subregions1 = num_enabled_subregions.saturating_sub(8);
 
+        if (!check_valid_size(region_start.as_usize(), num_subregions0 * subregion_size)) {
+            return None;
+        }
 
         let snd_region = if num_subregions1 == 0 {
             mpu::RegionDescriptor::default(max_region_number)
         } else {
-            theorem_aligned_plus_aligned_to_is_aligned(region_start.as_usize(), underlying_region_size);
+            if (!check_valid_size(region_start.as_usize(), underlying_region_size)
+                || !check_valid_size(
+                    region_start.as_usize() + underlying_region_size,
+                    num_subregions1 * subregion_size,
+                ))
+            {
+                return None;
+            }
+            theorem_aligned_plus_aligned_to_is_aligned(
+                region_start.as_usize(),
+                underlying_region_size,
+            );
             CortexMRegion::new_with_srd(
                 FluxPtr::from(region_start.as_usize() + underlying_region_size),
                 num_subregions1 * subregion_size,
@@ -908,22 +938,19 @@ impl mpu::RegionDescriptor for CortexMRegion {
             )
         };
 
-        Some(
-            Pair {
-                fst: CortexMRegion::new_with_srd(
-                    region_start,
-                    num_subregions0 * subregion_size,
-                    region_start,
-                    underlying_region_size,
-                    max_region_number - 1,
-                    0,
-                    num_subregions0 - 1,
-                    permissions,
-                ),
-                snd: snd_region
-            }
-        )
-
+        Some(Pair {
+            fst: CortexMRegion::new_with_srd(
+                region_start,
+                num_subregions0 * subregion_size,
+                region_start,
+                underlying_region_size,
+                max_region_number - 1,
+                0,
+                num_subregions0 - 1,
+                permissions,
+            ),
+            snd: snd_region,
+        })
     }
 
     #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
@@ -983,8 +1010,10 @@ impl mpu::RegionDescriptor for CortexMRegion {
             theorem_aligned_ge(size, subregion_size);
 
             let num_subregions_enabled = size / subregion_size;
-            assert(num_subregions_enabled <= 8);
-            assert(num_subregions_enabled > 0);
+
+            if (start.as_usize() > u32::MAX as usize - size) {
+                return None;
+            }
 
             Some(CortexMRegion::new_with_srd(
                 start,
@@ -1006,7 +1035,13 @@ impl mpu::RegionDescriptor for CortexMRegion {
             !<Self as RegionDescriptor>::overlaps(r, 0, start) &&
             !<Self as RegionDescriptor>::overlaps(r, end, u32::MAX)
     )]
-    fn lemma_region_can_access_exactly_implies_no_overlap(&self, _start: FluxPtrU8, _end: FluxPtrU8, _perms: mpu::Permissions) {}
+    fn lemma_region_can_access_exactly_implies_no_overlap(
+        &self,
+        _start: FluxPtrU8,
+        _end: FluxPtrU8,
+        _perms: mpu::Permissions,
+    ) {
+    }
 
     #[flux_rs::sig(fn (&Self[@r1], &Self[@r2], start: FluxPtrU8, end: FluxPtrU8, perms: mpu::Permissions)
         requires <Self as RegionDescriptor>::regions_can_access_exactly(r1, r2, start, end, perms)
@@ -1017,7 +1052,13 @@ impl mpu::RegionDescriptor for CortexMRegion {
             !<Self as RegionDescriptor>::overlaps(r2, end, u32::MAX)
     )]
     #[flux_rs::trusted_impl]
-    fn lemma_regions_can_access_exactly_implies_no_overlap(_r1: &Self, r2: &Self, start: FluxPtrU8, end: FluxPtrU8, _perms: mpu::Permissions) {
+    fn lemma_regions_can_access_exactly_implies_no_overlap(
+        _r1: &Self,
+        r2: &Self,
+        start: FluxPtrU8,
+        end: FluxPtrU8,
+        _perms: mpu::Permissions,
+    ) {
     }
 
     #[flux_rs::sig(fn (&Self[@r], access_end: FluxPtrU8, desired_end: FluxPtrU8)
@@ -1026,8 +1067,12 @@ impl mpu::RegionDescriptor for CortexMRegion {
             access_end <= desired_end
         ensures !<Self as RegionDescriptor>::overlaps(r, desired_end, u32::MAX)
     )]
-    fn lemma_no_overlap_le_addr_implies_no_overlap_addr(&self, _access_end: FluxPtrU8, _desired_end: FluxPtrU8) {}
-
+    fn lemma_no_overlap_le_addr_implies_no_overlap_addr(
+        &self,
+        _access_end: FluxPtrU8,
+        _desired_end: FluxPtrU8,
+    ) {
+    }
 
     #[flux_rs::sig(fn (&Self[@r], start: FluxPtrU8, end: FluxPtrU8)
         requires !<Self as RegionDescriptor>::is_set(r)
@@ -1049,11 +1094,17 @@ impl mpu::RegionDescriptor for CortexMRegion {
             !<Self as RegionDescriptor>::overlaps(r, mem_start, mem_end)
 
     )]
-    fn lemma_region_can_access_flash_implies_no_app_block_overlaps(&self, _flash_start: FluxPtrU8, _flash_end: FluxPtrU8, _mem_start: FluxPtrU8, _mem_end: FluxPtrU8) {}
+    fn lemma_region_can_access_flash_implies_no_app_block_overlaps(
+        &self,
+        _flash_start: FluxPtrU8,
+        _flash_end: FluxPtrU8,
+        _mem_start: FluxPtrU8,
+        _mem_end: FluxPtrU8,
+    ) {
+    }
 }
 
 impl CortexMRegion {
-
     #[flux_rs::reveal(
         rbar_region_number,
         rbar_region_start,
@@ -1171,7 +1222,8 @@ impl CortexMRegion {
             lsr < 8 &&
             first_subregion_from_logical(rstart, rsize, astart, asize) == fsr &&
             last_subregion_from_logical(rstart, rsize, astart, asize) == lsr &&
-            rsize <= u32::MAX / 2 + 1
+            rsize <= u32::MAX / 2 + 1 &&
+            valid_size(astart + asize)
     )]
     fn new_with_srd(
         logical_start: FluxPtrU8,
@@ -1243,7 +1295,8 @@ impl CortexMRegion {
             rsize >= 32 &&
             pow2(rsize) &&
             aligned(rstart, rsize) &&
-            rsize <= u32::MAX / 2 + 1
+            rsize <= u32::MAX / 2 + 1 &&
+            valid_size(astart + asize)
     )]
     fn new_no_srd(
         logical_start: FluxPtrU8,
@@ -1330,7 +1383,7 @@ impl CortexMRegion {
 
                 region_start < end && start < region_end
             }
-            None => false
+            None => false,
         }
     }
 
