@@ -78,6 +78,7 @@ pub(crate) struct AppMemoryAllocator<R: RegionDescriptor + Display + Copy> {
     pub breaks: AppBreaks,
     #[field(RArray<R>[regions])]
     pub regions: RArray<R>,
+    is_dirty: bool,
 }
 
 impl<R: RegionDescriptor + Display + Copy> Display for AppMemoryAllocator<R> {
@@ -611,6 +612,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         Ok(Self {
             breaks,
             regions: app_regions,
+            is_dirty: true,
         })
     }
 
