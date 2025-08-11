@@ -19,29 +19,13 @@ use kernel::utilities::cells::OptionalCell;
 use kernel::utilities::math;
 use kernel::utilities::registers::interfaces::{Readable, Writeable};
 use kernel::utilities::registers::{FieldValue, ReadOnly, ReadWrite};
-use crate::tcb::flux_spec::*;
+use crate::tcb::math::*;
+use crate::tcb::theorems::*;
 
-
-
-/* bunch of code */
-
-#[flux_rs::trusted(reason = "solver hanging")]
-#[flux_rs::sig(fn (start: usize, size: usize) -> usize{r: r >= start && aligned(r, size)} requires size > 0 && start + size <= usize::MAX)]
-fn align(start: usize, size: usize) -> usize {
-    start + size - (start % size)
-}
-
-#[flux_rs::reveal(aligned)]
-#[flux_rs::sig(fn (start: usize, size: usize) -> bool[aligned(start, size)] requires size > 0)]
-fn is_aligned(start: usize, size: usize) -> bool {
-    start % size == 0
-}
-
-// VTOCK-TODO: supplementary proof?
-#[flux_rs::trusted(reason = "math support (bitwise arithmetic fact)")]
-#[flux_rs::sig(fn(n: u32{n < 32}) -> usize{r: r == to_pow2(n) && r > 0 && r <= u32::MAX})]
-fn power_of_two(n: u32) -> usize {
-    1_usize << n
+// helper
+#[flux_rs::sig(fn ({ usize[@n] | n <= u32::MAX }) -> u32[n])]
+pub fn usize_to_u32(n: usize) -> u32 {
+    n as u32
 }
 
 /// MPU Registers for the Cortex-M3, Cortex-M4 and Cortex-M7 families
@@ -359,48 +343,6 @@ impl PartialEq<mpu::Region> for CortexMRegion {
              }| { addr == other.start_address() && size == other.size() },
         )
     }
-}
-
-#[flux_rs::trusted(reason = "bitwise arith")]
-#[flux_rs::sig(fn(num: u32) -> u32{r: (r < 32) && (num > 1 => r > 0) && (pow2(num) => (bv32(num) == exp2(bv32(r))))})]
-fn log_base_two(num: u32) -> u32 {
-    if num == 0 {
-        0
-    } else {
-        31 - num.leading_zeros()
-    }
-}
-
-#[flux_rs::trusted(reason = "math support (bitwise arithmetic fact)")]
-// VTOCK Note: Realized this only works when enabled_mask is not 0 because
-// 0xff ^ 0 == 1 but anything & 0 = 0.
-#[flux_rs::sig(fn ({usize[@fsr] | fsr <= lsr}, {usize[@lsr] | lsr < 8}) -> u8{r: 
-    let mask = enabled_srd_mask(bv32(fsr), bv32(lsr));
-    if mask == 0 {
-        bv32(r) == mask
-    } else {
-        bv32(r) == bv_xor(0xff, mask)
-    }
-})]
-fn subregion_mask(min_subregion: usize, max_subregion: usize) -> u8 {
-    let enabled_mask = ((1 << (max_subregion - min_subregion + 1)) - 1) << min_subregion;
-    if enabled_mask == 0 {
-        enabled_mask
-    } else {
-        u8::MAX ^ enabled_mask
-    }
-}
-
-#[flux_rs::trusted]
-#[flux_rs::sig(fn (region_start: FluxPtrU8) -> u32{r: least_five_bits(bv32(region_start)) == 0 => bv32(r) << 5 == bv32(region_start)})]
-fn region_start_rs32(region_start: FluxPtrU8) -> u32 {
-    region_start.as_u32() >> 5
-}
-
-#[flux_rs::trusted(reason = "math support (valid usize to u32 cast)")]
-#[flux_rs::sig(fn ({ usize[@n] | n <= u32::MAX }) -> u32[n])]
-fn usize_to_u32(n: usize) -> u32 {
-    n as u32
 }
 
 #[flux_rs::sig(
@@ -1080,17 +1022,17 @@ impl CortexMRegion {
         }
     }
 
-    #[flux_rs::sig(fn (&CortexMRegion[@addr, @attrs, @no, @set, @astart, @asize, @rstart, @rsize, @perms]) -> Option<{l. CortexMLocation[l] | l.astart == astart && l.asize == asize && l.rstart == rstart && l.rsize == rsize}>[set])]
+    #[flux_rs::sig(fn (&CortexMRegion[@r]) -> Option<{l. CortexMLocation[l] | l.astart == r.astart && l.asize == r.asize && l.rstart == r.rstart && l.rsize == r.rsize}>[r.set])]
     fn location(&self) -> Option<CortexMLocation> {
         self.location
     }
 
-    #[flux_rs::sig(fn(&CortexMRegion[@addr, @attrs, @no, @set, @astart, @asize, @rstart, @rsize, @perms]) -> FieldValueU32<RegionBaseAddress::Register>[addr])]
+    #[flux_rs::sig(fn(&CortexMRegion[@region]) -> FieldValueU32<RegionBaseAddress::Register>[region.rbar])]
     fn base_address(&self) -> FieldValueU32<RegionBaseAddress::Register> {
         self.base_address
     }
 
-    #[flux_rs::sig(fn(&CortexMRegion[@addr, @attrs, @no, @set, @astart, @asize, @rstart, @rsize, @perms]) -> FieldValueU32<RegionAttributes::Register>[attrs])]
+    #[flux_rs::sig(fn(&CortexMRegion[@region]) -> FieldValueU32<RegionAttributes::Register>[region.rasr])]
     fn attributes(&self) -> FieldValueU32<RegionAttributes::Register> {
         self.attributes
     }

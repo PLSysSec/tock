@@ -1,1 +1,3 @@
-pub mod flux_spec;
+pub mod defs;
+pub mod math;
+pub mod theorems;
