@@ -78,6 +78,7 @@ pub(crate) struct AppMemoryAllocator<R: RegionDescriptor + Display + Copy> {
     #[field(RArray<R>[regions])]
     pub regions: RArray<R>,
     is_dirty: Cell<bool>,
+    id: usize,
 }
 
 impl<R: RegionDescriptor + Display + Copy> Display for AppMemoryAllocator<R> {
@@ -528,6 +529,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         requires flash_start + flash_size < mem_start && kernel_mem_size > 0
     )]
     pub(crate) fn allocate_app_memory(
+        id: usize,
         unallocated_memory_start: FluxPtrU8,
         unallocated_memory_size: usize,
         min_memory_size: usize,
@@ -613,6 +615,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             breaks,
             regions: app_regions,
             is_dirty: Cell::new(true),
+            id,
         })
     }
 
