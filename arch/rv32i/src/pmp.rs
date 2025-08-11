@@ -8,10 +8,10 @@ use core::num::NonZeroUsize;
 
 use crate::csr;
 use flux_support::capability::MpuEnabledCapability;
-use flux_support::{FluxPtr, FluxPtrU8, FluxRange, RArray, Pair};
+use flux_support::{LocalRegisterCopyU8, RegisterLongName, FieldValueU8};
+use flux_support::{FluxPtr, FluxPtrU8, FluxRange, RArray, Pair, register_bitfields_u8};
 use kernel::platform::mpu::{self, RegionDescriptor};
 use kernel::utilities::cells::OptionalCell;
-use kernel::utilities::registers::{register_bitfields, LocalRegisterCopy};
 
 flux_rs::defs! {
 
@@ -56,7 +56,7 @@ flux_rs::defs! {
     }
 }
 
-register_bitfields![u8,
+register_bitfields_u8![u8,
     /// Generic `pmpcfg` octet.
     ///
     /// A PMP entry is configured through `pmpaddrX` and `pmpcfgX` CSRs, where a
@@ -88,14 +88,14 @@ register_bitfields![u8,
 /// By accepting this type, PMP implements can rely on the above properties to
 /// hold by construction and avoid runtime checks. For example, this type is
 /// used in the [`TORUserPMP::configure_pmp`] method.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone)]
 // #[flux_rs::opaque]
 // #[flux_rs::refined_by(val: int)]
-pub struct TORUserPMPCFG(LocalRegisterCopy<u8, pmpcfg_octet::Register>);
+pub struct TORUserPMPCFG(LocalRegisterCopyU8<pmpcfg_octet::Register>);
 
 impl TORUserPMPCFG {
     // #[flux_rs::constant(TORUserPMPCFG[0])]
-    pub const OFF: TORUserPMPCFG = TORUserPMPCFG(LocalRegisterCopy::new(0));
+    pub const OFF: TORUserPMPCFG = TORUserPMPCFG(LocalRegisterCopyU8::new(0));
 
     /// Extract the `u8` representation of the [`pmpcfg_octet`] register.
     pub fn get(&self) -> u8 {
@@ -103,7 +103,7 @@ impl TORUserPMPCFG {
     }
 
     /// Extract a copy of the contained [`pmpcfg_octet`] register.
-    pub fn get_reg(&self) -> LocalRegisterCopy<u8, pmpcfg_octet::Register> {
+    pub fn get_reg(&self) -> LocalRegisterCopyU8<pmpcfg_octet::Register> {
         self.0
     }
 }
@@ -116,31 +116,56 @@ impl PartialEq<TORUserPMPCFG> for TORUserPMPCFG {
 
 impl Eq for TORUserPMPCFG {}
 
-impl From<mpu::Permissions> for TORUserPMPCFG {
-    fn from(p: mpu::Permissions) -> Self {
-        let fv = match p {
-            mpu::Permissions::ReadWriteExecute => {
-                pmpcfg_octet::r::SET + pmpcfg_octet::w::SET + pmpcfg_octet::x::SET
-            }
-            mpu::Permissions::ReadWriteOnly => {
-                pmpcfg_octet::r::SET + pmpcfg_octet::w::SET + pmpcfg_octet::x::CLEAR
-            }
-            mpu::Permissions::ReadExecuteOnly => {
-                pmpcfg_octet::r::SET + pmpcfg_octet::w::CLEAR + pmpcfg_octet::x::SET
-            }
-            mpu::Permissions::ReadOnly => {
-                pmpcfg_octet::r::SET + pmpcfg_octet::w::CLEAR + pmpcfg_octet::x::CLEAR
-            }
-            mpu::Permissions::ExecuteOnly => {
-                pmpcfg_octet::r::CLEAR + pmpcfg_octet::w::CLEAR + pmpcfg_octet::x::SET
-            }
-        };
+#[flux_rs::sig(fn (p: mpu::Permissions) -> TORUserPMPCFG)]
+fn permissions_to_pmpcfg(p: mpu::Permissions) -> TORUserPMPCFG {
+    let fv = match p {
+        mpu::Permissions::ReadWriteExecute => {
+            pmpcfg_octet::r::SET() + pmpcfg_octet::w::SET() + pmpcfg_octet::x::SET()
+        }
+        mpu::Permissions::ReadWriteOnly => {
+            pmpcfg_octet::r::SET() + pmpcfg_octet::w::SET() + pmpcfg_octet::x::CLEAR()
+        }
+        mpu::Permissions::ReadExecuteOnly => {
+            pmpcfg_octet::r::SET() + pmpcfg_octet::w::CLEAR() + pmpcfg_octet::x::SET()
+        }
+        mpu::Permissions::ReadOnly => {
+            pmpcfg_octet::r::SET() + pmpcfg_octet::w::CLEAR() + pmpcfg_octet::x::CLEAR()
+        }
+        mpu::Permissions::ExecuteOnly => {
+            pmpcfg_octet::r::CLEAR() + pmpcfg_octet::w::CLEAR() + pmpcfg_octet::x::SET()
+        }
+    };
 
-        TORUserPMPCFG(LocalRegisterCopy::new(
-            (fv + pmpcfg_octet::l::CLEAR + pmpcfg_octet::a::TOR).value,
-        ))
-    }
+    TORUserPMPCFG(LocalRegisterCopyU8::new(
+        (fv + pmpcfg_octet::l::CLEAR() + pmpcfg_octet::a::TOR()).value(),
+    ))
 }
+
+// impl From<mpu::Permissions> for TORUserPMPCFG {
+//     fn from(p: mpu::Permissions) -> Self {
+//         let fv = match p {
+//             mpu::Permissions::ReadWriteExecute => {
+//                 pmpcfg_octet::r::SET + pmpcfg_octet::w::SET + pmpcfg_octet::x::SET
+//             }
+//             mpu::Permissions::ReadWriteOnly => {
+//                 pmpcfg_octet::r::SET + pmpcfg_octet::w::SET + pmpcfg_octet::x::CLEAR
+//             }
+//             mpu::Permissions::ReadExecuteOnly => {
+//                 pmpcfg_octet::r::SET + pmpcfg_octet::w::CLEAR + pmpcfg_octet::x::SET
+//             }
+//             mpu::Permissions::ReadOnly => {
+//                 pmpcfg_octet::r::SET + pmpcfg_octet::w::CLEAR + pmpcfg_octet::x::CLEAR
+//             }
+//             mpu::Permissions::ExecuteOnly => {
+//                 pmpcfg_octet::r::CLEAR + pmpcfg_octet::w::CLEAR + pmpcfg_octet::x::SET
+//             }
+//         };
+
+//         TORUserPMPCFG(LocalRegisterCopy::new(
+//             (fv + pmpcfg_octet::l::CLEAR + pmpcfg_octet::a::TOR).value,
+//         ))
+//     }
+// }
 
 /// A RISC-V PMP memory region specification, configured in NAPOT mode.
 ///
@@ -314,7 +339,7 @@ pub unsafe fn format_pmp_entries<const PHYSICAL_ENTRIES: usize>(
         // entries. Convert this into a u8-wide LocalRegisterCopy<u8,
         // pmpcfg_octet> as a generic register type, independent of the entry's
         // offset.
-        let pmpcfg: LocalRegisterCopy<u8, pmpcfg_octet::Register> = LocalRegisterCopy::new(
+        let pmpcfg: LocalRegisterCopyU8<pmpcfg_octet::Register> = LocalRegisterCopyU8::new(
             csr::CSR
                 .pmpconfig_get(i / 4)
                 .overflowing_shr(((i % 4) * 8) as u32)
@@ -327,7 +352,7 @@ pub unsafe fn format_pmp_entries<const PHYSICAL_ENTRIES: usize>(
         // that are OFF, we still want to expose the pmpaddrX register value --
         // thus return the raw unshifted value as the addr, and 0 as the
         // region's end.
-        let (start_label, start, end, mode) = match pmpcfg.read_as_enum(pmpcfg_octet::a) {
+        let (start_label, start, end, mode) = match pmpcfg.read_as_enum(pmpcfg_octet::a()) {
             Some(pmpcfg_octet::a::Value::OFF) => {
                 let addr = csr::CSR.pmpaddr_get(i);
                 ("pmpaddr", addr, 0, "OFF  ")
@@ -398,10 +423,10 @@ pub unsafe fn format_pmp_entries<const PHYSICAL_ENTRIES: usize>(
             end,
             pmpcfg.get(),
             mode,
-            t(pmpcfg.is_set(pmpcfg_octet::l), "l", "-"),
-            t(pmpcfg.is_set(pmpcfg_octet::r), "r", "-"),
-            t(pmpcfg.is_set(pmpcfg_octet::w), "w", "-"),
-            t(pmpcfg.is_set(pmpcfg_octet::x), "x", "-"),
+            t(pmpcfg.is_set(pmpcfg_octet::l()), "l", "-"),
+            t(pmpcfg.is_set(pmpcfg_octet::r()), "r", "-"),
+            t(pmpcfg.is_set(pmpcfg_octet::w()), "w", "-"),
+            t(pmpcfg.is_set(pmpcfg_octet::x()), "x", "-"),
         )?;
     }
 
@@ -662,8 +687,6 @@ impl RegionDescriptor for PMPUserRegion {
         size: usize,
         permissions: mpu::Permissions,
     ) -> Option<Self> {
-        // logic for allocate_regions is exactly the same here
-
         let start = start.as_usize();
         let size = size;
 
@@ -686,7 +709,7 @@ impl RegionDescriptor for PMPUserRegion {
 
         let region = PMPUserRegion::new(
             region_num,
-            permissions.into(),
+            permissions_to_pmpcfg(permissions),
             FluxPtrU8::from(start),
             FluxPtrU8::from(start + size),
             permissions,
@@ -791,7 +814,7 @@ impl RegionDescriptor for PMPUserRegion {
         }
         let region = PMPUserRegion::new(
             region_number,
-            permissions.into(),
+            permissions_to_pmpcfg(permissions),
             FluxPtrU8::from(start),
             FluxPtrU8::from(start + size),
             permissions,
@@ -840,7 +863,7 @@ impl RegionDescriptor for PMPUserRegion {
         permissions: mpu::Permissions,
     ) -> Option<Pair<Self, Self>> {
 
-        if (region_size == 0) {
+        if region_size == 0 {
             return None;
         }
 
@@ -862,7 +885,7 @@ impl RegionDescriptor for PMPUserRegion {
             Pair {
                 fst: PMPUserRegion::new(
                     max_region_number - 1,
-                    permissions.into(),
+                    permissions_to_pmpcfg(permissions),
                     region_start,
                     FluxPtrU8::from(end),
                     permissions,
@@ -945,10 +968,10 @@ impl fmt::Display for PMPUserRegion {
             self.start.unwrap_or(FluxPtrU8::null()).as_usize(),
             self.end.unwrap_or(FluxPtrU8::null()).as_usize(),
             pmpcfg.get(),
-            t(pmpcfg.is_set(pmpcfg_octet::a), "TOR", "OFF"),
-            t(pmpcfg.is_set(pmpcfg_octet::r), "r", "-"),
-            t(pmpcfg.is_set(pmpcfg_octet::w), "w", "-"),
-            t(pmpcfg.is_set(pmpcfg_octet::x), "x", "-"),
+            t(pmpcfg.is_set(pmpcfg_octet::a()), "TOR", "OFF"),
+            t(pmpcfg.is_set(pmpcfg_octet::r()), "r", "-"),
+            t(pmpcfg.is_set(pmpcfg_octet::w()), "w", "-"),
+            t(pmpcfg.is_set(pmpcfg_octet::x()), "x", "-"),
         )?;
 
         write!(f, " }}\r\n")?;
@@ -1013,16 +1036,18 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
         self.pmp.available_regions()
     }
 
+
     #[flux_rs::trusted(reason = "fixpoint encoding error")]
     fn configure_mpu(&self, config: &RArray<Self::Region>) {
-        let mut ac_config: [Self::Region; MAX_REGIONS] =
+        let mut ac_config: [Self::Region; MAX_REGIONS] = 
             core::array::from_fn(|i| <Self::Region as mpu::RegionDescriptor>::default(i));
-
-        // copy config over
-        for i in 0..8 {
-            ac_config[i] = config.get(i);
+        for i in 0..MAX_REGIONS {
+            if i < 8 {
+                ac_config[i] = config.get(i);
+            } else {
+                ac_config[i] = <Self::Region as mpu::RegionDescriptor>::default(i);
+            }
         }
-
         self.pmp.configure_pmp(&ac_config).unwrap();
     }
 }
@@ -1272,11 +1297,12 @@ pub mod test {
 }
 
 pub mod simple {
+    use flux_support::LocalRegisterCopyU8;
     use super::{pmpcfg_octet, PMPUserRegion, TORUserPMP, TORUserPMPCFG};
     use crate::csr;
     use core::fmt;
     use flux_support::FluxPtr;
-    use kernel::utilities::registers::{FieldValue, LocalRegisterCopy};
+    use kernel::utilities::registers::FieldValue;
 
     /// A "simple" RISC-V PMP implementation.
     ///
@@ -1320,13 +1346,13 @@ pub mod simple {
                 let pmpcfg_csr = csr::CSR.pmpconfig_get(i / 4);
 
                 // Extract the entry's pmpcfg octet:
-                let pmpcfg: LocalRegisterCopy<u8, pmpcfg_octet::Register> = LocalRegisterCopy::new(
+                let pmpcfg: LocalRegisterCopyU8<pmpcfg_octet::Register> = LocalRegisterCopyU8::new(
                     pmpcfg_csr.overflowing_shr(((i % 4) * 8) as u32).0 as u8,
                 );
 
                 // As outlined above, we never touch a locked region. Thus, bail
                 // out if it's locked:
-                if pmpcfg.is_set(pmpcfg_octet::l) {
+                if pmpcfg.is_set(pmpcfg_octet::l()) {
                     return Err(());
                 }
 
@@ -1478,13 +1504,14 @@ pub mod simple {
 }
 
 pub mod kernel_protection {
+    use flux_support::LocalRegisterCopyU8;
     use super::{
         pmpcfg_octet, NAPOTRegionSpec, PMPUserRegion, TORRegionSpec, TORUserPMP, TORUserPMPCFG,
     };
     use crate::csr;
     use core::fmt;
     use flux_support::FluxPtrU8;
-    use kernel::utilities::registers::{FieldValue, LocalRegisterCopy};
+    use kernel::utilities::registers::FieldValue;
 
     // ---------- Kernel memory-protection PMP memory region wrapper types -----
     //
@@ -1581,13 +1608,13 @@ pub mod kernel_protection {
                 let pmpcfg_csr = csr::CSR.pmpconfig_get(i / 4);
 
                 // Extract the entry's pmpcfg octet:
-                let pmpcfg: LocalRegisterCopy<u8, pmpcfg_octet::Register> = LocalRegisterCopy::new(
+                let pmpcfg: LocalRegisterCopyU8<pmpcfg_octet::Register> = LocalRegisterCopyU8::new(
                     pmpcfg_csr.overflowing_shr(((i % 4) * 8) as u32).0 as u8,
                 );
 
                 // As outlined above, we never touch a locked region. Thus, bail
                 // out if it's locked:
-                if pmpcfg.is_set(pmpcfg_octet::l) {
+                if pmpcfg.is_set(pmpcfg_octet::l()) {
                     return Err(());
                 }
 
@@ -1646,58 +1673,58 @@ pub mod kernel_protection {
             // MMIO at n - 2:
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 2,
-                (pmpcfg_octet::a::NAPOT
-                    + pmpcfg_octet::r::SET
-                    + pmpcfg_octet::w::SET
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::NAPOT()
+                    + pmpcfg_octet::r::SET()
+                    + pmpcfg_octet::w::SET()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::SET())
+                    .value(),
                 mmio.0.napot_addr(),
             );
 
             // RAM at n - 3:
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 3,
-                (pmpcfg_octet::a::NAPOT
-                    + pmpcfg_octet::r::SET
-                    + pmpcfg_octet::w::SET
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::NAPOT()
+                    + pmpcfg_octet::r::SET()
+                    + pmpcfg_octet::w::SET()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::SET())
+                    .value(),
                 ram.0.napot_addr(),
             );
 
             // `.text` at n - 6 and n - 5 (TOR region):
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 6,
-                (pmpcfg_octet::a::OFF
-                    + pmpcfg_octet::r::CLEAR
-                    + pmpcfg_octet::w::CLEAR
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::OFF()
+                    + pmpcfg_octet::r::CLEAR()
+                    + pmpcfg_octet::w::CLEAR()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::SET())
+                    .value(),
                 (kernel_text.0.start() as usize) >> 2,
             );
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 5,
-                (pmpcfg_octet::a::TOR
-                    + pmpcfg_octet::r::SET
-                    + pmpcfg_octet::w::CLEAR
-                    + pmpcfg_octet::x::SET
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::TOR()
+                    + pmpcfg_octet::r::SET()
+                    + pmpcfg_octet::w::CLEAR()
+                    + pmpcfg_octet::x::SET()
+                    + pmpcfg_octet::l::SET())
+                    .value(),
                 (kernel_text.0.end() as usize) >> 2,
             );
 
             // flash at n - 4:
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 4,
-                (pmpcfg_octet::a::NAPOT
-                    + pmpcfg_octet::r::SET
-                    + pmpcfg_octet::w::CLEAR
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::NAPOT()
+                    + pmpcfg_octet::r::SET()
+                    + pmpcfg_octet::w::CLEAR()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::SET())
+                    .value(),
                 flash.0.napot_addr(),
             );
 
@@ -1706,12 +1733,12 @@ pub mod kernel_protection {
             // accesses in our very last rule (n - 1):
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 1,
-                (pmpcfg_octet::a::NAPOT
-                    + pmpcfg_octet::r::CLEAR
-                    + pmpcfg_octet::w::CLEAR
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::NAPOT()
+                    + pmpcfg_octet::r::CLEAR()
+                    + pmpcfg_octet::w::CLEAR()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::SET())
+                    .value(),
                 // the entire address space:
                 0x7FFFFFFF,
             );
@@ -1722,12 +1749,12 @@ pub mod kernel_protection {
             // exclusively accessible to kernel-mode):
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 7,
-                (pmpcfg_octet::a::NAPOT
-                    + pmpcfg_octet::r::CLEAR
-                    + pmpcfg_octet::w::CLEAR
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::CLEAR)
-                    .into(),
+                (pmpcfg_octet::a::NAPOT()
+                    + pmpcfg_octet::r::CLEAR()
+                    + pmpcfg_octet::w::CLEAR()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::CLEAR())
+                    .value(),
                 // the entire address space:
                 0x7FFFFFFF,
             );
@@ -1864,16 +1891,18 @@ pub mod kernel_protection {
 }
 
 pub mod kernel_protection_mml_epmp {
+    use flux_support::LocalRegisterCopyU8;
     use super::{
         pmpcfg_octet, NAPOTRegionSpec, PMPUserRegion, TORRegionSpec, TORUserPMP, TORUserPMPCFG,
     };
     use crate::csr;
+    use crate::pmp::permissions_to_pmpcfg;
     use core::cell::Cell;
     use core::fmt;
     use flux_support::FluxPtr;
     use kernel::platform::mpu;
     use kernel::utilities::registers::interfaces::{Readable, Writeable};
-    use kernel::utilities::registers::{FieldValue, LocalRegisterCopy};
+    use kernel::utilities::registers::FieldValue;
 
     // ---------- Kernel memory-protection PMP memory region wrapper types -----
     //
@@ -1977,13 +2006,13 @@ pub mod kernel_protection_mml_epmp {
                 let pmpcfg_csr = csr::CSR.pmpconfig_get(i / 4);
 
                 // Extract the entry's pmpcfg octet:
-                let pmpcfg: LocalRegisterCopy<u8, pmpcfg_octet::Register> = LocalRegisterCopy::new(
+                let pmpcfg: LocalRegisterCopyU8<pmpcfg_octet::Register> = LocalRegisterCopyU8::new(
                     pmpcfg_csr.overflowing_shr(((i % 4) * 8) as u32).0 as u8,
                 );
 
                 // As outlined above, we never touch a locked region. Thus, bail
                 // out if it's locked:
-                if pmpcfg.is_set(pmpcfg_octet::l) {
+                if pmpcfg.is_set(pmpcfg_octet::l()) {
                     return Err(());
                 }
 
@@ -2043,58 +2072,58 @@ pub mod kernel_protection_mml_epmp {
             // `.text` at n - 5 and n - 4 (TOR region):
             write_pmpaddr_pmpcfg(
                 0,
-                (pmpcfg_octet::a::OFF
-                    + pmpcfg_octet::r::CLEAR
-                    + pmpcfg_octet::w::CLEAR
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::OFF()
+                    + pmpcfg_octet::r::CLEAR()
+                    + pmpcfg_octet::w::CLEAR()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::SET())
+                    .value(),
                 (kernel_text.0.start() as usize) >> 2,
             );
             write_pmpaddr_pmpcfg(
                 1,
-                (pmpcfg_octet::a::TOR
-                    + pmpcfg_octet::r::SET
-                    + pmpcfg_octet::w::CLEAR
-                    + pmpcfg_octet::x::SET
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::TOR()
+                    + pmpcfg_octet::r::SET()
+                    + pmpcfg_octet::w::CLEAR()
+                    + pmpcfg_octet::x::SET()
+                    + pmpcfg_octet::l::SET())
+                    .value(),
                 (kernel_text.0.end() as usize) >> 2,
             );
 
             // MMIO at n - 1:
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 1,
-                (pmpcfg_octet::a::NAPOT
-                    + pmpcfg_octet::r::SET
-                    + pmpcfg_octet::w::SET
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::NAPOT()
+                    + pmpcfg_octet::r::SET()
+                    + pmpcfg_octet::w::SET()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::SET())
+                    .value(),
                 mmio.0.napot_addr(),
             );
 
             // RAM at n - 2:
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 2,
-                (pmpcfg_octet::a::NAPOT
-                    + pmpcfg_octet::r::SET
-                    + pmpcfg_octet::w::SET
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::NAPOT()
+                    + pmpcfg_octet::r::SET()
+                    + pmpcfg_octet::w::SET()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::SET())
+                    .value(),
                 ram.0.napot_addr(),
             );
 
             // flash at n - 3:
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 3,
-                (pmpcfg_octet::a::NAPOT
-                    + pmpcfg_octet::r::SET
-                    + pmpcfg_octet::w::CLEAR
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::NAPOT()
+                    + pmpcfg_octet::r::SET()
+                    + pmpcfg_octet::w::CLEAR()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::SET())
+                    .value(),
                 flash.0.napot_addr(),
             );
 
@@ -2163,7 +2192,7 @@ pub mod kernel_protection_mml_epmp {
                 // if the configuration files, but it is still being activated with
                 // `enable_user_pmp`:
                 if region.tor.get()
-                    == <TORUserPMPCFG as From<mpu::Permissions>>::from(
+                    == permissions_to_pmpcfg(
                         mpu::Permissions::ReadWriteExecute,
                     )
                     .get()
@@ -2389,22 +2418,22 @@ pub mod kernel_protection_mml_epmp {
                     endaddr,
                     shadowed_pmpcfg.get().get(),
                     mode,
-                    if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::l) {
+                    if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::l()) {
                         "l"
                     } else {
                         "-"
                     },
-                    if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::r) {
+                    if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::r()) {
                         "r"
                     } else {
                         "-"
                     },
-                    if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::w) {
+                    if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::w()) {
                         "w"
                     } else {
                         "-"
                     },
-                    if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::x) {
+                    if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::x()) {
                         "x"
                     } else {
                         "-"

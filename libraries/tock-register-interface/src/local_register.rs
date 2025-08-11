@@ -33,7 +33,7 @@ use crate::{RegisterLongName, UIntLike};
 /// [`ReadWriteable`](crate::interfaces::ReadWriteable).
 #[derive(Copy, Clone)]
 pub struct LocalRegisterCopy<T: UIntLike, R: RegisterLongName = ()> {
-    value: T,
+    pub value: T,
     associated_register: PhantomData<R>,
 }
 
