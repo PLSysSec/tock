@@ -1,5 +1,4 @@
-use core::{fmt::Display, ptr::NonNull};
-
+use core::{fmt::Display, ptr::NonNull, cell::Cell};
 use flux_support::{capability::*, FluxPtrExt};
 use flux_support::{max_ptr, max_usize, FluxPtrU8, FluxPtrU8Mut, RArray, Pair};
 
@@ -78,7 +77,7 @@ pub(crate) struct AppMemoryAllocator<R: RegionDescriptor + Display + Copy> {
     pub breaks: AppBreaks,
     #[field(RArray<R>[regions])]
     pub regions: RArray<R>,
-    is_dirty: bool,
+    is_dirty: Cell<bool>,
 }
 
 impl<R: RegionDescriptor + Display + Copy> Display for AppMemoryAllocator<R> {
@@ -362,6 +361,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         }
 
         self.regions.set(region_idx, region);
+        self.is_dirty.set(true);
         let start = region.start().ok_or(())?;
         let size = region.size().ok_or(())?;
         Ok(mpu::Region::new(start, size))
@@ -612,7 +612,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         Ok(Self {
             breaks,
             regions: app_regions,
-            is_dirty: true,
+            is_dirty: Cell::new(true),
         })
     }
 
@@ -668,6 +668,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
 
         self.regions.set(MAX_RAM_REGION_NUMBER - 1, new_regions.fst);
         self.regions.set(MAX_RAM_REGION_NUMBER, new_regions.snd);
+        self.is_dirty.set(true);
 
         flux_rs::assert(self.breaks.app_break >= self.breaks.high_water_mark);
         Ok(())
@@ -678,6 +679,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         mpu: &M,
     ) -> MpuConfiguredCapability {
         mpu.configure_mpu(&self.regions);
+        self.is_dirty.set(false);
         MpuConfiguredCapability::new(self.memory_start(), self.app_break())
     }
 
