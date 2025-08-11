@@ -56,9 +56,11 @@ flux_rs::defs! {
     }
 
     // PMP specific model
-    // See Figure 34. PMP configuration register format. in the RISCV ISA (Section 3.7)
-
     fn bit(reg: bitvec<32>, power_of_two: bitvec<32>) -> bool { reg & power_of_two != 0}
+    fn extract(reg: bitvec<32>, mask:int, offset: int) -> bitvec<32> { (reg & bv_int_to_bv32(mask)) >> bv_int_to_bv32(offset) }
+
+    // See Figure 34. PMP configuration register format. in the RISCV ISA (Section 3.7)
+    // For TORUserCFG 
 
     fn permissions_match(perms: mpu::Permissions, reg: LocalRegisterCopyU8) -> bool {
         if (perms.x && perms.w && perms.r) {
@@ -76,6 +78,24 @@ flux_rs::defs! {
             false
         }
     }
+
+    fn active_pmp_user_cfg_correct(cfg: TORUserPMPCFG, perms: mpu::Permissions) -> bool {
+        // the permissions are correct encoded in the CFG reg.
+        permissions_match(perms, cfg.reg) &&
+        // L bit is clear - meaning the entry can be modified later
+        !bit(cfg.reg.val, 1 << 7) &&  
+        // Addressing mode is Top of Range (TOR)
+        extract(cfg.reg.val, 0b11000, 3) == 1 
+    }
+
+    fn inactive_pmp_user_cfg_correct(cfg: TORUserPMPCFG) -> bool {
+        // L bit is clear - meaning the entry can be modified later
+        !bit(cfg.reg.val, 1 << 7) &&
+        // Addressing mode is OFF - indicating a disabled region
+        extract(cfg.reg.val, 0b11000, 3) == 0
+    }
+
+
 }
 
 register_bitfields_u8![u8,
@@ -115,8 +135,11 @@ register_bitfields_u8![u8,
 pub struct TORUserPMPCFG(#[field(LocalRegisterCopyU8<pmpcfg_octet::Register>[reg])]LocalRegisterCopyU8<pmpcfg_octet::Register>);
 
 impl TORUserPMPCFG {
-    #[flux_rs::constant(TORUserPMPCFG[LocalRegisterCopyU8 {rc: rc.val == 0 } ])]
-    pub const OFF: TORUserPMPCFG = TORUserPMPCFG(LocalRegisterCopyU8::new(0));
+
+    #[flux_rs::sig(fn () -> TORUserPMPCFG{ cfg: inactive_pmp_user_cfg_correct(cfg) })]
+    pub const fn OFF() -> TORUserPMPCFG {
+        TORUserPMPCFG(LocalRegisterCopyU8::new(0))
+    }
 
     /// Extract the `u8` representation of the [`pmpcfg_octet`] register.
     pub fn get(&self) -> u8 {
@@ -137,7 +160,7 @@ impl PartialEq<TORUserPMPCFG> for TORUserPMPCFG {
 
 impl Eq for TORUserPMPCFG {}
 
-#[flux_rs::sig(fn (p: mpu::Permissions) -> TORUserPMPCFG{cfg: permissions_match(p, cfg.reg)})]
+#[flux_rs::sig(fn (p: mpu::Permissions) -> TORUserPMPCFG{cfg: active_pmp_user_cfg_correct(cfg, p)})]
 fn permissions_to_pmpcfg(p: mpu::Permissions) -> TORUserPMPCFG {
     let fv = match p {
         mpu::Permissions::ReadWriteExecute => {
@@ -623,7 +646,10 @@ impl RegionGhost {
 pub struct PMPUserRegion {
     #[field(usize[region_number])]
     pub region_number: usize,
-    #[field(TORUserPMPCFG[tor_cfg])]
+    #[field({TORUserPMPCFG[tor_cfg] | 
+        (is_set => active_pmp_user_cfg_correct(tor_cfg, perms)) &&
+        (!is_set => inactive_pmp_user_cfg_correct(tor_cfg))
+    })]
     pub tor: TORUserPMPCFG,
     #[field(Option<FluxPtrU8[start]>[is_set])]
     pub start: Option<FluxPtrU8>,
@@ -634,7 +660,10 @@ pub struct PMPUserRegion {
 }
 
 impl PMPUserRegion {
-    #[flux_rs::sig(fn (region_number: usize, tor: TORUserPMPCFG, start: FluxPtrU8, end: FluxPtrU8, perms: mpu::Permissions) -> Self[region_number, tor, start, end, perms, true] requires end >= start)]
+    #[flux_rs::sig(
+        fn (region_number: usize, tor: TORUserPMPCFG, start: FluxPtrU8, end: FluxPtrU8, perms: mpu::Permissions) -> Self[region_number, tor, start, end, perms, true] 
+            requires end >= start && active_pmp_user_cfg_correct(tor, perms)
+    )]
     pub fn new(
         region_number: usize,
         tor: TORUserPMPCFG,
@@ -681,7 +710,7 @@ impl RegionDescriptor for PMPUserRegion {
     fn default(region_number: usize) -> Self {
         Self {
             region_number,
-            tor: TORUserPMPCFG::OFF,
+            tor: TORUserPMPCFG::OFF(),
             start: None,
             end: None,
             ghost: RegionGhost::empty(),
@@ -1439,15 +1468,15 @@ pub mod simple {
                         i / 2,
                         u32::from_be_bytes([
                             odd_region.tor.get(),
-                            TORUserPMPCFG::OFF.get(),
+                            TORUserPMPCFG::OFF().get(),
                             even_region.tor.get(),
-                            TORUserPMPCFG::OFF.get(),
+                            TORUserPMPCFG::OFF().get(),
                         ]) as usize,
                     );
 
                     // Now, set the addresses of the respective regions, if they
                     // are enabled, respectively:
-                    if even_region.tor != TORUserPMPCFG::OFF {
+                    if even_region.tor != TORUserPMPCFG::OFF() {
                         csr::CSR.pmpaddr_set(
                             i * 2 + 0,
                             (even_region_start.as_usize()).overflowing_shr(2).0,
@@ -1458,7 +1487,7 @@ pub mod simple {
                         );
                     }
 
-                    if odd_region.tor != TORUserPMPCFG::OFF {
+                    if odd_region.tor != TORUserPMPCFG::OFF() {
                         csr::CSR.pmpaddr_set(
                             i * 2 + 2,
                             (odd_region_start.as_usize()).overflowing_shr(2).0,
@@ -1482,13 +1511,13 @@ pub mod simple {
                                 0,
                                 0,
                                 even_region.tor.get(),
-                                TORUserPMPCFG::OFF.get(),
+                                TORUserPMPCFG::OFF().get(),
                             ]) as usize,
                         ),
                     );
 
                     // Set the addresses if the region is enabled:
-                    if even_region.tor != TORUserPMPCFG::OFF {
+                    if even_region.tor != TORUserPMPCFG::OFF() {
                         csr::CSR.pmpaddr_set(
                             i * 2 + 0,
                             (even_region_start.as_usize()).overflowing_shr(2).0,
@@ -1823,15 +1852,15 @@ pub mod kernel_protection {
                         i / 2,
                         u32::from_be_bytes([
                             odd_region.tor.get(),
-                            TORUserPMPCFG::OFF.get(),
+                            TORUserPMPCFG::OFF().get(),
                             even_region.tor.get(),
-                            TORUserPMPCFG::OFF.get(),
+                            TORUserPMPCFG::OFF().get(),
                         ]) as usize,
                     );
 
                     // Now, set the addresses of the respective regions, if they
                     // are enabled, respectively:
-                    if even_region.tor != TORUserPMPCFG::OFF {
+                    if even_region.tor != TORUserPMPCFG::OFF() {
                         csr::CSR.pmpaddr_set(
                             i * 2 + 0,
                             (even_region_start.as_usize()).overflowing_shr(2).0,
@@ -1842,7 +1871,7 @@ pub mod kernel_protection {
                         );
                     }
 
-                    if odd_region.tor != TORUserPMPCFG::OFF {
+                    if odd_region.tor != TORUserPMPCFG::OFF() {
                         csr::CSR.pmpaddr_set(
                             i * 2 + 2,
                             (odd_region_start.as_usize()).overflowing_shr(2).0,
@@ -1865,13 +1894,13 @@ pub mod kernel_protection {
                                 0,
                                 0,
                                 even_region.tor.get(),
-                                TORUserPMPCFG::OFF.get(),
+                                TORUserPMPCFG::OFF().get(),
                             ]) as usize,
                         ),
                     );
 
                     // Set the addresses if the region is enabled:
-                    if even_region.tor != TORUserPMPCFG::OFF {
+                    if even_region.tor != TORUserPMPCFG::OFF() {
                         csr::CSR.pmpaddr_set(
                             i * 2 + 0,
                             (even_region_start.as_usize()).overflowing_shr(2).0,
@@ -2170,7 +2199,7 @@ pub mod kernel_protection_mml_epmp {
             }
 
             // Setup complete
-            const DEFAULT_USER_PMPCFG_OCTET: Cell<TORUserPMPCFG> = Cell::new(TORUserPMPCFG::OFF);
+            const DEFAULT_USER_PMPCFG_OCTET: Cell<TORUserPMPCFG> = Cell::new(TORUserPMPCFG::OFF());
             Ok(KernelProtectionMMLEPMP {
                 user_pmp_enabled: Cell::new(false),
                 shadow_user_pmpcfgs: [DEFAULT_USER_PMPCFG_OCTET; MPU_REGIONS],
@@ -2223,7 +2252,7 @@ pub mod kernel_protection_mml_epmp {
 
                 // Set the CSR addresses for this region (if its not OFF, in which
                 // case the hardware-configured addresses are irrelevant):
-                if region.tor != TORUserPMPCFG::OFF {
+                if region.tor != TORUserPMPCFG::OFF() {
                     csr::CSR.pmpaddr_set(
                         (i + Self::TOR_REGIONS_OFFSET) * 2 + 0,
                         (region.start.unwrap_or(FluxPtr::null()).as_usize())
@@ -2278,9 +2307,9 @@ pub mod kernel_protection_mml_epmp {
                         i / 2,
                         u32::from_be_bytes([
                             second_region_pmpcfg.get().get(),
-                            TORUserPMPCFG::OFF.get(),
+                            TORUserPMPCFG::OFF().get(),
                             first_region_pmpcfg.get().get(),
-                            TORUserPMPCFG::OFF.get(),
+                            TORUserPMPCFG::OFF().get(),
                         ]) as usize,
                     );
 
@@ -2297,7 +2326,7 @@ pub mod kernel_protection_mml_epmp {
                                 0,
                                 0,
                                 first_region_pmpcfg.get().get(),
-                                TORUserPMPCFG::OFF.get(),
+                                TORUserPMPCFG::OFF().get(),
                             ]) as usize,
                         ),
                     );
@@ -2315,7 +2344,7 @@ pub mod kernel_protection_mml_epmp {
                                 0,
                                 0,
                                 first_region_pmpcfg.get().get(),
-                                TORUserPMPCFG::OFF.get(),
+                                TORUserPMPCFG::OFF().get(),
                             ]) as usize,
                         ),
                     );
@@ -2347,10 +2376,10 @@ pub mod kernel_protection_mml_epmp {
                     csr::CSR.pmpconfig_set(
                         first_region_idx / 2,
                         u32::from_be_bytes([
-                            TORUserPMPCFG::OFF.get(),
-                            TORUserPMPCFG::OFF.get(),
-                            TORUserPMPCFG::OFF.get(),
-                            TORUserPMPCFG::OFF.get(),
+                            TORUserPMPCFG::OFF().get(),
+                            TORUserPMPCFG::OFF().get(),
+                            TORUserPMPCFG::OFF().get(),
+                            TORUserPMPCFG::OFF().get(),
                         ]) as usize,
                     );
                 } else if first_region_idx % 2 == 0 {
@@ -2364,8 +2393,8 @@ pub mod kernel_protection_mml_epmp {
                             u32::from_be_bytes([
                                 0,
                                 0,
-                                TORUserPMPCFG::OFF.get(),
-                                TORUserPMPCFG::OFF.get(),
+                                TORUserPMPCFG::OFF().get(),
+                                TORUserPMPCFG::OFF().get(),
                             ]) as usize,
                         ),
                     );
@@ -2380,8 +2409,8 @@ pub mod kernel_protection_mml_epmp {
                             u32::from_be_bytes([
                                 0,
                                 0,
-                                TORUserPMPCFG::OFF.get(),
-                                TORUserPMPCFG::OFF.get(),
+                                TORUserPMPCFG::OFF().get(),
+                                TORUserPMPCFG::OFF().get(),
                             ]) as usize,
                         ),
                     );
@@ -2407,7 +2436,7 @@ pub mod kernel_protection_mml_epmp {
             write!(f, "  Shadow PMP entries for user-mode:\r\n")?;
             for (i, shadowed_pmpcfg) in self.shadow_user_pmpcfgs.iter().enumerate() {
                 let (start_pmpaddr_label, startaddr_pmpaddr, endaddr, mode) =
-                    if shadowed_pmpcfg.get() == TORUserPMPCFG::OFF {
+                    if shadowed_pmpcfg.get() == TORUserPMPCFG::OFF() {
                         (
                             "pmpaddr",
                             csr::CSR.pmpaddr_get((i + Self::TOR_REGIONS_OFFSET) * 2),
