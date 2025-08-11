@@ -1099,7 +1099,11 @@ impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> mpu::MPU
         self.registers.mpu_type.read(Type::DREGION().into_inner()) as usize
     }
 
-    fn configure_mpu(&self, config: &RArray<CortexMRegion>) {
+    fn is_configured_for(&self) -> usize {
+        self.hardware_is_configured_for.get()
+    }
+
+    fn configure_mpu(&self, config: &RArray<CortexMRegion>, id: usize) {
         for region in config.iter() {
             self.registers
                 .rbar
@@ -1118,5 +1122,6 @@ impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> mpu::MPU
                 self.registers.rasr.write(region.attributes().into_inner());
             }
         }
+        self.hardware_is_configured_for.set(id);
     }
 }
