@@ -54,6 +54,28 @@ flux_rs::defs! {
             max(range1.start, start) < min(range1.end, end)
         }
     }
+
+    // PMP specific model
+    // See Figure 34. PMP configuration register format. in the RISCV ISA (Section 3.7)
+
+    fn bit(reg: bitvec<32>, power_of_two: bitvec<32>) -> bool { reg & power_of_two != 0}
+
+    fn permissions_match(perms: mpu::Permissions, reg: LocalRegisterCopyU8) -> bool {
+        if (perms.x && perms.w && perms.r) {
+            bit(reg.val, 1) && bit(reg.val, 2) && bit(reg.val, 4)  
+        } else if (perms.r && perms.w) {
+            bit(reg.val, 1) && bit(reg.val, 2) && !bit(reg.val, 4) 
+        } else if (perms.r && perms.x) {
+            bit(reg.val, 1) && !bit(reg.val, 2) && bit(reg.val, 4) 
+        } else if (perms.r) {
+            bit(reg.val, 1) && !bit(reg.val, 2) && !bit(reg.val, 4) 
+        } else if (perms.x) {
+            !bit(reg.val, 1) && !bit(reg.val, 2) && bit(reg.val, 4) 
+        } else {
+            // nothing else supported
+            false
+        }
+    }
 }
 
 register_bitfields_u8![u8,
@@ -89,12 +111,11 @@ register_bitfields_u8![u8,
 /// hold by construction and avoid runtime checks. For example, this type is
 /// used in the [`TORUserPMP::configure_pmp`] method.
 #[derive(Copy, Clone)]
-// #[flux_rs::opaque]
-// #[flux_rs::refined_by(val: int)]
-pub struct TORUserPMPCFG(LocalRegisterCopyU8<pmpcfg_octet::Register>);
+#[flux_rs::refined_by(reg: LocalRegisterCopyU8)]
+pub struct TORUserPMPCFG(#[field(LocalRegisterCopyU8<pmpcfg_octet::Register>[reg])]LocalRegisterCopyU8<pmpcfg_octet::Register>);
 
 impl TORUserPMPCFG {
-    // #[flux_rs::constant(TORUserPMPCFG[0])]
+    #[flux_rs::constant(TORUserPMPCFG[LocalRegisterCopyU8 {rc: rc.val == 0 } ])]
     pub const OFF: TORUserPMPCFG = TORUserPMPCFG(LocalRegisterCopyU8::new(0));
 
     /// Extract the `u8` representation of the [`pmpcfg_octet`] register.
@@ -116,7 +137,7 @@ impl PartialEq<TORUserPMPCFG> for TORUserPMPCFG {
 
 impl Eq for TORUserPMPCFG {}
 
-#[flux_rs::sig(fn (p: mpu::Permissions) -> TORUserPMPCFG)]
+#[flux_rs::sig(fn (p: mpu::Permissions) -> TORUserPMPCFG{cfg: permissions_match(p, cfg.reg)})]
 fn permissions_to_pmpcfg(p: mpu::Permissions) -> TORUserPMPCFG {
     let fv = match p {
         mpu::Permissions::ReadWriteExecute => {
