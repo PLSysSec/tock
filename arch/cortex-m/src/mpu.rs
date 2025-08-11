@@ -148,9 +148,6 @@ const MPU_BASE_ADDRESS: StaticRef<MpuRegisters> =
 pub struct MPU<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> {
     /// MMIO reference to MPU registers.
     registers: StaticRef<MpuRegisters>,
-    /// Monotonically increasing counter for allocated regions, used
-    /// to assign unique IDs to `CortexMConfig` instances.
-    config_count: Cell<NonZeroUsize>,
     /// Optimization logic. This is used to indicate which application the MPU
     /// is currently configured for so that the MPU can skip updating when the
     /// kernel returns to the same app.
@@ -162,7 +159,6 @@ impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> MPU<NUM_REGIONS, MI
         assume(NUM_REGIONS == 8 || NUM_REGIONS == 16);
         Self {
             registers: MPU_BASE_ADDRESS,
-            config_count: Cell::new(NonZeroUsize::MIN),
             hardware_is_configured_for: OptionalCell::empty(),
         }
     }
