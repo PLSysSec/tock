@@ -681,8 +681,8 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         &self,
         mpu: &M,
     ) -> MpuConfiguredCapability {
-        if !mpu.is_configured_for(self.id) || self.is_dirty.get() {
-            mpu.configure_mpu(&self.regions); // updates is_configured_for
+        if self.is_dirty.get() {
+            mpu.configure_mpu(&self.regions, self.id); 
             self.is_dirty.set(false);
         }
         MpuConfiguredCapability::new(self.memory_start(), self.app_break())

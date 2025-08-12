@@ -151,7 +151,7 @@ pub struct MPU<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> {
     /// Optimization logic. This is used to indicate which application the MPU
     /// is currently configured for so that the MPU can skip updating when the
     /// kernel returns to the same app.
-    hardware_is_configured_for: OptionalCell<NonZeroUsize>,
+    hardware_is_configured_for: OptionalCell<usize>,
 }
 
 impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> MPU<NUM_REGIONS, MIN_REGION_SIZE> {
@@ -169,6 +169,15 @@ impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> MPU<NUM_REGIONS, MI
         self.registers
             .ctrl
             .write(Control::ENABLE::CLEAR().into_inner());
+    }
+
+    fn is_configured_for(&self, id: usize) -> bool {
+        if let Some(last_id) = self.hardware_is_configured_for.get(){
+            last_id == id
+        }
+        else {
+            false
+        }
     }
 }
 
@@ -1099,11 +1108,10 @@ impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> mpu::MPU
         self.registers.mpu_type.read(Type::DREGION().into_inner()) as usize
     }
 
-    fn is_configured_for(&self) -> usize {
-        self.hardware_is_configured_for.get()
-    }
-
     fn configure_mpu(&self, config: &RArray<CortexMRegion>, id: usize) {
+        if self.is_configured_for(id) {
+            return; // fastpath - we are already using this config
+        }
         for region in config.iter() {
             self.registers
                 .rbar
