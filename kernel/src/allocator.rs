@@ -511,6 +511,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
 
     #[flux_rs::sig(
         fn (
+            id: usize,
             mem_start: FluxPtrU8,
             mem_size: usize, 
             min_mem_size: usize,
