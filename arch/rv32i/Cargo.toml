@@ -9,6 +9,7 @@ authors.workspace = true
 edition.workspace = true
 
 [dependencies]
+flux-core = { git  = "https://github.com/flux-rs/flux.git"}
 kernel = { path = "../../kernel" }
 flux_support = { path = "../../flux_support" }
 tock-registers = { path = "../../libraries/tock-register-interface" }
