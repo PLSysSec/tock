@@ -1592,8 +1592,8 @@ pub mod simple {
                 requires 
                     all_regions_configured_correctly_up_to(og_hw, i) 
                     && len == max_regions 
-                    && i == idx
-                    && idx <= len
+                    && (idx < len => i == idx)
+                    && (idx >= len => all_regions_configured_correctly_up_to(og_hw, max_regions))
                 ensures hw_state: HardwareState{new_hw: all_regions_configured_correctly_up_to(new_hw, max_regions)}
             )]
             fn configure_all_regions_tail(i: usize, mut regions_iter: core::slice::Iter<'_, PMPUserRegion>, max_regions: usize, hardware_state: &mut HardwareState) {
