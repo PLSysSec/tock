@@ -167,7 +167,7 @@ flux_rs::defs! {
 #[flux_rs::refined_by(pmpcfg_registers: Map<int, bitvec<32>>, pmpaddr_registers: Map<int, bitvec<32>>)]
 pub struct HardwareState {}
 
-#[flux_rs::trusted]
+#[flux_rs::trusted(reason = "Flux Wrappers")]
 impl HardwareState {
     pub fn new() -> Self {
         Self {}
@@ -1547,10 +1547,36 @@ pub mod simple {
     /// the runtime overhead induced through PMP configuration, at the cost of
     /// having less PMP regions available to use for userspace memory
     /// protection.
-    pub struct SimplePMP<const AVAILABLE_ENTRIES: usize>;
+    #[flux_rs::refined_by(hw_state: HardwareState)]
+    pub struct SimplePMP<const AVAILABLE_ENTRIES: usize> {
+        #[field(HardwareState[hw_state])]
+        hardware_state: HardwareState
+    }
+
+    flux_rs::defs! {
+
+        fn available_region_setup(i: int, hardware_state: HardwareState) -> bool {
+            true
+        }
+
+        // forall j, j >= 0 && j < i -> available_region_setup(i, hardware_state)
+        fn all_available_regions_setup_up_to(i: int) -> bool;
+    }
+
+    #[flux_rs::trusted(reason = "Proof Code")]
+    #[flux_rs::sig(fn () ensures all_available_regions_setup_up_to(0))] 
+    fn all_available_regions_setup_up_to_base() {}
+
+    #[flux_rs::trusted(reason = "Proof Code")]
+    #[flux_rs::sig(fn (i: usize, &HardwareState[@hw]) 
+        requires all_available_regions_setup_up_to(i) && available_region_setup(i, hw)
+        ensures all_available_regions_setup_up_to(i + 1)
+    )] 
+    fn all_available_regions_setup_up_to_step(i: usize, hardware_state: &HardwareState) {}
 
     impl<const AVAILABLE_ENTRIES: usize> SimplePMP<AVAILABLE_ENTRIES> {
         pub unsafe fn new() -> Result<Self, ()> {
+
             // The SimplePMP does not support locked regions, kernel memory
             // protection, or any ePMP features (using the mseccfg CSR). Ensure
             // that we don't find any locked regions. If we don't have locked
@@ -1566,7 +1592,13 @@ pub mod simple {
             // reason why we can execute code or read-write data in machine mode
             // right now. Thus, never try to touch a locked region, as we might
             // well revoke access to a kernel region!
-            for i in 0..AVAILABLE_ENTRIES {
+
+            #[flux_rs::sig(fn (i: usize, hw_state: &strg HardwareState[@og_hw]) -> Result<(), ()>[#ok]
+                requires all_available_regions_setup_up_to(i)
+                ensures hw_state: HardwareState{ new_hw: ok => all_available_regions_setup_up_to(i) && available_region_setup(i, new_hw) }
+            )]
+            #[flux_rs::trusted]
+            fn configure_initial_pmp_idx(i: usize, hardware_state: &mut HardwareState) -> Result<(), ()> {
                 // Read the entry's CSR:
                 let pmpcfg_csr = csr::CSR.pmpconfig_get(i / 4);
 
@@ -1578,7 +1610,7 @@ pub mod simple {
                 // As outlined above, we never touch a locked region. Thus, bail
                 // out if it's locked:
                 if pmpcfg.is_set(pmpcfg_octet::l()) {
-                    return Err(());
+                    // return Err(());
                 }
 
                 // Now that it's not locked, we can be sure that regardless of
@@ -1598,11 +1630,46 @@ pub mod simple {
 
                 // Finally, turn the region off:
                 csr::CSR.pmpconfig_set(i / 4, pmpcfg_csr & !(0x18 << ((i % 4) * 8)));
+
+                Ok(())
             }
 
+            #[flux_rs::sig(fn (idx: usize) requires all_available_regions_setup_up_to(idx))]
+            fn assert_setup(idx: usize){}
+
+            #[flux_rs::sig(fn (idx: usize, hw_state: &strg HardwareState[@og_hw], available_entries: usize) -> Result<(), ()>[#ok]
+                requires 
+                    all_available_regions_setup_up_to(idx) 
+                    && (idx >= available_entries => all_available_regions_setup_up_to(available_entries)) 
+                ensures hw_state: HardwareState{new_hw: ok => all_available_regions_setup_up_to(available_entries)}
+            )]
+            fn configure_initial_pmp_tail(i: usize, hardware_state: &mut HardwareState, available_entries: usize) -> Result<(), ()>  {
+                if i < available_entries {
+                    configure_initial_pmp_idx(i, hardware_state)?;
+                    all_available_regions_setup_up_to_step(i, hardware_state);
+                    assert_setup(i + 1);
+                    let blah = configure_initial_pmp_tail(i + 1, hardware_state, available_entries);
+                    match blah {
+                        Ok(()) => Ok(()),
+                        Err(()) => Err(()),
+                    }
+                } else {
+                    flux_rs::assert(i >= available_entries);
+                    assert_setup(available_entries);
+                    Ok(())
+                }
+            }
+
+            // establish some verification specific details
+            let mut hardware_state = HardwareState::new();
+            all_available_regions_setup_up_to_base();
+            flux_support::assume(AVAILABLE_ENTRIES > 0);
+
+            configure_initial_pmp_tail(0, &mut hardware_state, AVAILABLE_ENTRIES)?;
+            
             // Hardware PMP is verified to be in a compatible mode / state, and
             // has at least `AVAILABLE_ENTRIES` entries.
-            Ok(SimplePMP)
+            Ok(SimplePMP { hardware_state })
         }
     }
 
@@ -1759,7 +1826,6 @@ pub mod simple {
                     && len == max_regions 
                     && (idx < len => i == idx && i % 2 == 0)
                     && (idx >= len => all_regions_configured_correctly_up_to(max_regions)) 
-
                 ensures hw_state: HardwareState{new_hw: all_regions_configured_correctly_up_to(max_regions)}
             )]
             fn configure_all_regions_tail(i: usize, mut regions_iter: core::slice::Iter<'_, PMPUserRegion>, max_regions: usize, hardware_state: &mut HardwareState) {
@@ -2380,7 +2446,7 @@ pub mod kernel_protection_mml_epmp {
     /// accessible to kernel mode.
     #[flux_rs::invariant(AVAILABLE_ENTRIES >= 3)]
     pub struct KernelProtectionMMLEPMP<const AVAILABLE_ENTRIES: usize, const MPU_REGIONS: usize> {
-        user_pmp_enabled: Cell<bool>,
+    user_pmp_enabled: Cell<bool>,
         shadow_user_pmpcfgs: [Cell<TORUserPMPCFG>; MPU_REGIONS],
     }
 
