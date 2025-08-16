@@ -1593,9 +1593,21 @@ pub mod simple {
 
     flux_rs::defs! {
 
-        // #[hide]
         fn available_region_setup(i: int, old: HardwareState, new: HardwareState) -> bool {
-            true
+            let cfg = map_select(new.pmpcfg_registers, i / 4);
+            let region_offset = i % 4;
+
+            if region_offset == 0 {
+                extract(cfg, 0x00000018, 3) == 0 && !bit(cfg, 1 << 7)
+            } else if region_offset == 1 {
+                extract(cfg, 0x00001800, 11) == 0 && !bit(cfg, 1 << 15)
+            } else if region_offset == 2 {
+                extract(cfg, 0x00180000, 19) == 0 && !bit(cfg, 1 << 23)
+            } else if region_offset == 3 {
+                extract(cfg, 0x18000000, 27) == 0 && !bit(cfg, 1 << 31)
+            } else {
+                false
+            }
         }
 
         // forall j, j >= 0 && j < i -> available_region_setup(i, hardware_state)
@@ -1632,27 +1644,54 @@ pub mod simple {
             // well revoke access to a kernel region!
 
             #[flux_rs::sig(fn (i: usize, hw_state: &strg HardwareState[@old])
-                -> Result<{ i32 |  all_available_regions_setup_up_to(i, new) && available_region_setup(i, old, new) }, ()>
+                -> Result<{ i32 |  all_available_regions_setup_up_to(i + 1, new) }, ()>
                 requires all_available_regions_setup_up_to(i, old)
                 ensures hw_state: HardwareState[#new]
             )]
-            // #[flux_rs::trusted]
             fn configure_initial_pmp_idx(
                 i: usize,
                 hardware_state: &mut HardwareState,
             ) -> Result<i32, ()> {
+                // NOTE: works over PMP entries - hence the mod 4 arithmetic when
+                // checking a PMPCFG
+
+                let old: HardwareState = hardware_state.snapshot();
+
                 // Read the entry's CSR:
-                let pmpcfg_csr = csr::CSR.pmpconfig_get(i / 4);
+                #[flux_rs::trusted(reason = "TCB")]
+                #[flux_rs::sig(fn (i: usize, &HardwareState[@hw]) -> usize[bv_bv32_to_int(map_select(hw.pmpcfg_registers, i))])]
+                fn pmpconfig_get(i: usize, _: &HardwareState) -> usize {
+                    csr::CSR.pmpconfig_get(i)
+                }
+
+                let pmpcfg_csr = pmpconfig_get(i / 4, &hardware_state);
+
+                #[flux_rs::trusted(reason = "Flux integer conversion")]
+                #[flux_rs::sig(fn (x: usize) -> u8[bv_bv32_to_int(extract(bv_int_to_bv32(x), 0xFF, 0))])]
+                fn usize_to_u8_truncate(x: usize) -> u8 {
+                    x as u8
+                }
+
+                #[flux_rs::trusted(reason = "Flux integer conversion")]
+                // NOTE: trusted because usize == u32 here
+                #[flux_rs::sig(fn (x: usize) -> u32[x] requires x <= u32::MAX)]
+                fn usize_to_u32(x: usize) -> u32 {
+                    x as u32
+                }
+
+                flux_rs::assert((i % 4) * 8 <= 24);
 
                 // Extract the entry's pmpcfg octet:
-                let pmpcfg: LocalRegisterCopyU8<pmpcfg_octet::Register> = LocalRegisterCopyU8::new(
-                    pmpcfg_csr.overflowing_shr(((i % 4) * 8) as u32).0 as u8,
-                );
+                let pmpcfg: LocalRegisterCopyU8<pmpcfg_octet::Register> =
+                    LocalRegisterCopyU8::new(usize_to_u8_truncate(super::overflowing_shr(
+                        pmpcfg_csr,
+                        usize_to_u32((i % 4) * 8),
+                    )));
 
                 // As outlined above, we never touch a locked region. Thus, bail
                 // out if it's locked:
                 if pmpcfg.is_set(pmpcfg_octet::l()) {
-                    // return Err(());
+                    return Err(());
                 }
 
                 // Now that it's not locked, we can be sure that regardless of
@@ -1660,7 +1699,21 @@ pub mod simple {
                 // denied for machine-mode access. Hence, we can change it in
                 // arbitrary ways without breaking our own memory access. Try to
                 // flip the R/W/X bits:
-                csr::CSR.pmpconfig_set(i / 4, pmpcfg_csr ^ (7 << ((i % 4) * 8)));
+                use flux_rs::bitvec::BV32;
+                // pmpcfg_csr ^ (7 << ((i % 4) * 8))
+                // change xor to (a | b) & !(a & b)
+
+                #[flux_rs::sig(fn (x: BV32, y: BV32) -> BV32[(x | y) & bv_not(x & y)])]
+                fn xor(x: BV32, y: BV32) -> BV32 {
+                    (x | y) & !(x & y)
+                }
+
+                let rwx_bits = xor(
+                    BV32::from(pmpcfg_csr as u32),
+                    (BV32::from(7) << BV32::from(usize_to_u32((i % 4) * 8))),
+                );
+                let rwx_bits: u32 = rwx_bits.into();
+                super::pmpconfig_set(i / 4, rwx_bits as usize, hardware_state);
 
                 // Check if the CSR changed:
                 if pmpcfg_csr == csr::CSR.pmpconfig_get(i / 4) {
@@ -1671,8 +1724,13 @@ pub mod simple {
                 }
 
                 // Finally, turn the region off:
-                csr::CSR.pmpconfig_set(i / 4, pmpcfg_csr & !(0x18 << ((i % 4) * 8)));
+                let off_bits = BV32::from(pmpcfg_csr as u32)
+                    & !(BV32::from(0x18) << BV32::from(usize_to_u32((i % 4) * 8)));
+                let off_bits: u32 = off_bits.into();
 
+                super::pmpconfig_set(i / 4, off_bits as usize, hardware_state);
+
+                all_available_regions_setup_up_to_step(i, &old, hardware_state);
                 Ok(1669)
             }
 
@@ -1698,7 +1756,6 @@ pub mod simple {
                 }
                 let old = hardware_state.snapshot();
                 configure_initial_pmp_idx(i, hardware_state)?;
-                all_available_regions_setup_up_to_step(i, &old, hardware_state);
                 assert_setup(i + 1, &hardware_state);
                 match configure_initial_pmp_tail(i + 1, hardware_state, available_entries) {
                     Ok(_) => return Ok(100),
@@ -1749,14 +1806,8 @@ pub mod simple {
                 // Note: these pre and post conditions (all_regions_configured) seem silly
                 // but we need them because otherwise Flux forgets
                 // all state after we return
-                requires
-                    all_regions_configured_correctly_up_to(i, og_hw) &&
-                    i % 2 == 0
-                ensures hw_state: HardwareState{new_hw:
-                    all_regions_configured_correctly_up_to(i + 2, new_hw)
-                    // region_configured_correctly(er, og_hw, new_hw, i) && region_configured_correctly(or, og_hw, new_hw, i + 1)
-                    // && all_regions_configured_correctly_up_to(i, new_hw)
-                }
+                requires all_regions_configured_correctly_up_to(i, og_hw) && i % 2 == 0
+                ensures hw_state: HardwareState{new_hw: all_regions_configured_correctly_up_to(i + 2, new_hw) }
             )]
             fn configure_region_pair(
                 i: usize,
@@ -1840,7 +1891,6 @@ pub mod simple {
                 // all state after we return
                 requires all_regions_configured_correctly_up_to(i, og_hw) && i % 2 == 0
                 ensures hw_state: HardwareState{new_hw:
-                    // region_configured_correctly(er, og_hw, new_hw, i) &&
                     all_regions_configured_correctly_up_to(i + 1, new_hw)
                 }
             )]
@@ -2249,14 +2299,8 @@ pub mod kernel_protection {
                 // Note: these pre and post conditions (all_regions_configured) seem silly
                 // but we need them because otherwise Flux forgets
                 // all state after we return
-                requires
-                    all_regions_configured_correctly_up_to(i, og_hw) &&
-                    i % 2 == 0
-                ensures hw_state: HardwareState{new_hw:
-                    all_regions_configured_correctly_up_to(i + 2, new_hw)
-                    // region_configured_correctly(er, og_hw, new_hw, i) && region_configured_correctly(or, og_hw, new_hw, i + 1)
-                    // && all_regions_configured_correctly_up_to(i, new_hw)
-                }
+                requires all_regions_configured_correctly_up_to(i, og_hw) && i % 2 == 0
+                ensures hw_state: HardwareState{new_hw: all_regions_configured_correctly_up_to(i + 2, new_hw) }
             )]
             fn configure_region_pair(
                 i: usize,
@@ -2339,10 +2383,7 @@ pub mod kernel_protection {
                 // but we need them because otherwise Flux forgets
                 // all state after we return
                 requires all_regions_configured_correctly_up_to(i, og_hw) && i % 2 == 0
-                ensures hw_state: HardwareState{new_hw:
-                    // region_configured_correctly(er, og_hw, new_hw, i) &&
-                    all_regions_configured_correctly_up_to(i + 1, new_hw)
-                }
+                ensures hw_state: HardwareState{new_hw: all_regions_configured_correctly_up_to(i + 1, new_hw) }
             )]
             fn configure_region(
                 i: usize,
