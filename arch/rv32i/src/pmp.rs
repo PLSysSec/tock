@@ -171,6 +171,11 @@ impl HardwareState {
     pub fn new() -> Self {
         Self {}
     }
+
+    #[flux_rs::sig(fn (&HardwareState[@hw]) -> HardwareState[hw])]
+    pub fn snapshot(&self) -> Self {
+        Self {}
+    }
 }
 
 #[flux_rs::trusted(reason = "Proof Code")]
@@ -315,6 +320,7 @@ impl TORUserPMPCFG {
     }
 }
 
+#[flux_rs::trusted(reason = "RJ:HANG")]
 impl PartialEq<TORUserPMPCFG> for TORUserPMPCFG {
     #[flux_rs::sig(fn (&Self[@this], &Self[@other]) -> bool[this.reg.val == other.reg.val])]
     fn eq(&self, other: &Self) -> bool {
@@ -1587,24 +1593,25 @@ pub mod simple {
 
     flux_rs::defs! {
 
-        fn available_region_setup(i: int, hardware_state: HardwareState) -> bool {
+        #[hide]
+        fn available_region_setup(i: int, old: HardwareState, new: HardwareState) -> bool {
             true
         }
 
         // forall j, j >= 0 && j < i -> available_region_setup(i, hardware_state)
-        fn all_available_regions_setup_up_to(i: int) -> bool;
+        fn all_available_regions_setup_up_to(i: int, hw: HardwareState) -> bool;
     }
 
     #[flux_rs::trusted(reason = "Proof Code")]
-    #[flux_rs::sig(fn () ensures all_available_regions_setup_up_to(0))]
-    fn all_available_regions_setup_up_to_base() {}
+    #[flux_rs::sig(fn (&HardwareState[@hw]) ensures all_available_regions_setup_up_to(0, hw))]
+    fn all_available_regions_setup_up_to_base(_: &HardwareState) {}
 
     #[flux_rs::trusted(reason = "Proof Code")]
-    #[flux_rs::sig(fn (i: usize, &HardwareState[@hw])
-        requires all_available_regions_setup_up_to(i) && available_region_setup(i, hw)
-        ensures all_available_regions_setup_up_to(i + 1)
+    #[flux_rs::sig(fn (i: usize, &HardwareState[@old], &HardwareState[@new])
+        requires all_available_regions_setup_up_to(i, old) && available_region_setup(i, old, new)
+        ensures all_available_regions_setup_up_to(i + 1, new)
     )]
-    fn all_available_regions_setup_up_to_step(i: usize, hardware_state: &HardwareState) {}
+    fn all_available_regions_setup_up_to_step(i: usize, old: &HardwareState, new: &HardwareState) {}
 
     impl<const AVAILABLE_ENTRIES: usize> SimplePMP<AVAILABLE_ENTRIES> {
         pub unsafe fn new() -> Result<Self, ()> {
@@ -1624,10 +1631,10 @@ pub mod simple {
             // right now. Thus, never try to touch a locked region, as we might
             // well revoke access to a kernel region!
 
-            #[flux_rs::sig(fn (i: usize, hw_state: &strg HardwareState[@og_hw])
-                -> Result<{ i32 |  all_available_regions_setup_up_to(i) && available_region_setup(i, new_hw) }, ()>
-                requires all_available_regions_setup_up_to(i)
-                ensures hw_state: HardwareState[#new_hw]
+            #[flux_rs::sig(fn (i: usize, hw_state: &strg HardwareState[@old])
+                -> Result<{ i32 |  all_available_regions_setup_up_to(i, new) && available_region_setup(i, old, new) }, ()>
+                requires all_available_regions_setup_up_to(i, old)
+                ensures hw_state: HardwareState[#new]
             )]
             #[flux_rs::trusted]
             fn configure_initial_pmp_idx(
@@ -1669,15 +1676,15 @@ pub mod simple {
                 Ok(1669)
             }
 
-            #[flux_rs::sig(fn (idx: usize) requires all_available_regions_setup_up_to(idx))]
-            fn assert_setup(idx: usize) {}
+            #[flux_rs::sig(fn (idx: usize, &HardwareState[@hw]) requires all_available_regions_setup_up_to(idx, hw))]
+            fn assert_setup(idx: usize, _: &HardwareState) {}
 
             #[flux_rs::sig(fn (idx: usize, hw_state: &strg HardwareState[@og_hw], available_entries: usize)
-                -> Result<{ i32 | all_available_regions_setup_up_to(available_entries) }, ()>[#ok]
+                -> Result<{ i32 | all_available_regions_setup_up_to(available_entries, hw) }, ()>[#ok]
                 requires
-                    all_available_regions_setup_up_to(idx)
-                    && (idx >= available_entries => all_available_regions_setup_up_to(available_entries))
-                ensures hw_state: HardwareState
+                    all_available_regions_setup_up_to(idx, og_hw)
+                    && (idx >= available_entries => all_available_regions_setup_up_to(available_entries, og_hw))
+                ensures hw_state: HardwareState[#hw]
             )]
             fn configure_initial_pmp_tail(
                 i: usize,
@@ -1686,12 +1693,13 @@ pub mod simple {
             ) -> Result<i32, ()> {
                 if i >= available_entries {
                     flux_rs::assert(i >= available_entries);
-                    assert_setup(available_entries);
+                    assert_setup(available_entries, hardware_state);
                     return Ok(99);
                 }
+                let old = hardware_state.snapshot();
                 configure_initial_pmp_idx(i, hardware_state)?;
-                all_available_regions_setup_up_to_step(i, hardware_state);
-                assert_setup(i + 1);
+                all_available_regions_setup_up_to_step(i, &old, hardware_state);
+                assert_setup(i + 1, &hardware_state);
                 match configure_initial_pmp_tail(i + 1, hardware_state, available_entries) {
                     Ok(_) => return Ok(100),
                     Err(()) => return Err(()),
@@ -1700,7 +1708,7 @@ pub mod simple {
 
             // establish some verification specific details
             let mut hardware_state = HardwareState::new();
-            all_available_regions_setup_up_to_base();
+            all_available_regions_setup_up_to_base(&hardware_state);
             flux_support::assume(AVAILABLE_ENTRIES > 0);
 
             configure_initial_pmp_tail(0, &mut hardware_state, AVAILABLE_ENTRIES)?;
@@ -2037,7 +2045,7 @@ pub mod kernel_protection {
     /// trait (usually the [`PMPUserMPU`](super::PMPUserMPU) implementation).
     #[flux_rs::invariant(AVAILABLE_ENTRIES >= 7)]
     pub struct KernelProtectionPMP<const AVAILABLE_ENTRIES: usize>;
-
+    #[flux_rs::trusted(reason = "RJ:HANG")]
     impl<const AVAILABLE_ENTRIES: usize> KernelProtectionPMP<AVAILABLE_ENTRIES> {
         pub unsafe fn new(
             flash: FlashRegion,
@@ -2550,6 +2558,7 @@ pub mod kernel_protection_mml_epmp {
         // Start user-mode TOR regions after the first kernel .text region:
         const TOR_REGIONS_OFFSET: usize = 1;
 
+        #[flux_rs::trusted(reason = "RJ:HANG")]
         pub unsafe fn new(
             flash: FlashRegion,
             ram: RAMRegion,
