@@ -144,15 +144,15 @@ flux_rs::defs! {
         }
     }
 
-    fn region_configured_correctly(region: PMPUserRegion, hardware_state: HardwareState, idx: int) -> bool {
+    fn region_configured_correctly(region: PMPUserRegion, old: HardwareState, new: HardwareState, idx: int) -> bool {
         let cfg_reg_idx = idx / 2;
-        let cfg_reg = map_select(hardware_state.pmpcfg_registers, cfg_reg_idx);
-        cfg_reg_configured_correctly(cfg_reg, region, idx) && addr_reg_configured_correctly(hardware_state.pmpaddr_registers, region, idx)
+        let cfg_reg = map_select(new.pmpcfg_registers, cfg_reg_idx);
+        cfg_reg_configured_correctly(cfg_reg, region, idx) && addr_reg_configured_correctly(new.pmpaddr_registers, region, idx)
     }
 
     // uninterpreted since we don't have forall:
     // forall i. i >= 0 && i < bound, region_configured_correctly(hardware_state, i)
-    fn all_regions_configured_correctly_up_to(bound: int) -> bool;
+    fn all_regions_configured_correctly_up_to(bound: int, hardware_state: HardwareState) -> bool;
 }
 
 // Some axioms and verification state
@@ -179,17 +179,18 @@ impl HardwareState {
 }
 
 #[flux_rs::trusted(reason = "Proof Code")]
-#[flux_rs::sig(fn (&HardwareState[@hw]) ensures all_regions_configured_correctly_up_to(0))]
+#[flux_rs::sig(fn (&HardwareState[@hw]) ensures all_regions_configured_correctly_up_to(0, hw))]
 fn all_regions_configured_correctly_base(hardware_state: &HardwareState) {}
 
 #[flux_rs::trusted(reason = "Proof Code")]
-#[flux_rs::sig(fn (&PMPUserRegion[@region], &HardwareState[@hw], i: usize)
-    requires all_regions_configured_correctly_up_to(i) && region_configured_correctly(region, hw, i)
-    ensures all_regions_configured_correctly_up_to(i + 1)
+#[flux_rs::sig(fn (&PMPUserRegion[@region], &HardwareState[@old], &HardwareState[@new], i: usize)
+    requires all_regions_configured_correctly_up_to(i, old) && region_configured_correctly(region, old, new, i)
+    ensures all_regions_configured_correctly_up_to(i + 1, new)
 )]
 fn all_regions_configured_correctly_step(
     region: &PMPUserRegion,
-    hardware_state: &HardwareState,
+    old_hw: &HardwareState,
+    new_hw: &HardwareState,
     i: usize,
 ) {
 }
@@ -320,7 +321,6 @@ impl TORUserPMPCFG {
     }
 }
 
-#[flux_rs::trusted(reason = "RJ:HANG")]
 impl PartialEq<TORUserPMPCFG> for TORUserPMPCFG {
     #[flux_rs::sig(fn (&Self[@this], &Self[@other]) -> bool[this.reg.val == other.reg.val])]
     fn eq(&self, other: &Self) -> bool {
@@ -744,7 +744,7 @@ pub trait TORUserPMP<const MAX_REGIONS: usize> {
     /// this case, the start and end addresses are ignored and can be set to
     /// arbitrary values.
     #[flux_rs::sig(fn (&Self, &[PMPUserRegion; _], hw_state: &strg HardwareState) -> Result<(), ()>[#ok] ensures hw_state: HardwareState {hw:
-        ok => all_regions_configured_correctly_up_to(MAX_REGIONS)
+        ok => all_regions_configured_correctly_up_to(MAX_REGIONS, hw)
     })]
     fn configure_pmp(
         &self,
@@ -1593,7 +1593,7 @@ pub mod simple {
 
     flux_rs::defs! {
 
-        #[hide]
+        // #[hide]
         fn available_region_setup(i: int, old: HardwareState, new: HardwareState) -> bool {
             true
         }
@@ -1636,7 +1636,7 @@ pub mod simple {
                 requires all_available_regions_setup_up_to(i, old)
                 ensures hw_state: HardwareState[#new]
             )]
-            #[flux_rs::trusted]
+            // #[flux_rs::trusted]
             fn configure_initial_pmp_idx(
                 i: usize,
                 hardware_state: &mut HardwareState,
@@ -1737,7 +1737,7 @@ pub mod simple {
         // on 64-bit systems as well. However, this implementation will not work
         // on RV64I systems, due to the changed pmpcfgX CSR layout.
         #[flux_rs::sig(fn (&Self, &[PMPUserRegion; _], hw_state: &strg HardwareState) -> Result<(), ()>[#ok] ensures hw_state: HardwareState {hw:
-            ok => all_regions_configured_correctly_up_to(MPU_REGIONS)
+            ok => all_regions_configured_correctly_up_to(MPU_REGIONS, hw)
         })]
         fn configure_pmp(
             &self,
@@ -1750,11 +1750,12 @@ pub mod simple {
                 // but we need them because otherwise Flux forgets
                 // all state after we return
                 requires
-                    all_regions_configured_correctly_up_to(i) &&
+                    all_regions_configured_correctly_up_to(i, og_hw) &&
                     i % 2 == 0
                 ensures hw_state: HardwareState{new_hw:
-                    region_configured_correctly(er, new_hw, i) && region_configured_correctly(or, new_hw, i + 1)
-                    && all_regions_configured_correctly_up_to(i)
+                    all_regions_configured_correctly_up_to(i + 2, new_hw)
+                    // region_configured_correctly(er, og_hw, new_hw, i) && region_configured_correctly(or, og_hw, new_hw, i + 1)
+                    // && all_regions_configured_correctly_up_to(i, new_hw)
                 }
             )]
             fn configure_region_pair(
@@ -1763,6 +1764,7 @@ pub mod simple {
                 odd_region: &PMPUserRegion,
                 hardware_state: &mut HardwareState,
             ) {
+                let old = hardware_state.snapshot();
                 let even_region_start = match even_region.start {
                     Some(r) => r,
                     None => FluxPtr::null(),
@@ -1822,6 +1824,13 @@ pub mod simple {
                         hardware_state,
                     );
                 }
+                all_regions_configured_correctly_step(even_region, &old, &hardware_state, i);
+                all_regions_configured_correctly_step(
+                    odd_region,
+                    &hardware_state,
+                    &hardware_state,
+                    i + 1,
+                );
             }
 
             // configures region `i` correctly
@@ -1829,9 +1838,10 @@ pub mod simple {
                 // Note: these pre and post conditions (all_regions_configured) seem silly
                 // but we need them because otherwise Flux forgets
                 // all state after we return
-                requires all_regions_configured_correctly_up_to(i) && i % 2 == 0
+                requires all_regions_configured_correctly_up_to(i, og_hw) && i % 2 == 0
                 ensures hw_state: HardwareState{new_hw:
-                    region_configured_correctly(er, new_hw, i) && all_regions_configured_correctly_up_to(i)
+                    // region_configured_correctly(er, og_hw, new_hw, i) &&
+                    all_regions_configured_correctly_up_to(i + 1, new_hw)
                 }
             )]
             fn configure_region(
@@ -1839,6 +1849,7 @@ pub mod simple {
                 even_region: &PMPUserRegion,
                 hardware_state: &mut HardwareState,
             ) {
+                let old = hardware_state.snapshot();
                 let even_region_start = match even_region.start {
                     Some(r) => r,
                     None => FluxPtr::null(),
@@ -1871,16 +1882,17 @@ pub mod simple {
                         hardware_state,
                     );
                 }
+                all_regions_configured_correctly_step(even_region, &old, &hardware_state, i);
             }
 
             #[flux_rs::sig(
                 fn (i: usize, core::slice::Iter<PMPUserRegion>[@idx, @len], max_regions: usize, hw_state: &strg HardwareState[@og_hw])
                 requires
-                    all_regions_configured_correctly_up_to(i)
+                    all_regions_configured_correctly_up_to(i, og_hw)
                     && len == max_regions
                     && (idx < len => i == idx && i % 2 == 0)
-                    && (idx >= len => all_regions_configured_correctly_up_to(max_regions))
-                ensures hw_state: HardwareState{new_hw: all_regions_configured_correctly_up_to(max_regions)}
+                    && (idx >= len => all_regions_configured_correctly_up_to(max_regions, og_hw))
+                ensures hw_state: HardwareState{new_hw: all_regions_configured_correctly_up_to(max_regions, new_hw)}
             )]
             fn configure_all_regions_tail(
                 i: usize,
@@ -1894,7 +1906,6 @@ pub mod simple {
                     match odd_region_opt {
                         None => {
                             configure_region(i, even_region, hardware_state);
-                            all_regions_configured_correctly_step(even_region, hardware_state, i);
                             configure_all_regions_tail(
                                 i + 1,
                                 regions_iter,
@@ -1904,12 +1915,6 @@ pub mod simple {
                         }
                         Some(odd_region) => {
                             configure_region_pair(i, even_region, odd_region, hardware_state);
-                            all_regions_configured_correctly_step(even_region, hardware_state, i);
-                            all_regions_configured_correctly_step(
-                                odd_region,
-                                hardware_state,
-                                i + 1,
-                            );
                             configure_all_regions_tail(
                                 i + 2,
                                 regions_iter,
@@ -2045,7 +2050,6 @@ pub mod kernel_protection {
     /// trait (usually the [`PMPUserMPU`](super::PMPUserMPU) implementation).
     #[flux_rs::invariant(AVAILABLE_ENTRIES >= 7)]
     pub struct KernelProtectionPMP<const AVAILABLE_ENTRIES: usize>;
-    #[flux_rs::trusted(reason = "RJ:HANG")]
     impl<const AVAILABLE_ENTRIES: usize> KernelProtectionPMP<AVAILABLE_ENTRIES> {
         pub unsafe fn new(
             flash: FlashRegion,
@@ -2233,7 +2237,7 @@ pub mod kernel_protection {
         // on 64-bit systems as well. However, this implementation will not work
         // on RV64I systems, due to the changed pmpcfgX CSR layout.
         #[flux_rs::sig(fn (&Self, &[PMPUserRegion; _], hw_state: &strg HardwareState) -> Result<(), ()>[#ok] ensures hw_state: HardwareState {hw:
-            ok => all_regions_configured_correctly_up_to(MPU_REGIONS)
+            ok => all_regions_configured_correctly_up_to(MPU_REGIONS, hw)
         })]
         fn configure_pmp(
             &self,
@@ -2246,11 +2250,12 @@ pub mod kernel_protection {
                 // but we need them because otherwise Flux forgets
                 // all state after we return
                 requires
-                    all_regions_configured_correctly_up_to(i) &&
+                    all_regions_configured_correctly_up_to(i, og_hw) &&
                     i % 2 == 0
                 ensures hw_state: HardwareState{new_hw:
-                    region_configured_correctly(er, new_hw, i) && region_configured_correctly(or, new_hw, i + 1)
-                    && all_regions_configured_correctly_up_to(i)
+                    all_regions_configured_correctly_up_to(i + 2, new_hw)
+                    // region_configured_correctly(er, og_hw, new_hw, i) && region_configured_correctly(or, og_hw, new_hw, i + 1)
+                    // && all_regions_configured_correctly_up_to(i, new_hw)
                 }
             )]
             fn configure_region_pair(
@@ -2259,6 +2264,7 @@ pub mod kernel_protection {
                 odd_region: &PMPUserRegion,
                 hardware_state: &mut HardwareState,
             ) {
+                let old = hardware_state.snapshot();
                 let even_region_start = match even_region.start {
                     Some(r) => r,
                     None => FluxPtr::null(),
@@ -2318,6 +2324,13 @@ pub mod kernel_protection {
                         hardware_state,
                     );
                 }
+                all_regions_configured_correctly_step(even_region, &old, &hardware_state, i);
+                all_regions_configured_correctly_step(
+                    odd_region,
+                    &hardware_state,
+                    &hardware_state,
+                    i + 1,
+                );
             }
 
             // configures region `i` correctly
@@ -2325,9 +2338,10 @@ pub mod kernel_protection {
                 // Note: these pre and post conditions (all_regions_configured) seem silly
                 // but we need them because otherwise Flux forgets
                 // all state after we return
-                requires all_regions_configured_correctly_up_to(i) && i % 2 == 0
+                requires all_regions_configured_correctly_up_to(i, og_hw) && i % 2 == 0
                 ensures hw_state: HardwareState{new_hw:
-                    region_configured_correctly(er, new_hw, i) && all_regions_configured_correctly_up_to(i)
+                    // region_configured_correctly(er, og_hw, new_hw, i) &&
+                    all_regions_configured_correctly_up_to(i + 1, new_hw)
                 }
             )]
             fn configure_region(
@@ -2335,6 +2349,7 @@ pub mod kernel_protection {
                 even_region: &PMPUserRegion,
                 hardware_state: &mut HardwareState,
             ) {
+                let old = hardware_state.snapshot();
                 let even_region_start = match even_region.start {
                     Some(r) => r,
                     None => FluxPtr::null(),
@@ -2367,17 +2382,17 @@ pub mod kernel_protection {
                         hardware_state,
                     );
                 }
+                all_regions_configured_correctly_step(even_region, &old, &hardware_state, i);
             }
 
             #[flux_rs::sig(
                 fn (i: usize, core::slice::Iter<PMPUserRegion>[@idx, @len], max_regions: usize, hw_state: &strg HardwareState[@og_hw])
                 requires
-                    all_regions_configured_correctly_up_to(i)
+                    all_regions_configured_correctly_up_to(i, og_hw)
                     && len == max_regions
                     && (idx < len => i == idx && i % 2 == 0)
-                    && (idx >= len => all_regions_configured_correctly_up_to(max_regions))
-
-                ensures hw_state: HardwareState{new_hw: all_regions_configured_correctly_up_to(max_regions)}
+                    && (idx >= len => all_regions_configured_correctly_up_to(max_regions, og_hw))
+                ensures hw_state: HardwareState{new_hw: all_regions_configured_correctly_up_to(max_regions, new_hw)}
             )]
             fn configure_all_regions_tail(
                 i: usize,
@@ -2391,7 +2406,6 @@ pub mod kernel_protection {
                     match odd_region_opt {
                         None => {
                             configure_region(i, even_region, hardware_state);
-                            all_regions_configured_correctly_step(even_region, hardware_state, i);
                             configure_all_regions_tail(
                                 i + 1,
                                 regions_iter,
@@ -2401,12 +2415,6 @@ pub mod kernel_protection {
                         }
                         Some(odd_region) => {
                             configure_region_pair(i, even_region, odd_region, hardware_state);
-                            all_regions_configured_correctly_step(even_region, hardware_state, i);
-                            all_regions_configured_correctly_step(
-                                odd_region,
-                                hardware_state,
-                                i + 1,
-                            );
                             configure_all_regions_tail(
                                 i + 2,
                                 regions_iter,
@@ -2558,7 +2566,6 @@ pub mod kernel_protection_mml_epmp {
         // Start user-mode TOR regions after the first kernel .text region:
         const TOR_REGIONS_OFFSET: usize = 1;
 
-        #[flux_rs::trusted(reason = "RJ:HANG")]
         pub unsafe fn new(
             flash: FlashRegion,
             ram: RAMRegion,
@@ -2740,7 +2747,7 @@ pub mod kernel_protection_mml_epmp {
         // on 64-bit systems as well. However, this implementation will not work
         // on RV64I systems, due to the changed pmpcfgX CSR layout.
         #[flux_rs::sig(fn (&Self, &[PMPUserRegion; _], hw_state: &strg HardwareState) -> Result<(), ()>[#ok] ensures hw_state: HardwareState {hw:
-            ok => all_regions_configured_correctly_up_to(MPU_REGIONS)
+            ok => all_regions_configured_correctly_up_to(MPU_REGIONS, hw)
         })]
         #[flux_rs::trusted]
         fn configure_pmp(
