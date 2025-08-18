@@ -1298,7 +1298,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
     }
 
     #[flux_rs::trusted(reason = "fixpoint encoding error")]
-    fn configure_mpu(&self, config: &RArray<Self::Region>) {
+    fn configure_mpu(&self, config: &RArray<Self::Region>, id: usize) {
         let mut ac_config: [Self::Region; MAX_REGIONS] =
             core::array::from_fn(|i| <Self::Region as mpu::RegionDescriptor>::default(i));
         for i in 0..MAX_REGIONS {
@@ -1718,7 +1718,7 @@ pub mod simple {
 
                 let rwx_bits = xor(
                     BV32::from(pmpcfg_csr as u32),
-                    (BV32::from(7) << BV32::from(usize_to_u32((i % 4) * 8))),
+                    BV32::from(7) << BV32::from(usize_to_u32((i % 4) * 8)),
                 );
                 let rwx_bits: u32 = rwx_bits.into();
                 super::pmpconfig_set(i / 4, rwx_bits as usize, hardware_state);
