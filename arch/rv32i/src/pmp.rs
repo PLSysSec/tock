@@ -2,16 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 // Copyright Tock Contributors 2022.
 
+extern crate flux_core;
+
 use core::cell::Cell;
 use core::fmt;
 use core::num::NonZeroUsize;
 
 use crate::csr;
 use flux_support::capability::MpuEnabledCapability;
-use flux_support::{FluxPtr, FluxPtrU8, FluxRange, Pair, RArray};
+use flux_support::{register_bitfields_u8, FluxPtr, FluxPtrU8, FluxRange, Pair, RArray};
+use flux_support::{FieldValueU32, LocalRegisterCopyU8, RegisterLongName};
 use kernel::platform::mpu::{self, RegionDescriptor};
 use kernel::utilities::cells::OptionalCell;
-use kernel::utilities::registers::{register_bitfields, LocalRegisterCopy};
+use kernel::utilities::registers::FieldValue;
 
 flux_rs::defs! {
 
@@ -56,9 +59,221 @@ flux_rs::defs! {
             max(range1.start, start) < min(range1.end, end)
         }
     }
+
+    // PMP specific model
+    fn bit(reg: bitvec<32>, power_of_two: bitvec<32>) -> bool { reg & power_of_two != 0}
+    fn extract(reg: bitvec<32>, mask:int, offset: int) -> bitvec<32> { (reg & bv_int_to_bv32(mask)) >> bv_int_to_bv32(offset) }
+
+    // See Figure 34. PMP configuration register format. in the RISCV ISA (Section 3.7)
+    // For TORUserCFG
+
+    fn permissions_match(perms: mpu::Permissions, reg: LocalRegisterCopyU8) -> bool {
+        if (perms.x && perms.w && perms.r) {
+            bit(reg.val, 1) && bit(reg.val, 2) && bit(reg.val, 4)
+        } else if (perms.r && perms.w) {
+            bit(reg.val, 1) && bit(reg.val, 2) && !bit(reg.val, 4)
+        } else if (perms.r && perms.x) {
+            bit(reg.val, 1) && !bit(reg.val, 2) && bit(reg.val, 4)
+        } else if (perms.r) {
+            bit(reg.val, 1) && !bit(reg.val, 2) && !bit(reg.val, 4)
+        } else if (perms.x) {
+            !bit(reg.val, 1) && !bit(reg.val, 2) && bit(reg.val, 4)
+        } else {
+            // nothing else supported
+            false
+        }
+    }
+
+    fn active_pmp_user_cfg_correct(cfg: TORUserPMPCFG, perms: mpu::Permissions) -> bool {
+        // the permissions are correct encoded in the CFG reg.
+        permissions_match(perms, cfg.reg) &&
+        // L bit is clear - meaning the entry can be modified later
+        !bit(cfg.reg.val, 1 << 7) &&
+        // Addressing mode is Top of Range (TOR)
+        extract(cfg.reg.val, 0b11000, 3) == 1
+    }
+
+    fn inactive_pmp_user_cfg_correct(cfg: TORUserPMPCFG) -> bool {
+        // L bit is clear - meaning the entry can be modified later
+        !bit(cfg.reg.val, 1 << 7) &&
+        // Addressing mode is OFF - indicating a disabled region
+        extract(cfg.reg.val, 0b11000, 3) == 0
+    }
+
+    fn cfg_reg_configured_correctly(cfg_reg: bitvec<32>, region: PMPUserRegion, idx: int) -> bool {
+        // 4 regions can be packed into a cfg register -
+        // the code packs the odd region in the first 4 bytes
+        // and the even region in the third 4 bytes
+        if (idx % 2 == 0) {
+            // extract the first cfg region
+            let odd_region_bits = extract(cfg_reg, 0x0000FF00, 8); // extracts bits 15 - 8 of the register because it's stored as BE
+            odd_region_bits == region.tor_cfg.reg.val
+        } else {
+            // extract the third cfg region
+            let even_region_bits = extract(cfg_reg, 0xFF000000, 24); // extracts bits 31 - 24 of the register because it's stored as BE
+            even_region_bits == region.tor_cfg.reg.val
+        }
+    }
+
+    fn addr_reg_configured_correctly(addr_registers: Map<int, bitvec<32>>, region: PMPUserRegion, idx: int) -> bool {
+        if (idx % 2 == 0) {
+            let even_addr_start_idx = idx * 2;
+            let even_addr_end_idx = idx * 2 + 1;
+            if region.tor_cfg.reg.val != 0 {
+                let even_start_reg = map_select(addr_registers, even_addr_start_idx);
+                let even_end_reg = map_select(addr_registers, even_addr_end_idx);
+
+                // top of range - sanity check
+                even_addr_start_idx + 1 == even_addr_end_idx &&
+                even_start_reg == bv_int_to_bv32(region.start) >> 2 &&
+                even_end_reg == bv_int_to_bv32(region.end) >> 2
+            } else {
+                true
+            }
+        } else {
+            let odd_addr_start_idx = (idx - 1) * 2 + 2;
+            let odd_addr_end_idx = (idx - 1) * 2 + 3;
+            if region.tor_cfg.reg.val != 0 {
+                let odd_start_reg = map_select(addr_registers, odd_addr_start_idx);
+                let odd_end_reg = map_select(addr_registers, odd_addr_end_idx);
+
+                // top of range - sanity check
+                odd_addr_start_idx + 1 == odd_addr_end_idx &&
+                odd_start_reg == bv_int_to_bv32(region.start) >> 2 &&
+                odd_end_reg == bv_int_to_bv32(region.end) >> 2
+            } else {
+                true
+            }
+        }
+    }
+
+    fn region_configured_correctly(region: PMPUserRegion, old: HardwareState, new: HardwareState, idx: int) -> bool {
+        let cfg_reg_idx = idx / 2;
+        let cfg_reg = map_select(new.pmpcfg_registers, cfg_reg_idx);
+        cfg_reg_configured_correctly(cfg_reg, region, idx) && addr_reg_configured_correctly(new.pmpaddr_registers, region, idx)
+    }
+
+    // uninterpreted since we don't have forall:
+    // forall i. i >= 0 && i < bound, region_configured_correctly(hardware_state, i)
+    fn all_regions_configured_correctly_up_to(bound: int, hardware_state: HardwareState) -> bool;
 }
 
-register_bitfields![u8,
+// Some axioms and verification state
+//
+// We want to prove that all regions up to a const generic are configured
+// correctly but we don't have a forall.
+//
+// So instead, we do the classic inductive evidence trick
+
+#[flux_rs::opaque]
+#[flux_rs::refined_by(pmpcfg_registers: Map<int, bitvec<32>>, pmpaddr_registers: Map<int, bitvec<32>>)]
+pub struct HardwareState {}
+
+#[flux_rs::trusted(reason = "Flux Wrappers")]
+impl HardwareState {
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    #[flux_rs::sig(fn (&HardwareState[@hw]) -> HardwareState[hw])]
+    pub fn snapshot(&self) -> Self {
+        Self {}
+    }
+}
+
+#[flux_rs::trusted(reason = "Proof Code")]
+#[flux_rs::sig(fn (&HardwareState[@hw]) ensures all_regions_configured_correctly_up_to(0, hw))]
+fn all_regions_configured_correctly_base(hardware_state: &HardwareState) {}
+
+#[flux_rs::trusted(reason = "Proof Code")]
+#[flux_rs::sig(fn (&PMPUserRegion[@region], &HardwareState[@old], &HardwareState[@new], i: usize)
+    requires all_regions_configured_correctly_up_to(i, old) && region_configured_correctly(region, old, new, i)
+    ensures all_regions_configured_correctly_up_to(i + 1, new)
+)]
+fn all_regions_configured_correctly_step(
+    region: &PMPUserRegion,
+    old_hw: &HardwareState,
+    new_hw: &HardwareState,
+    i: usize,
+) {
+}
+
+#[flux_rs::trusted(reason = "TCB")]
+#[flux_rs::sig(
+    fn (idx: usize, bits: usize, hw_state: &strg HardwareState[@hw])
+        ensures hw_state: HardwareState[{
+            pmpaddr_registers: map_store(hw.pmpaddr_registers, idx, bv_int_to_bv32(bits)),
+            ..hw
+        }]
+)]
+fn pmpaddr_set(idx: usize, bits: usize, hardware_state: &mut HardwareState) {
+    csr::CSR.pmpaddr_set(idx, bits);
+}
+
+#[flux_rs::trusted(reason = "TCB")]
+#[flux_rs::sig(
+    fn (idx: usize, bits: usize, hw_state: &strg HardwareState[@hw])
+        ensures hw_state: HardwareState[{
+            pmpcfg_registers: map_store(hw.pmpcfg_registers, idx, bv_int_to_bv32(bits)),
+            ..hw
+        }]
+)]
+fn pmpconfig_set(idx: usize, bits: usize, hardware_state: &mut HardwareState) {
+    csr::CSR.pmpconfig_set(idx, bits);
+}
+
+#[flux_rs::trusted(reason = "TCB")]
+#[flux_rs::sig(
+    fn (idx: usize, FieldValueU32<_>[@mask, @value], hw_state: &strg HardwareState[@hw])
+        ensures hw_state: HardwareState[{
+            pmpcfg_registers: map_store(
+                hw.pmpcfg_registers,
+                idx,
+                (map_select(hw.pmpcfg_registers, idx) & bv_not(mask)) | value
+            ),
+            ..hw
+        }]
+)]
+fn pmpconfig_modify(
+    idx: usize,
+    bits: FieldValueU32<csr::pmpconfig::pmpcfg::Register>,
+    hardware_state: &mut HardwareState,
+) {
+    // SUPER annoying :(
+    let bits_inner = bits.into_inner();
+    let as_usize = FieldValue::<usize, csr::pmpconfig::pmpcfg::Register>::new(
+        bits_inner.mask as usize,
+        0,
+        bits_inner.value as usize,
+    );
+    csr::CSR.pmpconfig_modify(idx, as_usize);
+}
+
+#[flux_rs::trusted(reason = "TCB")]
+#[flux_rs::sig(fn (byte0: u8, byte1: u8, byte2: u8, byte3: u8) -> u32{b:
+    extract(bv_int_to_bv32(b), 0xFF000000, 24) == bv_int_to_bv32(byte0) &&
+    extract(bv_int_to_bv32(b), 0x00FF0000, 16) == bv_int_to_bv32(byte1) &&
+    extract(bv_int_to_bv32(b), 0x0000FF00, 8) == bv_int_to_bv32(byte2) &&
+    extract(bv_int_to_bv32(b), 0x000000FF, 0) == bv_int_to_bv32(byte3)
+})]
+fn u32_from_be_bytes(byte0: u8, byte1: u8, byte2: u8, byte3: u8) -> u32 {
+    u32::from_be_bytes([byte0, byte1, byte2, byte3])
+}
+
+// We can't use an extern spec here because of the tuple! :(
+#[flux_rs::trusted(reason = "Extern Spec")]
+#[flux_rs::sig(fn (usize[@fst], u32[@snd]) -> usize[
+    if (snd >= 32) {
+        bv_bv32_to_int(bv_int_to_bv32(fst) >> bv_int_to_bv32(snd) & 31)
+    } else {
+        bv_bv32_to_int(bv_int_to_bv32(fst) >> bv_int_to_bv32(snd))
+    }
+])]
+fn overflowing_shr(lhs: usize, rhs: u32) -> usize {
+    return lhs.overflowing_shr(rhs).0 as usize;
+}
+
+register_bitfields_u8![u8,
     /// Generic `pmpcfg` octet.
     ///
     /// A PMP entry is configured through `pmpaddrX` and `pmpcfgX` CSRs, where a
@@ -90,59 +305,95 @@ register_bitfields![u8,
 /// By accepting this type, PMP implements can rely on the above properties to
 /// hold by construction and avoid runtime checks. For example, this type is
 /// used in the [`TORUserPMP::configure_pmp`] method.
-#[derive(Copy, Clone, Debug)]
-// #[flux_rs::opaque]
-// #[flux_rs::refined_by(val: int)]
-pub struct TORUserPMPCFG(LocalRegisterCopy<u8, pmpcfg_octet::Register>);
+#[derive(Copy, Clone)]
+#[flux_rs::refined_by(reg: LocalRegisterCopyU8)]
+pub struct TORUserPMPCFG(
+    #[field(LocalRegisterCopyU8<pmpcfg_octet::Register>[reg])]
+    LocalRegisterCopyU8<pmpcfg_octet::Register>,
+);
 
 impl TORUserPMPCFG {
-    // #[flux_rs::constant(TORUserPMPCFG[0])]
-    pub const OFF: TORUserPMPCFG = TORUserPMPCFG(LocalRegisterCopy::new(0));
+    #[flux_rs::sig(fn () -> TORUserPMPCFG{ cfg: inactive_pmp_user_cfg_correct(cfg) && cfg.reg.val == 0 })]
+    pub const fn OFF() -> TORUserPMPCFG {
+        TORUserPMPCFG(LocalRegisterCopyU8::new(0))
+    }
 
     /// Extract the `u8` representation of the [`pmpcfg_octet`] register.
+    #[flux_rs::sig(fn (&Self[@cfg]) -> u8[bv_bv32_to_int(cfg.reg.val)])]
     pub fn get(&self) -> u8 {
         self.0.get()
     }
 
     /// Extract a copy of the contained [`pmpcfg_octet`] register.
-    pub fn get_reg(&self) -> LocalRegisterCopy<u8, pmpcfg_octet::Register> {
+    pub fn get_reg(&self) -> LocalRegisterCopyU8<pmpcfg_octet::Register> {
         self.0
     }
 }
 
 impl PartialEq<TORUserPMPCFG> for TORUserPMPCFG {
+    #[flux_rs::sig(fn (&Self[@this], &Self[@other]) -> bool[this.reg.val == other.reg.val])]
     fn eq(&self, other: &Self) -> bool {
         self.0.get() == other.0.get()
+    }
+
+    #[flux_rs::sig(fn (&Self[@this], &Self[@other]) -> bool[this.reg.val != other.reg.val])]
+    fn ne(&self, other: &Self) -> bool {
+        self.0.get() != other.0.get()
     }
 }
 
 impl Eq for TORUserPMPCFG {}
 
-impl From<mpu::Permissions> for TORUserPMPCFG {
-    fn from(p: mpu::Permissions) -> Self {
-        let fv = match p {
-            mpu::Permissions::ReadWriteExecute => {
-                pmpcfg_octet::r::SET + pmpcfg_octet::w::SET + pmpcfg_octet::x::SET
-            }
-            mpu::Permissions::ReadWriteOnly => {
-                pmpcfg_octet::r::SET + pmpcfg_octet::w::SET + pmpcfg_octet::x::CLEAR
-            }
-            mpu::Permissions::ReadExecuteOnly => {
-                pmpcfg_octet::r::SET + pmpcfg_octet::w::CLEAR + pmpcfg_octet::x::SET
-            }
-            mpu::Permissions::ReadOnly => {
-                pmpcfg_octet::r::SET + pmpcfg_octet::w::CLEAR + pmpcfg_octet::x::CLEAR
-            }
-            mpu::Permissions::ExecuteOnly => {
-                pmpcfg_octet::r::CLEAR + pmpcfg_octet::w::CLEAR + pmpcfg_octet::x::SET
-            }
-        };
+#[flux_rs::sig(fn (p: mpu::Permissions) -> TORUserPMPCFG{cfg: active_pmp_user_cfg_correct(cfg, p)})]
+fn permissions_to_pmpcfg(p: mpu::Permissions) -> TORUserPMPCFG {
+    let fv = match p {
+        mpu::Permissions::ReadWriteExecute => {
+            pmpcfg_octet::r::SET() + pmpcfg_octet::w::SET() + pmpcfg_octet::x::SET()
+        }
+        mpu::Permissions::ReadWriteOnly => {
+            pmpcfg_octet::r::SET() + pmpcfg_octet::w::SET() + pmpcfg_octet::x::CLEAR()
+        }
+        mpu::Permissions::ReadExecuteOnly => {
+            pmpcfg_octet::r::SET() + pmpcfg_octet::w::CLEAR() + pmpcfg_octet::x::SET()
+        }
+        mpu::Permissions::ReadOnly => {
+            pmpcfg_octet::r::SET() + pmpcfg_octet::w::CLEAR() + pmpcfg_octet::x::CLEAR()
+        }
+        mpu::Permissions::ExecuteOnly => {
+            pmpcfg_octet::r::CLEAR() + pmpcfg_octet::w::CLEAR() + pmpcfg_octet::x::SET()
+        }
+    };
 
-        TORUserPMPCFG(LocalRegisterCopy::new(
-            (fv + pmpcfg_octet::l::CLEAR + pmpcfg_octet::a::TOR).value,
-        ))
-    }
+    TORUserPMPCFG(LocalRegisterCopyU8::new(
+        (fv + pmpcfg_octet::l::CLEAR() + pmpcfg_octet::a::TOR()).value(),
+    ))
 }
+
+// impl From<mpu::Permissions> for TORUserPMPCFG {
+//     fn from(p: mpu::Permissions) -> Self {
+//         let fv = match p {
+//             mpu::Permissions::ReadWriteExecute => {
+//                 pmpcfg_octet::r::SET + pmpcfg_octet::w::SET + pmpcfg_octet::x::SET
+//             }
+//             mpu::Permissions::ReadWriteOnly => {
+//                 pmpcfg_octet::r::SET + pmpcfg_octet::w::SET + pmpcfg_octet::x::CLEAR
+//             }
+//             mpu::Permissions::ReadExecuteOnly => {
+//                 pmpcfg_octet::r::SET + pmpcfg_octet::w::CLEAR + pmpcfg_octet::x::SET
+//             }
+//             mpu::Permissions::ReadOnly => {
+//                 pmpcfg_octet::r::SET + pmpcfg_octet::w::CLEAR + pmpcfg_octet::x::CLEAR
+//             }
+//             mpu::Permissions::ExecuteOnly => {
+//                 pmpcfg_octet::r::CLEAR + pmpcfg_octet::w::CLEAR + pmpcfg_octet::x::SET
+//             }
+//         };
+
+//         TORUserPMPCFG(LocalRegisterCopy::new(
+//             (fv + pmpcfg_octet::l::CLEAR + pmpcfg_octet::a::TOR).value,
+//         ))
+//     }
+// }
 
 /// A RISC-V PMP memory region specification, configured in NAPOT mode.
 ///
@@ -313,7 +564,7 @@ pub unsafe fn format_pmp_entries<const PHYSICAL_ENTRIES: usize>(
         // entries. Convert this into a u8-wide LocalRegisterCopy<u8,
         // pmpcfg_octet> as a generic register type, independent of the entry's
         // offset.
-        let pmpcfg: LocalRegisterCopy<u8, pmpcfg_octet::Register> = LocalRegisterCopy::new(
+        let pmpcfg: LocalRegisterCopyU8<pmpcfg_octet::Register> = LocalRegisterCopyU8::new(
             csr::CSR
                 .pmpconfig_get(i / 4)
                 .overflowing_shr(((i % 4) * 8) as u32)
@@ -326,7 +577,7 @@ pub unsafe fn format_pmp_entries<const PHYSICAL_ENTRIES: usize>(
         // that are OFF, we still want to expose the pmpaddrX register value --
         // thus return the raw unshifted value as the addr, and 0 as the
         // region's end.
-        let (start_label, start, end, mode) = match pmpcfg.read_as_enum(pmpcfg_octet::a) {
+        let (start_label, start, end, mode) = match pmpcfg.read_as_enum(pmpcfg_octet::a()) {
             Some(pmpcfg_octet::a::Value::OFF) => {
                 let addr = csr::CSR.pmpaddr_get(i);
                 ("pmpaddr", addr, 0, "OFF  ")
@@ -397,10 +648,10 @@ pub unsafe fn format_pmp_entries<const PHYSICAL_ENTRIES: usize>(
             end,
             pmpcfg.get(),
             mode,
-            t(pmpcfg.is_set(pmpcfg_octet::l), "l", "-"),
-            t(pmpcfg.is_set(pmpcfg_octet::r), "r", "-"),
-            t(pmpcfg.is_set(pmpcfg_octet::w), "w", "-"),
-            t(pmpcfg.is_set(pmpcfg_octet::x), "x", "-"),
+            t(pmpcfg.is_set(pmpcfg_octet::l()), "l", "-"),
+            t(pmpcfg.is_set(pmpcfg_octet::r()), "r", "-"),
+            t(pmpcfg.is_set(pmpcfg_octet::w()), "w", "-"),
+            t(pmpcfg.is_set(pmpcfg_octet::x()), "x", "-"),
         )?;
     }
 
@@ -501,7 +752,14 @@ pub trait TORUserPMP<const MAX_REGIONS: usize> {
     /// To disable a region, set its configuration to [`TORUserPMPCFG::OFF`]. In
     /// this case, the start and end addresses are ignored and can be set to
     /// arbitrary values.
-    fn configure_pmp(&self, regions: &[PMPUserRegion; MAX_REGIONS]) -> Result<(), ()>;
+    #[flux_rs::sig(fn (&Self, &[PMPUserRegion; _], hw_state: &strg HardwareState) -> Result<(), ()>[#ok] ensures hw_state: HardwareState {hw:
+        ok => all_regions_configured_correctly_up_to(MAX_REGIONS, hw)
+    })]
+    fn configure_pmp(
+        &self,
+        regions: &[PMPUserRegion; MAX_REGIONS],
+        hardware_state: &mut HardwareState,
+    ) -> Result<(), ()>;
 
     /// Enable the user-mode memory protection.
     ///
@@ -577,18 +835,24 @@ impl RegionGhost {
 pub struct PMPUserRegion {
     #[field(usize[region_number])]
     pub region_number: usize,
-    #[field(TORUserPMPCFG[tor_cfg])]
+    #[field({TORUserPMPCFG[tor_cfg] |
+        (is_set => active_pmp_user_cfg_correct(tor_cfg, perms)) &&
+        (!is_set => inactive_pmp_user_cfg_correct(tor_cfg) && tor_cfg.reg.val == 0)
+    })]
     pub tor: TORUserPMPCFG,
     #[field(Option<FluxPtrU8[start]>[is_set])]
     pub start: Option<FluxPtrU8>,
     #[field(Option<FluxPtrU8[end]>[is_set])]
     pub end: Option<FluxPtrU8>,
-    #[field(RegionGhost[start, end, perms])]
+    #[field({ RegionGhost[start, end, perms] | is_set => start % 4 == 0 && end % 4 == 0 })]
     pub ghost: RegionGhost,
 }
 
 impl PMPUserRegion {
-    #[flux_rs::sig(fn (region_number: usize, tor: TORUserPMPCFG, start: FluxPtrU8, end: FluxPtrU8, perms: mpu::Permissions) -> Self[region_number, tor, start, end, perms, true] requires end >= start && valid_size(end))]
+    #[flux_rs::sig(
+        fn (region_number: usize, tor: TORUserPMPCFG, start: FluxPtrU8, end: FluxPtrU8, perms: mpu::Permissions) -> Self[region_number, tor, start, end, perms, true]
+            requires end >= start && active_pmp_user_cfg_correct(tor, perms) && start % 4 == 0 && end % 4 == 0
+    )]
     pub fn new(
         region_number: usize,
         tor: TORUserPMPCFG,
@@ -635,7 +899,7 @@ impl RegionDescriptor for PMPUserRegion {
     fn default(region_number: usize) -> Self {
         Self {
             region_number,
-            tor: TORUserPMPCFG::OFF,
+            tor: TORUserPMPCFG::OFF(),
             start: None,
             end: None,
             ghost: RegionGhost::empty(),
@@ -684,7 +948,7 @@ impl RegionDescriptor for PMPUserRegion {
 
         let region = PMPUserRegion::new(
             region_num,
-            permissions.into(),
+            permissions_to_pmpcfg(permissions),
             FluxPtrU8::from(start),
             FluxPtrU8::from(start + size),
             permissions,
@@ -789,7 +1053,7 @@ impl RegionDescriptor for PMPUserRegion {
         }
         let region = PMPUserRegion::new(
             region_number,
-            permissions.into(),
+            permissions_to_pmpcfg(permissions),
             FluxPtrU8::from(start),
             FluxPtrU8::from(start + size),
             permissions,
@@ -835,7 +1099,14 @@ impl RegionDescriptor for PMPUserRegion {
         max_region_number: usize,
         permissions: mpu::Permissions,
     ) -> Option<Pair<Self, Self>> {
-        if (region_size == 0) {
+        // For this: We should get this from region_start's invariant.
+        // It may be worth updating this function to take in the region
+        // as a whole
+        if region_start.as_usize() % 4 != 0 {
+            return None;
+        }
+
+        if region_size == 0 {
             return None;
         }
 
@@ -852,11 +1123,11 @@ impl RegionDescriptor for PMPUserRegion {
             return None;
         }
 
-        // If we're not out of memory, reutrn the region
+        // If we're not out of memory, return the region
         Some(Pair {
             fst: PMPUserRegion::new(
                 max_region_number - 1,
-                permissions.into(),
+                permissions_to_pmpcfg(permissions),
                 region_start,
                 FluxPtrU8::from(end),
                 permissions,
@@ -961,10 +1232,10 @@ impl fmt::Display for PMPUserRegion {
             self.start.unwrap_or(FluxPtrU8::null()).as_usize(),
             self.end.unwrap_or(FluxPtrU8::null()).as_usize(),
             pmpcfg.get(),
-            t(pmpcfg.is_set(pmpcfg_octet::a), "TOR", "OFF"),
-            t(pmpcfg.is_set(pmpcfg_octet::r), "r", "-"),
-            t(pmpcfg.is_set(pmpcfg_octet::w), "w", "-"),
-            t(pmpcfg.is_set(pmpcfg_octet::x), "x", "-"),
+            t(pmpcfg.is_set(pmpcfg_octet::a()), "TOR", "OFF"),
+            t(pmpcfg.is_set(pmpcfg_octet::r()), "r", "-"),
+            t(pmpcfg.is_set(pmpcfg_octet::w()), "w", "-"),
+            t(pmpcfg.is_set(pmpcfg_octet::x()), "x", "-"),
         )?;
 
         write!(f, " }}\r\n")?;
@@ -1030,16 +1301,18 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
     }
 
     #[flux_rs::trusted(reason = "fixpoint encoding error")]
-    fn configure_mpu(&self, config: &RArray<Self::Region>) {
+    fn configure_mpu(&self, config: &RArray<Self::Region>, id: usize) {
         let mut ac_config: [Self::Region; MAX_REGIONS] =
             core::array::from_fn(|i| <Self::Region as mpu::RegionDescriptor>::default(i));
-
-        // copy config over
-        for i in 0..8 {
-            ac_config[i] = config.get(i);
+        for i in 0..MAX_REGIONS {
+            if i < 8 {
+                ac_config[i] = config.get(i);
+            } else {
+                ac_config[i] = <Self::Region as mpu::RegionDescriptor>::default(i);
+            }
         }
-
-        self.pmp.configure_pmp(&ac_config).unwrap();
+        let mut hw = HardwareState::new();
+        self.pmp.configure_pmp(&ac_config, &mut hw).unwrap();
     }
 }
 
@@ -1060,7 +1333,11 @@ pub mod test {
             MPU_REGIONS
         }
 
-        fn configure_pmp(&self, _regions: &[PMPUserRegion]) -> Result<(), ()> {
+        fn configure_pmp(
+            &self,
+            _regions: &[PMPUserRegion],
+            hardware_state: &mut HardwareState,
+        ) -> Result<(), ()> {
             Ok(())
         }
 
@@ -1288,11 +1565,17 @@ pub mod test {
 }
 
 pub mod simple {
-    use super::{pmpcfg_octet, PMPUserRegion, TORUserPMP, TORUserPMPCFG};
-    use crate::csr;
+    use super::{pmpcfg_octet, HardwareState, PMPUserRegion, TORUserPMP, TORUserPMPCFG};
+    use crate::{
+        csr,
+        pmp::{
+            all_regions_configured_correctly_base, all_regions_configured_correctly_step,
+            u32_from_be_bytes,
+        },
+    };
     use core::fmt;
     use flux_support::FluxPtr;
-    use kernel::utilities::registers::{FieldValue, LocalRegisterCopy};
+    use flux_support::{FieldValueU32, LocalRegisterCopyU8};
 
     /// A "simple" RISC-V PMP implementation.
     ///
@@ -1312,7 +1595,45 @@ pub mod simple {
     /// the runtime overhead induced through PMP configuration, at the cost of
     /// having less PMP regions available to use for userspace memory
     /// protection.
-    pub struct SimplePMP<const AVAILABLE_ENTRIES: usize>;
+    #[flux_rs::refined_by(hw_state: HardwareState)]
+    pub struct SimplePMP<const AVAILABLE_ENTRIES: usize> {
+        #[field(HardwareState[hw_state])]
+        hardware_state: HardwareState,
+    }
+
+    flux_rs::defs! {
+
+        fn available_region_setup(i: int, old: HardwareState, new: HardwareState) -> bool {
+            let cfg = map_select(new.pmpcfg_registers, i / 4);
+            let region_offset = i % 4;
+
+            if region_offset == 0 {
+                extract(cfg, 0x00000018, 3) == 0 && !bit(cfg, 1 << 7)
+            } else if region_offset == 1 {
+                extract(cfg, 0x00001800, 11) == 0 && !bit(cfg, 1 << 15)
+            } else if region_offset == 2 {
+                extract(cfg, 0x00180000, 19) == 0 && !bit(cfg, 1 << 23)
+            } else if region_offset == 3 {
+                extract(cfg, 0x18000000, 27) == 0 && !bit(cfg, 1 << 31)
+            } else {
+                false
+            }
+        }
+
+        // forall j, j >= 0 && j < i -> available_region_setup(i, hardware_state)
+        fn all_available_regions_setup_up_to(i: int, hw: HardwareState) -> bool;
+    }
+
+    #[flux_rs::trusted(reason = "Proof Code")]
+    #[flux_rs::sig(fn (&HardwareState[@hw]) ensures all_available_regions_setup_up_to(0, hw))]
+    fn all_available_regions_setup_up_to_base(_: &HardwareState) {}
+
+    #[flux_rs::trusted(reason = "Proof Code")]
+    #[flux_rs::sig(fn (i: usize, &HardwareState[@old], &HardwareState[@new])
+        requires all_available_regions_setup_up_to(i, old) && available_region_setup(i, old, new)
+        ensures all_available_regions_setup_up_to(i + 1, new)
+    )]
+    fn all_available_regions_setup_up_to_step(i: usize, old: &HardwareState, new: &HardwareState) {}
 
     impl<const AVAILABLE_ENTRIES: usize> SimplePMP<AVAILABLE_ENTRIES> {
         pub unsafe fn new() -> Result<Self, ()> {
@@ -1331,18 +1652,56 @@ pub mod simple {
             // reason why we can execute code or read-write data in machine mode
             // right now. Thus, never try to touch a locked region, as we might
             // well revoke access to a kernel region!
-            for i in 0..AVAILABLE_ENTRIES {
+
+            #[flux_rs::sig(fn (i: usize, hw_state: &strg HardwareState[@old])
+                -> Result<{ i32 |  all_available_regions_setup_up_to(i + 1, new) }, ()>
+                requires all_available_regions_setup_up_to(i, old)
+                ensures hw_state: HardwareState[#new]
+            )]
+            #[flux_rs::trusted(reason = "VR:HANG")]
+            fn configure_initial_pmp_idx(
+                i: usize,
+                hardware_state: &mut HardwareState,
+            ) -> Result<i32, ()> {
+                // NOTE: works over PMP entries - hence the mod 4 arithmetic when
+                // checking a PMPCFG
+
+                let old: HardwareState = hardware_state.snapshot();
+
                 // Read the entry's CSR:
-                let pmpcfg_csr = csr::CSR.pmpconfig_get(i / 4);
+                #[flux_rs::trusted(reason = "TCB")]
+                #[flux_rs::sig(fn (i: usize, &HardwareState[@hw]) -> usize[bv_bv32_to_int(map_select(hw.pmpcfg_registers, i))])]
+                fn pmpconfig_get(i: usize, _: &HardwareState) -> usize {
+                    csr::CSR.pmpconfig_get(i)
+                }
+
+                let pmpcfg_csr = pmpconfig_get(i / 4, &hardware_state);
+
+                #[flux_rs::trusted(reason = "Flux integer conversion")]
+                #[flux_rs::sig(fn (x: usize) -> u8[bv_bv32_to_int(extract(bv_int_to_bv32(x), 0xFF, 0))])]
+                fn usize_to_u8_truncate(x: usize) -> u8 {
+                    x as u8
+                }
+
+                #[flux_rs::trusted(reason = "Flux integer conversion")]
+                // NOTE: trusted because usize == u32 here
+                #[flux_rs::sig(fn (x: usize) -> u32[x] requires x <= u32::MAX)]
+                fn usize_to_u32(x: usize) -> u32 {
+                    x as u32
+                }
+
+                flux_rs::assert((i % 4) * 8 <= 24);
 
                 // Extract the entry's pmpcfg octet:
-                let pmpcfg: LocalRegisterCopy<u8, pmpcfg_octet::Register> = LocalRegisterCopy::new(
-                    pmpcfg_csr.overflowing_shr(((i % 4) * 8) as u32).0 as u8,
-                );
+                let pmpcfg: LocalRegisterCopyU8<pmpcfg_octet::Register> =
+                    LocalRegisterCopyU8::new(usize_to_u8_truncate(super::overflowing_shr(
+                        pmpcfg_csr,
+                        usize_to_u32((i % 4) * 8),
+                    )));
 
                 // As outlined above, we never touch a locked region. Thus, bail
                 // out if it's locked:
-                if pmpcfg.is_set(pmpcfg_octet::l) {
+                if pmpcfg.is_set(pmpcfg_octet::l()) {
                     return Err(());
                 }
 
@@ -1351,7 +1710,21 @@ pub mod simple {
                 // denied for machine-mode access. Hence, we can change it in
                 // arbitrary ways without breaking our own memory access. Try to
                 // flip the R/W/X bits:
-                csr::CSR.pmpconfig_set(i / 4, pmpcfg_csr ^ (7 << ((i % 4) * 8)));
+                use flux_rs::bitvec::BV32;
+                // pmpcfg_csr ^ (7 << ((i % 4) * 8))
+                // change xor to (a | b) & !(a & b)
+
+                #[flux_rs::sig(fn (x: BV32, y: BV32) -> BV32[(x | y) & bv_not(x & y)])]
+                fn xor(x: BV32, y: BV32) -> BV32 {
+                    (x | y) & !(x & y)
+                }
+
+                let rwx_bits = xor(
+                    BV32::from(pmpcfg_csr as u32),
+                    BV32::from(7) << BV32::from(usize_to_u32((i % 4) * 8)),
+                );
+                let rwx_bits: u32 = rwx_bits.into();
+                super::pmpconfig_set(i / 4, rwx_bits as usize, hardware_state);
 
                 // Check if the CSR changed:
                 if pmpcfg_csr == csr::CSR.pmpconfig_get(i / 4) {
@@ -1362,12 +1735,55 @@ pub mod simple {
                 }
 
                 // Finally, turn the region off:
-                csr::CSR.pmpconfig_set(i / 4, pmpcfg_csr & !(0x18 << ((i % 4) * 8)));
+                let off_bits = BV32::from(pmpcfg_csr as u32)
+                    & !(BV32::from(0x18) << BV32::from(usize_to_u32((i % 4) * 8)));
+                let off_bits: u32 = off_bits.into();
+
+                super::pmpconfig_set(i / 4, off_bits as usize, hardware_state);
+
+                all_available_regions_setup_up_to_step(i, &old, hardware_state);
+                Ok(1669)
             }
+
+            #[flux_rs::sig(fn (idx: usize, &HardwareState[@hw]) requires all_available_regions_setup_up_to(idx, hw))]
+            fn assert_setup(idx: usize, _: &HardwareState) {}
+
+            #[flux_rs::sig(fn (idx: usize, hw_state: &strg HardwareState[@og_hw], available_entries: usize)
+                -> Result<{ i32 | all_available_regions_setup_up_to(available_entries, hw) }, ()>[#ok]
+                requires
+                    all_available_regions_setup_up_to(idx, og_hw)
+                    && (idx >= available_entries => all_available_regions_setup_up_to(available_entries, og_hw))
+                ensures hw_state: HardwareState[#hw]
+            )]
+            fn configure_initial_pmp_tail(
+                i: usize,
+                hardware_state: &mut HardwareState,
+                available_entries: usize,
+            ) -> Result<i32, ()> {
+                if i >= available_entries {
+                    flux_rs::assert(i >= available_entries);
+                    assert_setup(available_entries, hardware_state);
+                    return Ok(99);
+                }
+                let old = hardware_state.snapshot();
+                configure_initial_pmp_idx(i, hardware_state)?;
+                assert_setup(i + 1, &hardware_state);
+                match configure_initial_pmp_tail(i + 1, hardware_state, available_entries) {
+                    Ok(_) => return Ok(100),
+                    Err(()) => return Err(()),
+                }
+            }
+
+            // establish some verification specific details
+            let mut hardware_state = HardwareState::new();
+            all_available_regions_setup_up_to_base(&hardware_state);
+            flux_support::assume(AVAILABLE_ENTRIES > 0);
+
+            configure_initial_pmp_tail(0, &mut hardware_state, AVAILABLE_ENTRIES)?;
 
             // Hardware PMP is verified to be in a compatible mode / state, and
             // has at least `AVAILABLE_ENTRIES` entries.
-            Ok(SimplePMP)
+            Ok(SimplePMP { hardware_state })
         }
     }
 
@@ -1388,89 +1804,197 @@ pub mod simple {
         // `u32::from_be_bytes` and then cast to usize, as it manages to compile
         // on 64-bit systems as well. However, this implementation will not work
         // on RV64I systems, due to the changed pmpcfgX CSR layout.
-        fn configure_pmp(&self, regions: &[PMPUserRegion; MPU_REGIONS]) -> Result<(), ()> {
-            // Could use `iter_array_chunks` once that's stable.
-            let mut regions_iter = regions.iter();
-            let mut i = 0;
+        #[flux_rs::sig(fn (&Self, &[PMPUserRegion; _], hw_state: &strg HardwareState) -> Result<(), ()>[#ok] ensures hw_state: HardwareState {hw:
+            ok => all_regions_configured_correctly_up_to(MPU_REGIONS, hw)
+        })]
+        fn configure_pmp(
+            &self,
+            regions: &[PMPUserRegion; MPU_REGIONS],
+            hardware_state: &mut HardwareState,
+        ) -> Result<(), ()> {
+            // configures region `i` and region `i + 1` correctly
+            #[flux_rs::sig(fn (i: usize, &PMPUserRegion[@er], &PMPUserRegion[@or], hw_state: &strg HardwareState[@og_hw])
+                // Note: these pre and post conditions (all_regions_configured) seem silly
+                // but we need them because otherwise Flux forgets
+                // all state after we return
+                requires all_regions_configured_correctly_up_to(i, og_hw) && i % 2 == 0
+                ensures hw_state: HardwareState{new_hw: all_regions_configured_correctly_up_to(i + 2, new_hw) }
+            )]
+            fn configure_region_pair(
+                i: usize,
+                even_region: &PMPUserRegion,
+                odd_region: &PMPUserRegion,
+                hardware_state: &mut HardwareState,
+            ) {
+                let old = hardware_state.snapshot();
+                let even_region_start = match even_region.start {
+                    Some(r) => r,
+                    None => FluxPtr::null(),
+                };
+                let even_region_end = match even_region.end {
+                    Some(r) => r,
+                    None => FluxPtr::null(),
+                };
+                let odd_region_start = match odd_region.start {
+                    Some(r) => r,
+                    None => FluxPtr::null(),
+                };
+                let odd_region_end = match odd_region.end {
+                    Some(r) => r,
+                    None => FluxPtr::null(),
+                };
 
-            while let Some(even_region) = regions_iter.next() {
-                let odd_region_opt = regions_iter.next();
-                let even_region_start = even_region.start.unwrap_or(FluxPtr::null());
-                let even_region_end = even_region.end.unwrap_or(FluxPtr::null());
+                // We can configure two regions at once which, given that we
+                // start at index 0 (an even offset), translates to a single
+                // CSR write for the pmpcfgX register:
+                super::pmpconfig_set(
+                    i / 2,
+                    u32_from_be_bytes(
+                        odd_region.tor.get(),
+                        TORUserPMPCFG::OFF().get(),
+                        even_region.tor.get(),
+                        TORUserPMPCFG::OFF().get(),
+                    ) as usize,
+                    hardware_state,
+                );
 
-                if let Some(odd_region) = odd_region_opt {
-                    let odd_region_start = odd_region.start.unwrap_or(FluxPtr::null());
-                    let odd_region_end = odd_region.end.unwrap_or(FluxPtr::null());
-                    // We can configure two regions at once which, given that we
-                    // start at index 0 (an even offset), translates to a single
-                    // CSR write for the pmpcfgX register:
-                    csr::CSR.pmpconfig_set(
-                        i / 2,
-                        u32::from_be_bytes([
-                            odd_region.tor.get(),
-                            TORUserPMPCFG::OFF.get(),
-                            even_region.tor.get(),
-                            TORUserPMPCFG::OFF.get(),
-                        ]) as usize,
+                // Now, set the addresses of the respective regions, if they
+                // are enabled, respectively:
+                if even_region.tor != TORUserPMPCFG::OFF() {
+                    super::pmpaddr_set(
+                        i * 2 + 0,
+                        super::overflowing_shr(even_region_start.as_usize(), 2),
+                        hardware_state,
                     );
 
-                    // Now, set the addresses of the respective regions, if they
-                    // are enabled, respectively:
-                    if even_region.tor != TORUserPMPCFG::OFF {
-                        csr::CSR.pmpaddr_set(
-                            i * 2 + 0,
-                            (even_region_start.as_usize()).overflowing_shr(2).0,
-                        );
-                        csr::CSR.pmpaddr_set(
-                            i * 2 + 1,
-                            (even_region_end.as_usize()).overflowing_shr(2).0,
-                        );
-                    }
-
-                    if odd_region.tor != TORUserPMPCFG::OFF {
-                        csr::CSR.pmpaddr_set(
-                            i * 2 + 2,
-                            (odd_region_start.as_usize()).overflowing_shr(2).0,
-                        );
-                        csr::CSR.pmpaddr_set(
-                            i * 2 + 3,
-                            (odd_region_end.as_usize()).overflowing_shr(2).0,
-                        );
-                    }
-
-                    i += 2;
-                } else {
-                    // TODO: check overhead of code
-                    // Modify the first two pmpcfgX octets for this region:
-                    csr::CSR.pmpconfig_modify(
-                        i / 2,
-                        FieldValue::<usize, csr::pmpconfig::pmpcfg::Register>::new(
-                            0x0000FFFF,
-                            0,
-                            u32::from_be_bytes([
-                                0,
-                                0,
-                                even_region.tor.get(),
-                                TORUserPMPCFG::OFF.get(),
-                            ]) as usize,
-                        ),
+                    super::pmpaddr_set(
+                        i * 2 + 1,
+                        super::overflowing_shr(even_region_end.as_usize(), 2),
+                        hardware_state,
                     );
+                }
 
-                    // Set the addresses if the region is enabled:
-                    if even_region.tor != TORUserPMPCFG::OFF {
-                        csr::CSR.pmpaddr_set(
-                            i * 2 + 0,
-                            (even_region_start.as_usize()).overflowing_shr(2).0,
-                        );
-                        csr::CSR.pmpaddr_set(
-                            i * 2 + 1,
-                            (even_region_end.as_usize()).overflowing_shr(2).0,
-                        );
+                if odd_region.tor != TORUserPMPCFG::OFF() {
+                    super::pmpaddr_set(
+                        i * 2 + 2,
+                        super::overflowing_shr(odd_region_start.as_usize(), 2),
+                        hardware_state,
+                    );
+                    super::pmpaddr_set(
+                        i * 2 + 3,
+                        super::overflowing_shr(odd_region_end.as_usize(), 2),
+                        hardware_state,
+                    );
+                }
+                all_regions_configured_correctly_step(even_region, &old, &hardware_state, i);
+                all_regions_configured_correctly_step(
+                    odd_region,
+                    &hardware_state,
+                    &hardware_state,
+                    i + 1,
+                );
+            }
+
+            // configures region `i` correctly
+            #[flux_rs::sig(fn (i: usize, &PMPUserRegion[@er], hw_state: &strg HardwareState[@og_hw])
+                // Note: these pre and post conditions (all_regions_configured) seem silly
+                // but we need them because otherwise Flux forgets
+                // all state after we return
+                requires all_regions_configured_correctly_up_to(i, og_hw) && i % 2 == 0
+                ensures hw_state: HardwareState{new_hw:
+                    all_regions_configured_correctly_up_to(i + 1, new_hw)
+                }
+            )]
+            fn configure_region(
+                i: usize,
+                even_region: &PMPUserRegion,
+                hardware_state: &mut HardwareState,
+            ) {
+                let old = hardware_state.snapshot();
+                let even_region_start = match even_region.start {
+                    Some(r) => r,
+                    None => FluxPtr::null(),
+                };
+                let even_region_end = match even_region.end {
+                    Some(r) => r,
+                    None => FluxPtr::null(),
+                };
+
+                // TODO: check overhead of code
+                // Modify the first two pmpcfgX octets for this region:
+                let bits = FieldValueU32::<csr::pmpconfig::pmpcfg::Register>::new(
+                    0x0000FFFF,
+                    0,
+                    u32_from_be_bytes(0, 0, even_region.tor.get(), TORUserPMPCFG::OFF().get()),
+                );
+
+                super::pmpconfig_modify(i / 2, bits, hardware_state);
+
+                // Set the addresses if the region is enabled:
+                if even_region.tor != TORUserPMPCFG::OFF() {
+                    super::pmpaddr_set(
+                        i * 2 + 0,
+                        super::overflowing_shr(even_region_start.as_usize(), 2),
+                        hardware_state,
+                    );
+                    super::pmpaddr_set(
+                        i * 2 + 1,
+                        super::overflowing_shr(even_region_end.as_usize(), 2),
+                        hardware_state,
+                    );
+                }
+                all_regions_configured_correctly_step(even_region, &old, &hardware_state, i);
+            }
+
+            #[flux_rs::sig(
+                fn (i: usize, core::slice::Iter<PMPUserRegion>[@idx, @len], max_regions: usize, hw_state: &strg HardwareState[@og_hw])
+                requires
+                    all_regions_configured_correctly_up_to(i, og_hw)
+                    && len == max_regions
+                    && (idx < len => i == idx && i % 2 == 0)
+                    && (idx >= len => all_regions_configured_correctly_up_to(max_regions, og_hw))
+                ensures hw_state: HardwareState{new_hw: all_regions_configured_correctly_up_to(max_regions, new_hw)}
+            )]
+            fn configure_all_regions_tail(
+                i: usize,
+                mut regions_iter: core::slice::Iter<'_, PMPUserRegion>,
+                max_regions: usize,
+                hardware_state: &mut HardwareState,
+            ) {
+                if let Some(even_region) = regions_iter.next() {
+                    let odd_region_opt = regions_iter.next();
+
+                    match odd_region_opt {
+                        None => {
+                            configure_region(i, even_region, hardware_state);
+                            configure_all_regions_tail(
+                                i + 1,
+                                regions_iter,
+                                max_regions,
+                                hardware_state,
+                            );
+                        }
+                        Some(odd_region) => {
+                            configure_region_pair(i, even_region, odd_region, hardware_state);
+                            configure_all_regions_tail(
+                                i + 2,
+                                regions_iter,
+                                max_regions,
+                                hardware_state,
+                            );
+                        }
                     }
-
-                    i += 1;
                 }
             }
+
+            // this should be an invariant but it's on a trait so things are weird
+            if regions.len() == 0 {
+                return Err(());
+            }
+            let regions_iter = regions.iter();
+            // call lemma to establish the original precondition
+            all_regions_configured_correctly_base(hardware_state);
+            configure_all_regions_tail(0, regions_iter, MPU_REGIONS, hardware_state);
 
             Ok(())
         }
@@ -1495,12 +2019,15 @@ pub mod simple {
 
 pub mod kernel_protection {
     use super::{
-        pmpcfg_octet, NAPOTRegionSpec, PMPUserRegion, TORRegionSpec, TORUserPMP, TORUserPMPCFG,
+        all_regions_configured_correctly_base, all_regions_configured_correctly_step, pmpcfg_octet,
+        u32_from_be_bytes, HardwareState, NAPOTRegionSpec, PMPUserRegion, TORRegionSpec,
+        TORUserPMP, TORUserPMPCFG,
     };
     use crate::csr;
     use core::fmt;
-    use flux_support::FluxPtrU8;
-    use kernel::utilities::registers::{FieldValue, LocalRegisterCopy};
+    use flux_support::LocalRegisterCopyU8;
+    use flux_support::{FieldValueU32, FluxPtr};
+    use kernel::utilities::registers::FieldValue;
 
     // ---------- Kernel memory-protection PMP memory region wrapper types -----
     //
@@ -1584,7 +2111,6 @@ pub mod kernel_protection {
     /// trait (usually the [`PMPUserMPU`](super::PMPUserMPU) implementation).
     #[flux_rs::invariant(AVAILABLE_ENTRIES >= 7)]
     pub struct KernelProtectionPMP<const AVAILABLE_ENTRIES: usize>;
-
     impl<const AVAILABLE_ENTRIES: usize> KernelProtectionPMP<AVAILABLE_ENTRIES> {
         pub unsafe fn new(
             flash: FlashRegion,
@@ -1597,13 +2123,13 @@ pub mod kernel_protection {
                 let pmpcfg_csr = csr::CSR.pmpconfig_get(i / 4);
 
                 // Extract the entry's pmpcfg octet:
-                let pmpcfg: LocalRegisterCopy<u8, pmpcfg_octet::Register> = LocalRegisterCopy::new(
+                let pmpcfg: LocalRegisterCopyU8<pmpcfg_octet::Register> = LocalRegisterCopyU8::new(
                     pmpcfg_csr.overflowing_shr(((i % 4) * 8) as u32).0 as u8,
                 );
 
                 // As outlined above, we never touch a locked region. Thus, bail
                 // out if it's locked:
-                if pmpcfg.is_set(pmpcfg_octet::l) {
+                if pmpcfg.is_set(pmpcfg_octet::l()) {
                     return Err(());
                 }
 
@@ -1662,58 +2188,58 @@ pub mod kernel_protection {
             // MMIO at n - 2:
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 2,
-                (pmpcfg_octet::a::NAPOT
-                    + pmpcfg_octet::r::SET
-                    + pmpcfg_octet::w::SET
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::NAPOT()
+                    + pmpcfg_octet::r::SET()
+                    + pmpcfg_octet::w::SET()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::SET())
+                .value(),
                 mmio.0.napot_addr(),
             );
 
             // RAM at n - 3:
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 3,
-                (pmpcfg_octet::a::NAPOT
-                    + pmpcfg_octet::r::SET
-                    + pmpcfg_octet::w::SET
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::NAPOT()
+                    + pmpcfg_octet::r::SET()
+                    + pmpcfg_octet::w::SET()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::SET())
+                .value(),
                 ram.0.napot_addr(),
             );
 
             // `.text` at n - 6 and n - 5 (TOR region):
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 6,
-                (pmpcfg_octet::a::OFF
-                    + pmpcfg_octet::r::CLEAR
-                    + pmpcfg_octet::w::CLEAR
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::OFF()
+                    + pmpcfg_octet::r::CLEAR()
+                    + pmpcfg_octet::w::CLEAR()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::SET())
+                .value(),
                 (kernel_text.0.start() as usize) >> 2,
             );
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 5,
-                (pmpcfg_octet::a::TOR
-                    + pmpcfg_octet::r::SET
-                    + pmpcfg_octet::w::CLEAR
-                    + pmpcfg_octet::x::SET
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::TOR()
+                    + pmpcfg_octet::r::SET()
+                    + pmpcfg_octet::w::CLEAR()
+                    + pmpcfg_octet::x::SET()
+                    + pmpcfg_octet::l::SET())
+                .value(),
                 (kernel_text.0.end() as usize) >> 2,
             );
 
             // flash at n - 4:
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 4,
-                (pmpcfg_octet::a::NAPOT
-                    + pmpcfg_octet::r::SET
-                    + pmpcfg_octet::w::CLEAR
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::NAPOT()
+                    + pmpcfg_octet::r::SET()
+                    + pmpcfg_octet::w::CLEAR()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::SET())
+                .value(),
                 flash.0.napot_addr(),
             );
 
@@ -1722,12 +2248,12 @@ pub mod kernel_protection {
             // accesses in our very last rule (n - 1):
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 1,
-                (pmpcfg_octet::a::NAPOT
-                    + pmpcfg_octet::r::CLEAR
-                    + pmpcfg_octet::w::CLEAR
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::NAPOT()
+                    + pmpcfg_octet::r::CLEAR()
+                    + pmpcfg_octet::w::CLEAR()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::SET())
+                .value(),
                 // the entire address space:
                 0x7FFFFFFF,
             );
@@ -1738,12 +2264,12 @@ pub mod kernel_protection {
             // exclusively accessible to kernel-mode):
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 7,
-                (pmpcfg_octet::a::NAPOT
-                    + pmpcfg_octet::r::CLEAR
-                    + pmpcfg_octet::w::CLEAR
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::CLEAR)
-                    .into(),
+                (pmpcfg_octet::a::NAPOT()
+                    + pmpcfg_octet::r::CLEAR()
+                    + pmpcfg_octet::w::CLEAR()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::CLEAR())
+                .value(),
                 // the entire address space:
                 0x7FFFFFFF,
             );
@@ -1771,88 +2297,195 @@ pub mod kernel_protection {
         // `u32::from_be_bytes` and then cast to usize, as it manages to compile
         // on 64-bit systems as well. However, this implementation will not work
         // on RV64I systems, due to the changed pmpcfgX CSR layout.
-        fn configure_pmp(&self, regions: &[PMPUserRegion; MPU_REGIONS]) -> Result<(), ()> {
-            // Could use `iter_array_chunks` once that's stable.
-            let mut regions_iter = regions.iter();
-            let mut i = 0;
+        #[flux_rs::sig(fn (&Self, &[PMPUserRegion; _], hw_state: &strg HardwareState) -> Result<(), ()>[#ok] ensures hw_state: HardwareState {hw:
+            ok => all_regions_configured_correctly_up_to(MPU_REGIONS, hw)
+        })]
+        fn configure_pmp(
+            &self,
+            regions: &[PMPUserRegion; MPU_REGIONS],
+            hardware_state: &mut HardwareState,
+        ) -> Result<(), ()> {
+            // configures region `i` and region `i + 1` correctly
+            #[flux_rs::sig(fn (i: usize, &PMPUserRegion[@er], &PMPUserRegion[@or], hw_state: &strg HardwareState[@og_hw])
+                // Note: these pre and post conditions (all_regions_configured) seem silly
+                // but we need them because otherwise Flux forgets
+                // all state after we return
+                requires all_regions_configured_correctly_up_to(i, og_hw) && i % 2 == 0
+                ensures hw_state: HardwareState{new_hw: all_regions_configured_correctly_up_to(i + 2, new_hw) }
+            )]
+            fn configure_region_pair(
+                i: usize,
+                even_region: &PMPUserRegion,
+                odd_region: &PMPUserRegion,
+                hardware_state: &mut HardwareState,
+            ) {
+                let old = hardware_state.snapshot();
+                let even_region_start = match even_region.start {
+                    Some(r) => r,
+                    None => FluxPtr::null(),
+                };
+                let even_region_end = match even_region.end {
+                    Some(r) => r,
+                    None => FluxPtr::null(),
+                };
+                let odd_region_start = match odd_region.start {
+                    Some(r) => r,
+                    None => FluxPtr::null(),
+                };
+                let odd_region_end = match odd_region.end {
+                    Some(r) => r,
+                    None => FluxPtr::null(),
+                };
 
-            while let Some(even_region) = regions_iter.next() {
-                let odd_region_opt = regions_iter.next();
-                let even_region_start = even_region.start.unwrap_or(FluxPtrU8::null());
-                let even_region_end = even_region.end.unwrap_or(FluxPtrU8::null());
+                // We can configure two regions at once which, given that we
+                // start at index 0 (an even offset), translates to a single
+                // CSR write for the pmpcfgX register:
+                super::pmpconfig_set(
+                    i / 2,
+                    u32_from_be_bytes(
+                        odd_region.tor.get(),
+                        TORUserPMPCFG::OFF().get(),
+                        even_region.tor.get(),
+                        TORUserPMPCFG::OFF().get(),
+                    ) as usize,
+                    hardware_state,
+                );
 
-                if let Some(odd_region) = odd_region_opt {
-                    let odd_region_start = odd_region.start.unwrap_or(FluxPtrU8::null());
-                    let odd_region_end = odd_region.end.unwrap_or(FluxPtrU8::null());
-                    // We can configure two regions at once which, given that we
-                    // start at index 0 (an even offset), translates to a single
-                    // CSR write for the pmpcfgX register:
-                    csr::CSR.pmpconfig_set(
-                        i / 2,
-                        u32::from_be_bytes([
-                            odd_region.tor.get(),
-                            TORUserPMPCFG::OFF.get(),
-                            even_region.tor.get(),
-                            TORUserPMPCFG::OFF.get(),
-                        ]) as usize,
+                // Now, set the addresses of the respective regions, if they
+                // are enabled, respectively:
+                if even_region.tor != TORUserPMPCFG::OFF() {
+                    super::pmpaddr_set(
+                        i * 2 + 0,
+                        super::overflowing_shr(even_region_start.as_usize(), 2),
+                        hardware_state,
                     );
 
-                    // Now, set the addresses of the respective regions, if they
-                    // are enabled, respectively:
-                    if even_region.tor != TORUserPMPCFG::OFF {
-                        csr::CSR.pmpaddr_set(
-                            i * 2 + 0,
-                            (even_region_start.as_usize()).overflowing_shr(2).0,
-                        );
-                        csr::CSR.pmpaddr_set(
-                            i * 2 + 1,
-                            (even_region_start.as_usize()).overflowing_shr(2).0,
-                        );
-                    }
-
-                    if odd_region.tor != TORUserPMPCFG::OFF {
-                        csr::CSR.pmpaddr_set(
-                            i * 2 + 2,
-                            (odd_region_start.as_usize()).overflowing_shr(2).0,
-                        );
-                        csr::CSR.pmpaddr_set(
-                            i * 2 + 3,
-                            (odd_region_end.as_usize()).overflowing_shr(2).0,
-                        );
-                    }
-
-                    i += 2;
-                } else {
-                    // Modify the first two pmpcfgX octets for this region:
-                    csr::CSR.pmpconfig_modify(
-                        i / 2,
-                        FieldValue::<usize, csr::pmpconfig::pmpcfg::Register>::new(
-                            0x0000FFFF,
-                            0,
-                            u32::from_be_bytes([
-                                0,
-                                0,
-                                even_region.tor.get(),
-                                TORUserPMPCFG::OFF.get(),
-                            ]) as usize,
-                        ),
+                    super::pmpaddr_set(
+                        i * 2 + 1,
+                        super::overflowing_shr(even_region_end.as_usize(), 2),
+                        hardware_state,
                     );
+                }
 
-                    // Set the addresses if the region is enabled:
-                    if even_region.tor != TORUserPMPCFG::OFF {
-                        csr::CSR.pmpaddr_set(
-                            i * 2 + 0,
-                            (even_region_start.as_usize()).overflowing_shr(2).0,
-                        );
-                        csr::CSR.pmpaddr_set(
-                            i * 2 + 1,
-                            (even_region_end.as_usize()).overflowing_shr(2).0,
-                        );
+                if odd_region.tor != TORUserPMPCFG::OFF() {
+                    super::pmpaddr_set(
+                        i * 2 + 2,
+                        super::overflowing_shr(odd_region_start.as_usize(), 2),
+                        hardware_state,
+                    );
+                    super::pmpaddr_set(
+                        i * 2 + 3,
+                        super::overflowing_shr(odd_region_end.as_usize(), 2),
+                        hardware_state,
+                    );
+                }
+                all_regions_configured_correctly_step(even_region, &old, &hardware_state, i);
+                all_regions_configured_correctly_step(
+                    odd_region,
+                    &hardware_state,
+                    &hardware_state,
+                    i + 1,
+                );
+            }
+
+            // configures region `i` correctly
+            #[flux_rs::sig(fn (i: usize, &PMPUserRegion[@er], hw_state: &strg HardwareState[@og_hw])
+                // Note: these pre and post conditions (all_regions_configured) seem silly
+                // but we need them because otherwise Flux forgets
+                // all state after we return
+                requires all_regions_configured_correctly_up_to(i, og_hw) && i % 2 == 0
+                ensures hw_state: HardwareState{new_hw: all_regions_configured_correctly_up_to(i + 1, new_hw) }
+            )]
+            fn configure_region(
+                i: usize,
+                even_region: &PMPUserRegion,
+                hardware_state: &mut HardwareState,
+            ) {
+                let old = hardware_state.snapshot();
+                let even_region_start = match even_region.start {
+                    Some(r) => r,
+                    None => FluxPtr::null(),
+                };
+                let even_region_end = match even_region.end {
+                    Some(r) => r,
+                    None => FluxPtr::null(),
+                };
+
+                // TODO: check overhead of code
+                // Modify the first two pmpcfgX octets for this region:
+                let bits = FieldValueU32::<csr::pmpconfig::pmpcfg::Register>::new(
+                    0x0000FFFF,
+                    0,
+                    u32_from_be_bytes(0, 0, even_region.tor.get(), TORUserPMPCFG::OFF().get()),
+                );
+
+                super::pmpconfig_modify(i / 2, bits, hardware_state);
+
+                // Set the addresses if the region is enabled:
+                if even_region.tor != TORUserPMPCFG::OFF() {
+                    super::pmpaddr_set(
+                        i * 2 + 0,
+                        super::overflowing_shr(even_region_start.as_usize(), 2),
+                        hardware_state,
+                    );
+                    super::pmpaddr_set(
+                        i * 2 + 1,
+                        super::overflowing_shr(even_region_end.as_usize(), 2),
+                        hardware_state,
+                    );
+                }
+                all_regions_configured_correctly_step(even_region, &old, &hardware_state, i);
+            }
+
+            #[flux_rs::sig(
+                fn (i: usize, core::slice::Iter<PMPUserRegion>[@idx, @len], max_regions: usize, hw_state: &strg HardwareState[@og_hw])
+                requires
+                    all_regions_configured_correctly_up_to(i, og_hw)
+                    && len == max_regions
+                    && (idx < len => i == idx && i % 2 == 0)
+                    && (idx >= len => all_regions_configured_correctly_up_to(max_regions, og_hw))
+                ensures hw_state: HardwareState{new_hw: all_regions_configured_correctly_up_to(max_regions, new_hw)}
+            )]
+            fn configure_all_regions_tail(
+                i: usize,
+                mut regions_iter: core::slice::Iter<'_, PMPUserRegion>,
+                max_regions: usize,
+                hardware_state: &mut HardwareState,
+            ) {
+                if let Some(even_region) = regions_iter.next() {
+                    let odd_region_opt = regions_iter.next();
+
+                    match odd_region_opt {
+                        None => {
+                            configure_region(i, even_region, hardware_state);
+                            configure_all_regions_tail(
+                                i + 1,
+                                regions_iter,
+                                max_regions,
+                                hardware_state,
+                            );
+                        }
+                        Some(odd_region) => {
+                            configure_region_pair(i, even_region, odd_region, hardware_state);
+                            configure_all_regions_tail(
+                                i + 2,
+                                regions_iter,
+                                max_regions,
+                                hardware_state,
+                            );
+                        }
                     }
-
-                    i += 1;
                 }
             }
+
+            // this should be an invariant but it's on a trait so things are weird
+            if regions.len() == 0 {
+                return Err(());
+            }
+            let regions_iter = regions.iter();
+            // call lemma to establish the original precondition
+            all_regions_configured_correctly_base(hardware_state);
+            configure_all_regions_tail(0, regions_iter, MPU_REGIONS, hardware_state);
 
             Ok(())
         }
@@ -1881,15 +2514,18 @@ pub mod kernel_protection {
 
 pub mod kernel_protection_mml_epmp {
     use super::{
-        pmpcfg_octet, NAPOTRegionSpec, PMPUserRegion, TORRegionSpec, TORUserPMP, TORUserPMPCFG,
+        pmpcfg_octet, HardwareState, NAPOTRegionSpec, PMPUserRegion, TORRegionSpec, TORUserPMP,
+        TORUserPMPCFG,
     };
     use crate::csr;
+    use crate::pmp::permissions_to_pmpcfg;
     use core::cell::Cell;
     use core::fmt;
     use flux_support::FluxPtr;
+    use flux_support::LocalRegisterCopyU8;
     use kernel::platform::mpu;
     use kernel::utilities::registers::interfaces::{Readable, Writeable};
-    use kernel::utilities::registers::{FieldValue, LocalRegisterCopy};
+    use kernel::utilities::registers::FieldValue;
 
     // ---------- Kernel memory-protection PMP memory region wrapper types -----
     //
@@ -1993,13 +2629,13 @@ pub mod kernel_protection_mml_epmp {
                 let pmpcfg_csr = csr::CSR.pmpconfig_get(i / 4);
 
                 // Extract the entry's pmpcfg octet:
-                let pmpcfg: LocalRegisterCopy<u8, pmpcfg_octet::Register> = LocalRegisterCopy::new(
+                let pmpcfg: LocalRegisterCopyU8<pmpcfg_octet::Register> = LocalRegisterCopyU8::new(
                     pmpcfg_csr.overflowing_shr(((i % 4) * 8) as u32).0 as u8,
                 );
 
                 // As outlined above, we never touch a locked region. Thus, bail
                 // out if it's locked:
-                if pmpcfg.is_set(pmpcfg_octet::l) {
+                if pmpcfg.is_set(pmpcfg_octet::l()) {
                     return Err(());
                 }
 
@@ -2059,58 +2695,58 @@ pub mod kernel_protection_mml_epmp {
             // `.text` at n - 5 and n - 4 (TOR region):
             write_pmpaddr_pmpcfg(
                 0,
-                (pmpcfg_octet::a::OFF
-                    + pmpcfg_octet::r::CLEAR
-                    + pmpcfg_octet::w::CLEAR
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::OFF()
+                    + pmpcfg_octet::r::CLEAR()
+                    + pmpcfg_octet::w::CLEAR()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::SET())
+                .value(),
                 (kernel_text.0.start() as usize) >> 2,
             );
             write_pmpaddr_pmpcfg(
                 1,
-                (pmpcfg_octet::a::TOR
-                    + pmpcfg_octet::r::SET
-                    + pmpcfg_octet::w::CLEAR
-                    + pmpcfg_octet::x::SET
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::TOR()
+                    + pmpcfg_octet::r::SET()
+                    + pmpcfg_octet::w::CLEAR()
+                    + pmpcfg_octet::x::SET()
+                    + pmpcfg_octet::l::SET())
+                .value(),
                 (kernel_text.0.end() as usize) >> 2,
             );
 
             // MMIO at n - 1:
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 1,
-                (pmpcfg_octet::a::NAPOT
-                    + pmpcfg_octet::r::SET
-                    + pmpcfg_octet::w::SET
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::NAPOT()
+                    + pmpcfg_octet::r::SET()
+                    + pmpcfg_octet::w::SET()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::SET())
+                .value(),
                 mmio.0.napot_addr(),
             );
 
             // RAM at n - 2:
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 2,
-                (pmpcfg_octet::a::NAPOT
-                    + pmpcfg_octet::r::SET
-                    + pmpcfg_octet::w::SET
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::NAPOT()
+                    + pmpcfg_octet::r::SET()
+                    + pmpcfg_octet::w::SET()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::SET())
+                .value(),
                 ram.0.napot_addr(),
             );
 
             // flash at n - 3:
             write_pmpaddr_pmpcfg(
                 AVAILABLE_ENTRIES - 3,
-                (pmpcfg_octet::a::NAPOT
-                    + pmpcfg_octet::r::SET
-                    + pmpcfg_octet::w::CLEAR
-                    + pmpcfg_octet::x::CLEAR
-                    + pmpcfg_octet::l::SET)
-                    .into(),
+                (pmpcfg_octet::a::NAPOT()
+                    + pmpcfg_octet::r::SET()
+                    + pmpcfg_octet::w::CLEAR()
+                    + pmpcfg_octet::x::CLEAR()
+                    + pmpcfg_octet::l::SET())
+                .value(),
                 flash.0.napot_addr(),
             );
 
@@ -2136,7 +2772,7 @@ pub mod kernel_protection_mml_epmp {
             }
 
             // Setup complete
-            const DEFAULT_USER_PMPCFG_OCTET: Cell<TORUserPMPCFG> = Cell::new(TORUserPMPCFG::OFF);
+            const DEFAULT_USER_PMPCFG_OCTET: Cell<TORUserPMPCFG> = Cell::new(TORUserPMPCFG::OFF());
             Ok(KernelProtectionMMLEPMP {
                 user_pmp_enabled: Cell::new(false),
                 shadow_user_pmpcfgs: [DEFAULT_USER_PMPCFG_OCTET; MPU_REGIONS],
@@ -2162,7 +2798,15 @@ pub mod kernel_protection_mml_epmp {
         // `u32::from_be_bytes` and then cast to usize, as it manages to compile
         // on 64-bit systems as well. However, this implementation will not work
         // on RV64I systems, due to the changed pmpcfgX CSR layout.
-        fn configure_pmp(&self, regions: &[PMPUserRegion; MPU_REGIONS]) -> Result<(), ()> {
+        #[flux_rs::sig(fn (&Self, &[PMPUserRegion; _], hw_state: &strg HardwareState) -> Result<(), ()>[#ok] ensures hw_state: HardwareState {hw:
+            ok => all_regions_configured_correctly_up_to(MPU_REGIONS, hw)
+        })]
+        #[flux_rs::trusted]
+        fn configure_pmp(
+            &self,
+            regions: &[PMPUserRegion; MPU_REGIONS],
+            hardware_state: &mut HardwareState,
+        ) -> Result<(), ()> {
             // Configure all of the regions' addresses and store their pmpcfg octets
             // in our shadow storage. If the user PMP is already enabled, we further
             // apply this configuration (set the pmpcfgX CSRs) by running
@@ -2179,17 +2823,14 @@ pub mod kernel_protection_mml_epmp {
                 // if the configuration files, but it is still being activated with
                 // `enable_user_pmp`:
                 if region.tor.get()
-                    == <TORUserPMPCFG as From<mpu::Permissions>>::from(
-                        mpu::Permissions::ReadWriteExecute,
-                    )
-                    .get()
+                    == permissions_to_pmpcfg(mpu::Permissions::ReadWriteExecute).get()
                 {
                     return Err(());
                 }
 
                 // Set the CSR addresses for this region (if its not OFF, in which
                 // case the hardware-configured addresses are irrelevant):
-                if region.tor != TORUserPMPCFG::OFF {
+                if region.tor != TORUserPMPCFG::OFF() {
                     csr::CSR.pmpaddr_set(
                         (i + Self::TOR_REGIONS_OFFSET) * 2 + 0,
                         (region.start.unwrap_or(FluxPtr::null()).as_usize())
@@ -2244,9 +2885,9 @@ pub mod kernel_protection_mml_epmp {
                         i / 2,
                         u32::from_be_bytes([
                             second_region_pmpcfg.get().get(),
-                            TORUserPMPCFG::OFF.get(),
+                            TORUserPMPCFG::OFF().get(),
                             first_region_pmpcfg.get().get(),
-                            TORUserPMPCFG::OFF.get(),
+                            TORUserPMPCFG::OFF().get(),
                         ]) as usize,
                     );
 
@@ -2263,7 +2904,7 @@ pub mod kernel_protection_mml_epmp {
                                 0,
                                 0,
                                 first_region_pmpcfg.get().get(),
-                                TORUserPMPCFG::OFF.get(),
+                                TORUserPMPCFG::OFF().get(),
                             ]) as usize,
                         ),
                     );
@@ -2281,7 +2922,7 @@ pub mod kernel_protection_mml_epmp {
                                 0,
                                 0,
                                 first_region_pmpcfg.get().get(),
-                                TORUserPMPCFG::OFF.get(),
+                                TORUserPMPCFG::OFF().get(),
                             ]) as usize,
                         ),
                     );
@@ -2313,10 +2954,10 @@ pub mod kernel_protection_mml_epmp {
                     csr::CSR.pmpconfig_set(
                         first_region_idx / 2,
                         u32::from_be_bytes([
-                            TORUserPMPCFG::OFF.get(),
-                            TORUserPMPCFG::OFF.get(),
-                            TORUserPMPCFG::OFF.get(),
-                            TORUserPMPCFG::OFF.get(),
+                            TORUserPMPCFG::OFF().get(),
+                            TORUserPMPCFG::OFF().get(),
+                            TORUserPMPCFG::OFF().get(),
+                            TORUserPMPCFG::OFF().get(),
                         ]) as usize,
                     );
                 } else if first_region_idx % 2 == 0 {
@@ -2330,8 +2971,8 @@ pub mod kernel_protection_mml_epmp {
                             u32::from_be_bytes([
                                 0,
                                 0,
-                                TORUserPMPCFG::OFF.get(),
-                                TORUserPMPCFG::OFF.get(),
+                                TORUserPMPCFG::OFF().get(),
+                                TORUserPMPCFG::OFF().get(),
                             ]) as usize,
                         ),
                     );
@@ -2346,8 +2987,8 @@ pub mod kernel_protection_mml_epmp {
                             u32::from_be_bytes([
                                 0,
                                 0,
-                                TORUserPMPCFG::OFF.get(),
-                                TORUserPMPCFG::OFF.get(),
+                                TORUserPMPCFG::OFF().get(),
+                                TORUserPMPCFG::OFF().get(),
                             ]) as usize,
                         ),
                     );
@@ -2373,7 +3014,7 @@ pub mod kernel_protection_mml_epmp {
             write!(f, "  Shadow PMP entries for user-mode:\r\n")?;
             for (i, shadowed_pmpcfg) in self.shadow_user_pmpcfgs.iter().enumerate() {
                 let (start_pmpaddr_label, startaddr_pmpaddr, endaddr, mode) =
-                    if shadowed_pmpcfg.get() == TORUserPMPCFG::OFF {
+                    if shadowed_pmpcfg.get() == TORUserPMPCFG::OFF() {
                         (
                             "pmpaddr",
                             csr::CSR.pmpaddr_get((i + Self::TOR_REGIONS_OFFSET) * 2),
@@ -2405,22 +3046,22 @@ pub mod kernel_protection_mml_epmp {
                     endaddr,
                     shadowed_pmpcfg.get().get(),
                     mode,
-                    if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::l) {
+                    if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::l()) {
                         "l"
                     } else {
                         "-"
                     },
-                    if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::r) {
+                    if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::r()) {
                         "r"
                     } else {
                         "-"
                     },
-                    if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::w) {
+                    if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::w()) {
                         "w"
                     } else {
                         "-"
                     },
-                    if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::x) {
+                    if shadowed_pmpcfg.get().get_reg().is_set(pmpcfg_octet::x()) {
                         "x"
                     } else {
                         "-"
