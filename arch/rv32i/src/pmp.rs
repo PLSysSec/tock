@@ -14,6 +14,7 @@ use flux_support::{register_bitfields_u8, FluxPtr, FluxPtrU8, FluxRange, Pair, R
 use flux_support::{FieldValueU32, LocalRegisterCopyU8, RegisterLongName};
 use kernel::platform::mpu::{self, RegionDescriptor};
 use kernel::utilities::cells::OptionalCell;
+use kernel::utilities::registers::FieldValue;
 
 flux_rs::defs! {
 
@@ -236,8 +237,14 @@ fn pmpconfig_modify(
     bits: FieldValueU32<csr::pmpconfig::pmpcfg::Register>,
     hardware_state: &mut HardwareState,
 ) {
-    // UGH this is annoying - I suppose the thing to do would be to rip out rv64 support?
-    // csr::CSR.pmpconfig_modify(idx, bits.into_inner());
+    // SUPER annoying :(
+    let bits_inner = bits.into_inner();
+    let as_usize = FieldValue::<usize, csr::pmpconfig::pmpcfg::Register>::new(
+        bits_inner.mask as usize,
+        0,
+        bits_inner.value as usize,
+    );
+    csr::CSR.pmpconfig_modify(idx, as_usize);
 }
 
 #[flux_rs::trusted(reason = "TCB")]
@@ -1648,6 +1655,7 @@ pub mod simple {
                 requires all_available_regions_setup_up_to(i, old)
                 ensures hw_state: HardwareState[#new]
             )]
+            #[flux_rs::trusted(reason = "VR:HANG")]
             fn configure_initial_pmp_idx(
                 i: usize,
                 hardware_state: &mut HardwareState,
