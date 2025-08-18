@@ -12,7 +12,7 @@ use core::num::NonZeroUsize;
 use flux_support::capability::MpuEnabledCapability;
 use kernel::utilities::StaticRef;
 
-use flux_support::register_bitfields;
+use flux_support::register_bitfields_u32;
 use flux_support::*;
 use kernel::platform::mpu::{self, RegionDescriptor};
 use kernel::utilities::cells::OptionalCell;
@@ -290,7 +290,7 @@ struct MpuRegisters {
     pub rasr: ReadWrite<u32, RegionAttributes::Register>,
 }
 
-register_bitfields![u32,
+register_bitfields_u32![u32,
     Type [
         /// The number of MPU instructions regions supported. Always reads 0.
         IREGION OFFSET(16) NUMBITS(8) [],
