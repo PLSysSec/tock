@@ -18,9 +18,16 @@ use flux_rs::{refined_by, sig};
 
 use crate::Pair;
 
+flux_rs::defs! {
+    fn valid_size(x: int) -> bool {
+        0 <= x && x <= u32::MAX
+    }
+}
+
 #[flux_rs::opaque]
 #[derive(Clone, Copy, Debug, Eq)]
 #[refined_by(ptr: int)]
+#[flux_rs::invariant(valid_size(ptr))]
 pub struct FluxPtr {
     inner: *mut u8,
 }
@@ -142,6 +149,19 @@ impl FluxPtr {
     #[sig(fn(self: Self[@n]) -> bool[n == 0] )]
     pub fn is_null(self) -> bool {
         self.inner.is_null()
+    }
+
+    #[flux_rs::opts(check_overflow = "strict")]
+    #[sig(fn(&Self[@n], offset: usize) -> bool[valid_size(n + offset)] )]
+    pub fn in_bounds(&self, offset: usize) -> bool {
+        let n = self.as_usize();
+        if offset <= u32::MAX as usize {
+            // offset in bounds; test addition
+            n + offset <= (u32::MAX as usize)
+        } else {
+            // offset itself is out of bounds
+            false
+        }
     }
 
     #[flux_rs::trusted(reason = "flux wrappers")]
@@ -313,6 +333,7 @@ flux_rs::defs! {
 }
 
 #[flux_rs::refined_by(start: int, len: int)]
+#[flux_rs::invariant(valid_size(start + len))]
 pub struct SlicesToRaw {
     #[field(FluxPtr[start])]
     pub start: FluxPtr,

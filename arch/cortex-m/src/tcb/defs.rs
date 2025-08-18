@@ -4,6 +4,7 @@ use kernel::platform::mpu;
 
 /* our actual flux defs */
 flux_rs::defs! {
+    fn valid_size(x: int) -> bool { 0 <= x && x <= u32::MAX }
     fn half_max(r: int) -> bool { r <= u32::MAX / 2 + 1}
 
     fn bv32(x:int) -> bitvec<32> { bv_int_to_bv32(x) }

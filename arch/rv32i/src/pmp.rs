@@ -18,6 +18,8 @@ use kernel::utilities::registers::FieldValue;
 
 flux_rs::defs! {
 
+    fn valid_size(x: int) -> bool { 0 <= x && x <= u32::MAX }
+
     fn is_empty(r: PMPUserRegion) -> bool {
         r.start >= r.end
     }
@@ -828,6 +830,7 @@ impl RegionGhost {
     perms: mpu::Permissions,
     is_set: bool
 )]
+#[flux_rs::invariant(is_set => valid_size(end))]
 #[flux_rs::invariant(is_set => end >= start)]
 pub struct PMPUserRegion {
     #[field(usize[region_number])]
@@ -879,7 +882,7 @@ impl RegionDescriptor for PMPUserRegion {
         self.start
     }
 
-    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::size(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{sz: <Self as RegionDescriptor>::size(r) == sz && valid_size(sz) && valid_size(<Self as RegionDescriptor>::start(r) + sz)}>[<Self as RegionDescriptor>::is_set(r)])]
     fn size(&self) -> Option<usize> {
         match (self.start, self.end) {
             (Some(start), Some(end)) => Some(end.as_usize() - start.as_usize()),

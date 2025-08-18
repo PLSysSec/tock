@@ -89,11 +89,14 @@ impl<const NUM_PROCS: u8> IPC<NUM_PROCS> {
                 let (len, ptr) = match called_from_data.get_readwrite_processbuffer(schedule_on_id)
                 {
                     Ok(slice) => {
+                        let buf = &(*slice);
+                        let start = buf.ptr();
+                        let size = buf.len();
                         // Ensure receiving app has MPU access to sending app's buffer
                         self.data
                             .kernel
                             .process_map_or(None, schedule_on, |process| {
-                                process.add_mpu_region(slice.ptr(), slice.len())
+                                process.add_mpu_region(start, size)
                             });
                         (slice.len(), slice.ptr().as_usize())
                     }

@@ -420,8 +420,12 @@ impl Deref for ReadOnlyProcessBufferRef<'_> {
 /// mutability. Still, a memory barrier prior to switching to
 /// userspace is required, as the compiler is free to reorder reads
 /// and writes, even through [`Cell`]s.
+#[flux_rs::refined_by(ptr: int, len: int)]
+#[flux_rs::invariant(valid_size(len) && valid_size(ptr) && valid_size(ptr + len))]
 pub struct ReadWriteProcessBuffer {
+    #[flux_rs::field(FluxPtrU8Mut[ptr])]
     ptr: FluxPtrU8Mut,
+    #[flux_rs::field(usize[len])]
     len: usize,
     process_id: Option<ProcessId>,
 }
@@ -434,6 +438,7 @@ impl ReadWriteProcessBuffer {
     ///
     /// Refer to the safety requirements of
     /// [`ReadWriteProcessBuffer::new_external`].
+    #[flux_rs::sig(fn (FluxPtrU8Mut[@ptr], len:usize{valid_size(ptr+len)}, ProcessId) -> Self)]
     pub(crate) unsafe fn new(ptr: FluxPtrU8Mut, len: usize, process_id: ProcessId) -> Self {
         ReadWriteProcessBuffer {
             ptr,
@@ -473,6 +478,7 @@ impl ReadWriteProcessBuffer {
     /// `core::mem::align_of::<u8>()` on the respective platform. It
     /// must point to memory mapped as _readable_ and optionally
     /// _writable_ and _executable_.
+    #[flux_rs::sig(fn (FluxPtrU8Mut[@ptr], len:usize{valid_size(ptr+len)}, _, _) -> Self)]
     pub unsafe fn new_external(
         ptr: FluxPtrU8Mut,
         len: usize,
@@ -490,6 +496,7 @@ impl ReadWriteProcessBuffer {
     /// `consume` can be used when the kernel needs to pass the
     /// underlying values across the kernel-to-user boundary (e.g., in
     /// return values to system calls).
+    #[flux_rs::sig(fn (Self) -> (FluxPtrU8Mut[#ptr], usize[#len]) ensures valid_size(ptr + len))]
     pub(crate) fn consume(self) -> (FluxPtrU8Mut, usize) {
         (self.ptr, self.len)
     }
@@ -518,12 +525,14 @@ impl ReadWriteProcessBuffer {
 
 impl ReadableProcessBuffer for ReadWriteProcessBuffer {
     /// Return the length of the buffer in bytes.
+    #[flux_rs::sig(fn (&Self[@p]) -> usize{len: valid_size(p.ptr + len)})]
     fn len(&self) -> usize {
         self.process_id
             .map_or(0, |pid| pid.kernel.process_map_or(0, pid, |_| self.len))
     }
 
     /// Return the pointer to the start of the buffer.
+    #[flux_rs::sig(fn (&Self[@p]) -> FluxPtrU8Mut{res: res.ptr == 0 || res.ptr == p.ptr})]
     fn ptr(&self) -> FluxPtrU8Mut {
         if self.len == 0 {
             FluxPtr::null()
@@ -626,6 +635,7 @@ impl ReadWriteProcessBufferRef<'_> {
     /// [`ReadWriteProcessBuffer::new_external`]. The derived lifetime can
     /// help enforce the invariant that this incoming pointer may only
     /// be access for a certain duration.
+    #[flux_rs::sig(fn (FluxPtrU8Mut[@ptr], len:usize{valid_size(ptr+len)}, _) -> Self)]
     pub(crate) unsafe fn new(ptr: FluxPtrU8Mut, len: usize, process_id: ProcessId) -> Self {
         Self {
             buf: ReadWriteProcessBuffer::new(ptr, len, process_id),

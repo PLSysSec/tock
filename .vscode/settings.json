@@ -1,15 +1,4 @@
 {
-    "files.insertFinalNewline": true,
-    "editor.defaultFormatter": "rust-lang.rust-analyzer",
-    "editor.formatOnSave": true,
-    "rust-analyzer.server.extraEnv": {
-	"RUSTUP_TOOLCHAIN": "nightly-2024-07-08"
-    },
-    "rust-analyzer.check.allTargets": false,
-    "rust-analyzer.check.overrideCommand": [
-        "cargo",
-        "flux",
-        "--workspace",
-        "--message-format=json-diagnostic-rendered-ansi"
-    ]
+    "rust-analyzer.checkOnSave": false,
+    "flux.command": "cargo flux -p kernel -p cortexm -p rv32i"
 }

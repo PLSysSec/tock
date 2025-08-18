@@ -1,6 +1,6 @@
 use core::{fmt::Display, ptr::NonNull, cell::Cell};
 use flux_support::{capability::*, FluxPtrExt};
-use flux_support::{max_ptr, max_usize, FluxPtrU8, FluxPtrU8Mut, RArray, Pair};
+use flux_support::{max_ptr, max_usize, FluxPtrU8, FluxPtrU8Mut, Pair, RArray};
 
 use crate::{
     platform::mpu::{self, RegionDescriptor},
@@ -16,10 +16,10 @@ pub(crate) enum AllocateAppMemoryError {
 #[flux_rs::refined_by(
     memory_start: int,
     memory_size: int,
-    app_break: int, 
-    high_water_mark: int, 
-    kernel_break: int, 
-    flash_start: int, 
+    app_break: int,
+    high_water_mark: int,
+    kernel_break: int,
+    flash_start: int,
     flash_size: int
 )]
 #[flux_rs::invariant(memory_start + memory_size <= u32::MAX)]
@@ -49,7 +49,7 @@ const MAX_RAM_REGION_NUMBER: usize = 1;
 const FLASH_REGION_NUMBER: usize = 2;
 
 #[flux_rs::refined_by(
-    regions: Map<int, R>, 
+    regions: Map<int, R>,
     breaks: AppBreaks
 )]
 #[flux_rs::invariant(
@@ -62,12 +62,12 @@ const FLASH_REGION_NUMBER: usize = 2;
         map_select(regions, MAX_RAM_REGION_NUMBER - 1),
         map_select(regions, MAX_RAM_REGION_NUMBER),
         breaks.memory_start, breaks.app_break, mpu::Permissions { r: true, w: true, x: false }
-    ) 
+    )
     &&
     !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER - 1), 0, breaks.memory_start) &&
     !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER - 1), breaks.app_break, u32::MAX) &&
     !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER), 0, breaks.memory_start) &&
-    !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER), breaks.app_break, u32::MAX) 
+    !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER), breaks.app_break, u32::MAX)
     &&
     // no IPC region overlaps from the start to the end of memory
     <R as RegionDescriptor>::no_region_overlaps_app_block(regions, breaks.memory_start, breaks.memory_start + breaks.memory_size)
@@ -141,7 +141,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             && end <= self.breaks.flash_start.wrapping_add(self.breaks.flash_size)
     }
 
-    #[flux_rs::sig(fn () -> RArray<R>{regions: 
+    #[flux_rs::sig(fn () -> RArray<R>{regions:
         forall i in 0..8 {
             let r = map_select(regions, i);
             !<R as RegionDescriptor>::is_set(r)
@@ -186,7 +186,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         }
     }
 
-    #[flux_rs::sig(fn (self: &strg Self, _, _) -> Result<(), ()> ensures self: Self)]
+    #[flux_rs::sig(fn (self: &strg Self, buf_start_addr: FluxPtrU8Mut, size: usize) -> Result<{() | valid_size(buf_start_addr + size)}, ()> ensures self: Self)]
     pub(crate) fn add_shared_readwrite_buffer(
         &mut self,
         buf_start_addr: FluxPtrU8Mut,
@@ -194,7 +194,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
     ) -> Result<(), ()> {
         // let breaks = &mut self.breaks.ok_or(())?;
         let buf_end_addr = buf_start_addr.wrapping_add(size);
-        if self.in_app_ram_memory(buf_start_addr, buf_end_addr) {
+        if buf_start_addr.in_bounds(size) && self.in_app_ram_memory(buf_start_addr, buf_end_addr) {
             // TODO: Check for buffer aliasing here
             // Valid buffer, we need to adjust the app's watermark
             // note: `in_app_owned_memory` ensures this offset does not wrap
@@ -227,7 +227,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
     }
 
     #[flux_rs::sig(
-        fn (self: &strg Self[@old_bc], usize, usize) -> Option<{p. FluxPtrU8[p] | p < bc.breaks.memory_start + bc.breaks.memory_size}>[#opt] 
+        fn (self: &strg Self[@old_bc], usize, usize) -> Option<{p. FluxPtrU8[p] | p < bc.breaks.memory_start + bc.breaks.memory_size}>[#opt]
             ensures self: Self[#bc],
             (opt => bc.breaks.kernel_break >= bc.breaks.app_break) &&
             (!opt => bc == old_bc)
@@ -281,7 +281,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         fn (
             self: &strg Self[@old_app],
             { FluxPtrU8[@new_break] | new_break >= old_app.breaks.app_break && new_break < old_app.breaks.memory_start + old_app.breaks.memory_size }
-        ) ensures self: Self[{breaks: AppBreaks { kernel_break: new_break, ..old_app.breaks }, ..old_app}] 
+        ) ensures self: Self[{breaks: AppBreaks { kernel_break: new_break, ..old_app.breaks }, ..old_app}]
     )]
     fn set_kernel_break(&mut self, new_break: FluxPtrU8) {
         self.breaks.kernel_break = new_break;
@@ -305,9 +305,9 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
 
     #[flux_rs::sig(fn (&Self[@app], &R[@region]) -> bool[
         <R as RegionDescriptor>::is_set(region) &&
-        exists i in 0..8 { 
+        exists i in 0..8 {
             <R as RegionDescriptor>::overlaps(
-                map_select(app.regions, i), 
+                map_select(app.regions, i),
                 <R as RegionDescriptor>::start(region),
                 <R as RegionDescriptor>::start(region) + <R as RegionDescriptor>::size(region),
             )
@@ -316,7 +316,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
     fn any_overlaps(&self, region: &R) -> bool {
         let (start, end) = match (region.start(), region.size()) {
             (Some(start), Some(size)) => (start.as_usize(), start.as_usize() + size),
-            _ => return false
+            _ => return false,
         };
         self.regions.get(0).overlaps(start, end)
             || self.regions.get(1).overlaps(start, end)
@@ -326,6 +326,16 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             || self.regions.get(5).overlaps(start, end)
             || self.regions.get(6).overlaps(start, end)
             || self.regions.get(7).overlaps(start, end)
+    }
+
+    #[flux_rs::sig(fn () -> usize[10])]
+    fn test() -> usize {
+        let mut n0 = 0;
+        n0 += 1;
+        n0 += 2;
+        n0 += 3;
+        n0 += 4;
+        n0
     }
 
     #[flux_rs::sig(fn (&Self[@app], &R[@region]) -> bool[
@@ -338,7 +348,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         region.overlaps(mem_start, mem_end)
     }
 
-    #[flux_rs::sig(fn (self: &strg Self, _, _, _) -> Result<_, _> ensures self: Self)]
+    #[flux_rs::sig(fn (self: &strg Self, start: FluxPtrU8, size: usize{valid_size(start + size)}, _) -> Result<_, _> ensures self: Self)]
     pub(crate) fn allocate_ipc_region(
         &mut self,
         start: FluxPtrU8,
@@ -371,7 +381,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
     #[flux_rs::sig(
         fn (
             flash_start: FluxPtrU8,
-            flash_size: usize
+            flash_size: usize{valid_size(flash_start + flash_size)}
         ) -> Result<R { r:
             <R as RegionDescriptor>::is_set(r) &&
             flash_start == <R as RegionDescriptor>::start(r) &&
@@ -392,12 +402,12 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
     #[flux_rs::sig(
         fn (
             mem_start: FluxPtrU8,
-            mem_size: usize, 
-            min_size: usize, 
+            mem_size: usize{valid_size(mem_start + mem_size)},
+            min_size: usize,
             app_mem_size: usize
-        ) -> Result<Pair<R, R>{p: 
+        ) -> Result<Pair<R, R>{p:
             <R as RegionDescriptor>::start(p.fst) >= mem_start &&
-            ((!<R as RegionDescriptor>::is_set(p.snd)) => 
+            ((!<R as RegionDescriptor>::is_set(p.snd)) =>
                 <R as RegionDescriptor>::regions_can_access_exactly(
                     p.fst,
                     p.snd,
@@ -406,7 +416,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
                     mpu::Permissions { r: true, w: true, x: false }
                 )
             ) &&
-            (<R as RegionDescriptor>::is_set(p.snd) => 
+            (<R as RegionDescriptor>::is_set(p.snd) =>
                 <R as RegionDescriptor>::regions_can_access_exactly(
                     p.fst,
                     p.snd,
@@ -415,7 +425,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
                     mpu::Permissions { r: true, w: true, x: false }
                 )
             )
-        }, ()>    
+        }, ()>
     )]
     fn get_ram_regions(
         unallocated_memory_start: FluxPtrU8,
@@ -435,6 +445,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         .ok_or(())
     }
 
+    #[flux::opts(check_overflow = "strict")]
     #[flux_rs::sig(
         fn (
             ram_regions: Pair<R, R>,
@@ -443,24 +454,25 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             initial_kernel_memory_size: usize,
             flash_start: FluxPtrU8,
             flash_size: usize,
-        ) -> Result<{b. AppBreaks[b] | 
+        ) -> Result<{b. AppBreaks[b] |
                 b.memory_start == <R as RegionDescriptor>::start(ram_regions.fst) &&
                 ((!<R as RegionDescriptor>::is_set(ram_regions.snd)) => (
-                    b.app_break == <R as RegionDescriptor>::start(ram_regions.fst) + <R as RegionDescriptor>::size(ram_regions.fst) 
+                    b.app_break == <R as RegionDescriptor>::start(ram_regions.fst) + <R as RegionDescriptor>::size(ram_regions.fst)
                 )) &&
                 (<R as RegionDescriptor>::is_set(ram_regions.snd) => (
-                    b.app_break == <R as RegionDescriptor>::start(ram_regions.fst) 
-                        + <R as RegionDescriptor>::size(ram_regions.fst) 
+                    b.app_break == <R as RegionDescriptor>::start(ram_regions.fst)
+                        + <R as RegionDescriptor>::size(ram_regions.fst)
                             + <R as RegionDescriptor>::size(ram_regions.snd)
                 )) &&
                 b.flash_start == flash_start &&
                 b.flash_size == flash_size &&
                 b.memory_start >= unallocated_memory_start &&
-                b.memory_start + b.memory_size <= u32::MAX &&
+                valid_size(b.memory_start + b.memory_size) &&
                 b.memory_start > 0 &&
                 b.memory_size >= initial_kernel_memory_size
             }, ()>
-            requires 
+            requires
+                valid_size(<R as RegionDescriptor>::size(ram_regions.fst) + initial_kernel_memory_size) &&
                 <R as RegionDescriptor>::is_set(ram_regions.fst) &&
                 <R as RegionDescriptor>::start(ram_regions.fst) >= unallocated_memory_start &&
                 unallocated_memory_start + unallocated_memory_size <= u32::MAX &&
@@ -479,7 +491,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         let memory_start = ram_regions.fst.start().ok_or(())?;
         let snd_region_size = match ram_regions.snd.size() {
             Some(s) => s,
-            None => 0
+            None => 0,
         };
         let app_memory_size = ram_regions.fst.size().ok_or(())? + snd_region_size;
         let app_break = memory_start.as_usize() + app_memory_size;
@@ -513,21 +525,21 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         fn (
             id: usize,
             mem_start: FluxPtrU8,
-            mem_size: usize, 
+            mem_size: usize,
             min_mem_size: usize,
-            app_mem_size: usize, 
-            kernel_mem_size: usize,
+            app_mem_size: usize,
+            initial_kernel_memory_size: usize{valid_size(initial_kernel_memory_size) && initial_kernel_memory_size > 0},
             flash_start: FluxPtrU8,
-            flash_size: usize, 
+            flash_size: usize,
         ) -> Result<Self { app:
                 let regions = app.regions;
                 let breaks = app.breaks;
                 app.breaks.memory_start >= mem_start &&
-                app.breaks.memory_start + app.breaks.memory_size <= u32::MAX &&
+                valid_size(app.breaks.memory_start + app.breaks.memory_size) &&
                 app.breaks.memory_start > 0 &&
-                app.breaks.memory_size >= kernel_mem_size
+                app.breaks.memory_size >= initial_kernel_memory_size
             }, AllocateAppMemoryError>
-        requires flash_start + flash_size < mem_start && kernel_mem_size > 0
+        requires valid_size(mem_start + mem_size) && flash_start + flash_size < mem_start
     )]
     pub(crate) fn allocate_app_memory(
         id: usize,
@@ -551,7 +563,11 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         let flash_region = Self::get_flash_region(flash_start, flash_size)
             .map_err(|_| AllocateAppMemoryError::FlashError)?;
 
-        flash_region.lemma_region_can_access_exactly_implies_no_overlap(flash_start, flash_start.wrapping_add(flash_size), mpu::Permissions::ReadExecuteOnly);
+        flash_region.lemma_region_can_access_exactly_implies_no_overlap(
+            flash_start,
+            flash_start.wrapping_add(flash_size),
+            mpu::Permissions::ReadExecuteOnly,
+        );
 
         // set the flash region
         app_regions.set(FLASH_REGION_NUMBER, flash_region);
@@ -562,14 +578,21 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             unallocated_memory_size,
             min_memory_size,
             initial_app_memory_size,
-        )  {
+        ) {
             Ok(r) => r,
-            Err(_) => return Err(AllocateAppMemoryError::HeapError)
+            Err(_) => return Err(AllocateAppMemoryError::HeapError),
         };
         // .map_err(|_| AllocateAppMemoryError::HeapError)?;
 
         // For some reason flux needs this to prove our pre and post conditions
         flux_rs::assert(flash_start.as_usize() + flash_size < unallocated_memory_start.as_usize());
+
+        let Some(ram0_size) = ram_regions.fst.size() else {
+            return Err(AllocateAppMemoryError::HeapError);
+        };
+        if ram0_size > (u32::MAX as usize) - initial_kernel_memory_size{
+            return Err(AllocateAppMemoryError::HeapError);
+        }
 
         // Get the app breaks using the RAM region
         let breaks = Self::get_app_breaks(
@@ -583,29 +606,43 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         .map_err(|_| AllocateAppMemoryError::HeapError)?;
 
         R::lemma_regions_can_access_exactly_implies_no_overlap(
-            &ram_regions.fst, 
-            &ram_regions.snd, 
+            &ram_regions.fst,
+            &ram_regions.snd,
             breaks.memory_start,
             breaks.app_break,
-            mpu::Permissions::ReadWriteOnly
+            mpu::Permissions::ReadWriteOnly,
         );
         let memory_end = breaks.memory_start.wrapping_add(breaks.memory_size);
-        ram_regions.fst.lemma_no_overlap_le_addr_implies_no_overlap_addr(breaks.app_break, memory_end);
-        ram_regions.snd.lemma_no_overlap_le_addr_implies_no_overlap_addr(breaks.app_break, memory_end);
+        ram_regions
+            .fst
+            .lemma_no_overlap_le_addr_implies_no_overlap_addr(breaks.app_break, memory_end);
+        ram_regions
+            .snd
+            .lemma_no_overlap_le_addr_implies_no_overlap_addr(breaks.app_break, memory_end);
 
-        
-        app_regions.get(FLASH_REGION_NUMBER)
+        app_regions
+            .get(FLASH_REGION_NUMBER)
             .lemma_region_can_access_flash_implies_no_app_block_overlaps(
-                breaks.flash_start, 
+                breaks.flash_start,
                 breaks.flash_start.wrapping_add(breaks.flash_size),
-                breaks.memory_start, 
-                memory_end
+                breaks.memory_start,
+                memory_end,
             );
-        app_regions.get(3).lemma_region_not_set_implies_no_overlap(breaks.memory_start, memory_end);
-        app_regions.get(4).lemma_region_not_set_implies_no_overlap(breaks.memory_start, memory_end);
-        app_regions.get(5).lemma_region_not_set_implies_no_overlap(breaks.memory_start, memory_end);
-        app_regions.get(6).lemma_region_not_set_implies_no_overlap(breaks.memory_start, memory_end);
-        app_regions.get(7).lemma_region_not_set_implies_no_overlap(breaks.memory_start, memory_end);
+        app_regions
+            .get(3)
+            .lemma_region_not_set_implies_no_overlap(breaks.memory_start, memory_end);
+        app_regions
+            .get(4)
+            .lemma_region_not_set_implies_no_overlap(breaks.memory_start, memory_end);
+        app_regions
+            .get(5)
+            .lemma_region_not_set_implies_no_overlap(breaks.memory_start, memory_end);
+        app_regions
+            .get(6)
+            .lemma_region_not_set_implies_no_overlap(breaks.memory_start, memory_end);
+        app_regions
+            .get(7)
+            .lemma_region_not_set_implies_no_overlap(breaks.memory_start, memory_end);
 
         // Set the RAM region
         app_regions.set(MAX_RAM_REGION_NUMBER - 1, ram_regions.fst);
@@ -620,11 +657,12 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         })
     }
 
+
     #[flux_rs::sig(fn (self: &strg Self, new_app_break: FluxPtrU8Mut) -> Result<(), Error> ensures self: Self)]
     pub(crate) fn update_app_memory(&mut self, new_app_break: FluxPtrU8Mut) -> Result<(), Error> {
-        let memory_start = self.breaks.memory_start; 
+        let memory_start = self.breaks.memory_start;
         let high_water_mark = self.breaks.high_water_mark;
-        let kernel_break = self.breaks.kernel_break; 
+        let kernel_break = self.breaks.kernel_break;
         if new_app_break.as_usize() > kernel_break.as_usize() {
             return Err(Error::OutOfMemory);
         }
@@ -637,17 +675,16 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         let new_region_size = new_app_break.as_usize() - memory_start.as_usize();
         let new_regions = R::update_regions(
             memory_start,
-            memory_start.as_usize() + self.memory_size(),
+            self.memory_size(),
             new_region_size,
             MAX_RAM_REGION_NUMBER,
             mpu::Permissions::ReadWriteOnly,
         )
         .ok_or(Error::OutOfMemory)?;
 
-
         let snd_region_size = match new_regions.snd.size() {
             Some(s) => s,
-            None => 0
+            None => 0,
         };
         let app_memory_size = new_regions.fst.size().ok_or(Error::KernelError)? + snd_region_size;
         let new_app_break = memory_start.as_usize() + app_memory_size;
@@ -659,16 +696,23 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         self.breaks.app_break = FluxPtrU8::from(new_app_break);
 
         R::lemma_regions_can_access_exactly_implies_no_overlap(
-            &new_regions.fst, 
-            &new_regions.snd, 
+            &new_regions.fst,
+            &new_regions.snd,
             self.breaks.memory_start,
             self.breaks.app_break,
-            mpu::Permissions::ReadWriteOnly
+            mpu::Permissions::ReadWriteOnly,
         );
 
-        let mem_end = self.breaks.memory_start.wrapping_add(self.breaks.memory_size);
-        new_regions.fst.lemma_no_overlap_le_addr_implies_no_overlap_addr(self.breaks.app_break, mem_end);
-        new_regions.snd.lemma_no_overlap_le_addr_implies_no_overlap_addr(self.breaks.app_break, mem_end);
+        let mem_end = self
+            .breaks
+            .memory_start
+            .wrapping_add(self.breaks.memory_size);
+        new_regions
+            .fst
+            .lemma_no_overlap_le_addr_implies_no_overlap_addr(self.breaks.app_break, mem_end);
+        new_regions
+            .snd
+            .lemma_no_overlap_le_addr_implies_no_overlap_addr(self.breaks.app_break, mem_end);
 
         self.regions.set(MAX_RAM_REGION_NUMBER - 1, new_regions.fst);
         self.regions.set(MAX_RAM_REGION_NUMBER, new_regions.snd);

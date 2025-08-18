@@ -58,7 +58,17 @@ pub fn power_of_two(n: u32) -> usize {
     1_usize << n
 }
 
+#[flux_rs::reveal(valid_size)]
+#[flux_rs::sig(fn (x: usize, y: usize) -> bool[valid_size(x + y)] requires y <= u32::MAX)]
+pub fn check_valid_size(x: usize, y: usize) -> bool {
+    x <= u32::MAX as usize - y
+}
 
+#[flux_rs::trusted(reason = "math support (valid usize to u32 cast)")]
+#[flux_rs::sig(fn ({ usize[@n] | n <= u32::MAX }) -> u32[n])]
+pub fn usize_to_u32(n: usize) -> u32 {
+    n as u32
+}
 
 /* extern specs have to live here because the defs for these specs are defined here */
 #[flux_rs::extern_spec]
