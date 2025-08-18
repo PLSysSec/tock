@@ -1428,6 +1428,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
 
         // Initialize MPU region configuration.
         let app_memory_alloc = match AppMemoryAllocator::allocate_app_memory(
+            index,
             remaining_mem_ptrs.start,
             remaining_mem_ptrs.len,
             min_total_memory_size,
@@ -1776,6 +1777,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             grant_ptrs_offset + Self::CALLBACKS_OFFSET + Self::PROCESS_STRUCT_OFFSET;
 
         let maybe_app_mem_alloc = AppMemoryAllocator::allocate_app_memory(
+            new_identifier,
             app_breaks.memory_start,
             app_breaks.memory_size,
             min_process_memory_size,

@@ -32,6 +32,7 @@ pub mod syscall;
 pub mod systick;
 
 pub mod mpu;
+mod tcb;
 
 // These constants are defined in the linker script.
 extern "C" {
