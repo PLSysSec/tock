@@ -60,14 +60,14 @@ impl<'a> ListNode<'a, MLFQProcessNode<'a>> for MLFQProcessNode<'a> {
     }
 }
 
-// #[flux_rs::refined_by()]
+#[flux_rs::refined_by()]
 pub struct MLFQSched<'a, A: 'static + time::Alarm<'static>> {
     alarm: &'static A,
     pub processes: [List<'a, MLFQProcessNode<'a>>; 3], // Using Self::NUM_QUEUES causes rustc to crash..
     next_reset: Cell<A::Ticks>,
     last_reset_check: Cell<A::Ticks>,
     last_timeslice: Cell<u32>,
-    // #[field(Cell<usize{v: v < 3}>)]
+    #[flux_rs::field(Cell<usize{v: v < 3}>)]
     last_queue_idx: Cell<usize>,
 }
 
@@ -107,8 +107,10 @@ impl<'a, A: 'static + time::Alarm<'static>> MLFQSched<'a, A> {
     /// Returns the process at the head of the highest priority queue containing a process
     /// that is ready to execute (as determined by `has_tasks()`)
     /// This method moves that node to the head of its queue.
+    #[flux_rs::spec(fn (&Self) -> (Option<&MLFQProcessNode>, usize{v: v < 3}))]
     fn get_next_ready_process_node(&self) -> (Option<&MLFQProcessNode<'a>>, usize) {
         for (idx, queue) in self.processes.iter().enumerate() {
+            flux_support::assume(idx < 3); // TODO: extern-spec enumerate
             let next = queue
                 .iter()
                 .find(|node_ref| node_ref.proc.map_or(false, |proc| proc.ready()));
@@ -133,7 +135,7 @@ impl<'a, A: 'static + time::Alarm<'static>> MLFQSched<'a, A> {
 }
 
 impl<'a, A: 'static + time::Alarm<'static>, C: Chip> Scheduler<C> for MLFQSched<'a, A> {
-    #[flux_rs::trusted(reason = "arithmetic may overflow")]
+    // #[flux_rs::trusted(reason = "arithmetic may overflow")]
     fn next(&self) -> SchedulingDecision {
         let now = self.alarm.now();
         let next_reset = self.next_reset.get();
@@ -164,11 +166,10 @@ impl<'a, A: 'static + time::Alarm<'static>, C: Chip> Scheduler<C> for MLFQSched<
     fn result(&self, result: StoppedExecutingReason, execution_time_us: Option<u32>) {
         let execution_time_us = execution_time_us.unwrap(); // should never fail as we never run cooperatively
         let queue_idx = self.last_queue_idx.get();
-        flux_support::assume(queue_idx < 3); // Needs extern spec for cell?
                                              // Last executed node will always be at head of its queue
         let node_ref = self.processes[queue_idx].head().unwrap();
         let last_timeslice = self.last_timeslice.get();
-        flux_support::assume(last_timeslice >= execution_time_us); // need refined scheduler_timer()?
+        // flux_support::assume(last_timeslice >= execution_time_us); // need refined scheduler_timer()?
         node_ref
             .state
             .us_used_this_queue

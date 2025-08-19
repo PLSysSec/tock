@@ -297,7 +297,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             });
             if config::CONFIG.trace_syscalls {
                 let count_after = tasks.len();
-                assume(count_before >= count_after); // requires refined ringbuffer
+                // assume(count_before >= count_after); // requires refined ringbuffer
                 debug!(
                     "[{:?}] remove_pending_upcalls[{:#x}:{}] = {} upcall(s) removed",
                     self.processid(),
@@ -1947,7 +1947,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
     /// This reverses `create_custom_grant_identifier()`.
     fn get_custom_grant_address(&self, identifier: ProcessCustomGrantIdentifier) -> Option<usize> {
         let process_memory_end = self.mem_end()?.as_usize();
-        assume(process_memory_end > identifier.offset);
+        // assume(process_memory_end > identifier.offset);
         // Subtract the offset in the identifier from the end of the process
         // memory to get the address of the custom grant.
         Some(process_memory_end - identifier.offset)

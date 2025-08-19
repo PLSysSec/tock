@@ -332,7 +332,9 @@ fn discover_process_binary(
         .get(0..app_length as usize)
         .ok_or((flash, ProcessBinaryError::NotEnoughFlash))?;
 
-    assume(app_flash.len() > 0); // Need extern_spec for get and SliceIndex
+    if !(app_flash.len() > 0) {  // TODO:GRADUAL-ASSUME
+        return Err((flash, ProcessBinaryError::NotEnoughFlash));
+    }
                                  // Advance the flash slice for process discovery beyond this last entry.
                                  // This will be the start of where we look for a new process since Tock
                                  // processes are allocated back-to-back in flash.
@@ -595,7 +597,9 @@ impl<'a, C: Chip> SequentialProcessLoaderMachine<'a, C> {
     /// binary could not be extracted.
     fn discover_process_binary(&self) -> Result<ProcessBinary, ProcessBinaryError> {
         let flash = self.flash.get();
-        assume(flash.len() > 0); // Need to guarantee &[u8] inside Cell is not 0
+        if !(flash.len() > 0) { // TODO:GRADUAL-ASSUME
+            return Err(ProcessBinaryError::NotEnoughFlash);
+        }
 
         if config::CONFIG.debug_load_processes {
             debug!(
@@ -641,7 +645,9 @@ impl<'a, C: Chip> SequentialProcessLoaderMachine<'a, C> {
             .get(0..app_length as usize)
             .ok_or(ProcessBinaryError::NotEnoughFlash)?;
 
-        assume(app_flash.len() > 0); // Need extern_spec for get and SliceIndex
+        if !(app_flash.len() > 0) { // TODO:GRADUAL-ASSUME
+            return Err(ProcessBinaryError::NotEnoughFlash);
+        }
 
         // Advance the flash slice for process discovery beyond this last entry.
         // This will be the start of where we look for a new process since Tock
@@ -940,7 +946,7 @@ impl<'a, C: Chip> crate::process_checker::ProcessCheckerMachineClient
                 match self.find_open_process_binary_slot() {
                     Some(index) => {
                         self.proc_binaries.map(|proc_binaries| {
-                            assume(proc_binaries.len() > index); // requires spec for enumerate() ???
+                            assume(index < proc_binaries.len()); // TODO: extern-spec-cell-enumerate
                             process_binary.credential.insert(optional_credential);
                             proc_binaries[index] = Some(process_binary);
                         });

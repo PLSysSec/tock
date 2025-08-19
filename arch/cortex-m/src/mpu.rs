@@ -150,7 +150,7 @@ pub struct MPU<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> {
 
 impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> MPU<NUM_REGIONS, MIN_REGION_SIZE> {
     pub const unsafe fn new() -> Self {
-        assume(NUM_REGIONS == 8 || NUM_REGIONS == 16);
+        assume(NUM_REGIONS == 8 || NUM_REGIONS == 16); // TODO: const-generic
         Self {
             registers: MPU_BASE_ADDRESS,
             hardware_is_configured_for: OptionalCell::empty(),
@@ -374,8 +374,8 @@ fn subregion_mask(min_subregion: usize, max_subregion: usize) -> u8 {
 }
 
 #[flux_rs::sig(
-    fn (start: usize, min_size: usize) -> Option<usize{size:
-        size >= min_size && pow2(size) && aligned(start, size) && octet(size) && half_max(size)
+    fn (po2_aligned_start: usize{valid_size(po2_aligned_start)}, min_size: usize) -> Option<usize{size:
+        size >= min_size && pow2(size) && aligned(po2_aligned_start, size) && octet(size) && half_max(size)
     }>
     requires
         half_max(min_size) &&
@@ -397,7 +397,6 @@ fn next_aligned_power_of_two(po2_aligned_start: usize, min_size: usize) -> Optio
 
     // Find the largest power of 2 that divides start
     // VTOCK TODO: Should just be usize stuff
-    assume(po2_aligned_start <= u32::MAX as usize);
     let mut trailing_zeros = po2_aligned_start.trailing_zeros() as usize;
     let largest_pow2_divisor = power_of_two(usize_to_u32(trailing_zeros));
     theorem_to_pow2_is_pow2(trailing_zeros);
@@ -1174,8 +1173,7 @@ impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> mpu::MPU
         // cannot have unused regions
         if NUM_REGIONS > 8 {
             for i in 8..NUM_REGIONS {
-                // TODO: remove this via iter
-                flux_support::assume(i < 16);
+                flux_support::assume(i < 16); // TODO: extern-spec-iter-range
                 let region = CortexMRegion::empty(i);
                 self.registers
                     .rbar
