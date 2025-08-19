@@ -26,13 +26,6 @@ pub const fn assume(b: bool) {
     }
 }
 
-#[flux_rs::trusted]
-#[flux_rs::sig(fn(a: usize, b: usize) -> usize[a + b])]
-pub fn flux_trusted_add(a: usize, b: usize) -> usize {
-    a + b
-}
-
-
 pub mod capability {
     use super::FluxPtrU8;
 

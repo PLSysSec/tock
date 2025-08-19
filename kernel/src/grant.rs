@@ -954,9 +954,9 @@ fn update_saved_allow_rw(
     saved: &mut SavedAllowRw,
     buffer: ReadWriteProcessBuffer,
     process: &dyn Process,
-)  -> ReadWriteProcessBuffer {
+) -> ReadWriteProcessBuffer {
     let old_allow =
-      unsafe { ReadWriteProcessBuffer::new(saved.ptr, saved.len, process.processid()) };
+        unsafe { ReadWriteProcessBuffer::new(saved.ptr, saved.len, process.processid()) };
 
     let (ptr, len) = buffer.consume();
     saved.ptr = ptr;
