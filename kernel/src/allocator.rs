@@ -445,7 +445,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         .ok_or(())
     }
 
-    #[flux::opts(check_overflow = "strict")]
+    #[flux_rs::opts(check_overflow = "strict")]
     #[flux_rs::sig(
         fn (
             ram_regions: Pair<R, R>,
