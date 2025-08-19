@@ -20,11 +20,12 @@ use flux_support::*;
 use crate::allocator::{self, AppMemoryAllocator};
 use crate::collections::queue::Queue;
 use crate::collections::ring_buffer::RingBuffer;
+use crate::config;
 use crate::debug;
 use crate::errorcode::ErrorCode;
 use crate::kernel::Kernel;
 use crate::platform::chip::Chip;
-use crate::platform::mpu::{self, MPU};
+use crate::platform::mpu;
 use crate::process::BinaryVersion;
 use crate::process::ProcessBinary;
 use crate::process::{Error, FunctionCall, FunctionCallSource, Process, Task};
@@ -39,7 +40,6 @@ use crate::storage_permissions;
 use crate::syscall::{self, Syscall, SyscallReturn, UserspaceKernelBoundary};
 use crate::upcall::UpcallId;
 use crate::utilities::cells::{MapCell, NumericCellExt, OptionalCell};
-use crate::{config, process};
 
 use tock_tbf::types::CommandPermissions;
 
@@ -1233,8 +1233,6 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
                 ));
             } else {
                 // PIC, need to specify the addresses.
-                let sram_start = self.mem_start()?.as_usize();
-                let flash_start = self.flash_start()?.as_usize();
                 let sram_start = self.mem_start()?.as_usize();
                 let flash_start = self.flash_start()?.as_usize();
                 let flash_init_fn = flash_start + self.header.get_init_function_offset() as usize;

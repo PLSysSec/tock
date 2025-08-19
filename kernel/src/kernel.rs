@@ -189,7 +189,7 @@ impl Kernel {
     pub(crate) fn get_process_iter(
         &self,
     ) -> core::iter::FilterMap<
-        core::slice::Iter<Option<&dyn process::Process>>,
+        core::slice::Iter<'_, Option<&dyn process::Process>>,
         fn(&Option<&'static dyn process::Process>) -> Option<&'static dyn process::Process>,
     > {
         fn keep_some(

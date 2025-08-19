@@ -1,5 +1,5 @@
-use core::{fmt::Display, ptr::NonNull, cell::Cell};
-use flux_support::{capability::*, FluxPtrExt};
+use core::{cell::Cell, fmt::Display, ptr::NonNull};
+use flux_support::capability::*;
 use flux_support::{max_ptr, max_usize, FluxPtrU8, FluxPtrU8Mut, Pair, RArray};
 
 use crate::{
@@ -328,6 +328,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             || self.regions.get(7).overlaps(start, end)
     }
 
+    #[expect(dead_code)]
     #[flux_rs::sig(fn () -> usize[10])]
     fn test() -> usize {
         let mut n0 = 0;
@@ -590,7 +591,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         let Some(ram0_size) = ram_regions.fst.size() else {
             return Err(AllocateAppMemoryError::HeapError);
         };
-        if ram0_size > (u32::MAX as usize) - initial_kernel_memory_size{
+        if ram0_size > (u32::MAX as usize) - initial_kernel_memory_size {
             return Err(AllocateAppMemoryError::HeapError);
         }
 
@@ -656,7 +657,6 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             id,
         })
     }
-
 
     #[flux_rs::sig(fn (self: &strg Self, new_app_break: FluxPtrU8Mut) -> Result<(), Error> ensures self: Self)]
     pub(crate) fn update_app_memory(&mut self, new_app_break: FluxPtrU8Mut) -> Result<(), Error> {
@@ -727,7 +727,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         mpu: &M,
     ) -> MpuConfiguredCapability {
         if self.is_dirty.get() {
-            mpu.configure_mpu(&self.regions, self.id); 
+            mpu.configure_mpu(&self.regions, self.id);
             self.is_dirty.set(false);
         }
         MpuConfiguredCapability::new(self.memory_start(), self.app_break())

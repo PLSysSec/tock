@@ -31,12 +31,12 @@ impl<T: Copy> RArray<T> {
     }
 
     #[flux_rs::trusted]
-    pub fn iter_mut(&mut self) -> IterMut<T> {
+    pub fn iter_mut(&mut self) -> IterMut<'_, T> {
         self.arr.iter_mut()
     }
 
     #[flux_rs::trusted]
-    pub fn iter(&self) -> Iter<T> {
+    pub fn iter(&self) -> Iter<'_, T> {
         self.arr.iter()
     }
 }

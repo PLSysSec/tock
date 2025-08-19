@@ -65,7 +65,7 @@ pub struct WriteToBinaryOffsetWrapper<'a> {
 }
 
 impl<'a> WriteToBinaryOffsetWrapper<'a> {
-    pub fn new(binary_writer: &'a mut dyn BinaryWrite) -> WriteToBinaryOffsetWrapper {
+    pub fn new(binary_writer: &'a mut dyn BinaryWrite) -> WriteToBinaryOffsetWrapper<'a> {
         WriteToBinaryOffsetWrapper {
             binary_writer,
             index: 0,
@@ -156,7 +156,7 @@ pub(crate) struct BinaryToWriteWrapper<'a> {
 }
 
 impl<'a> BinaryToWriteWrapper<'a> {
-    pub(crate) fn new(writer: &'a mut dyn core::fmt::Write) -> BinaryToWriteWrapper {
+    pub(crate) fn new(writer: &'a mut dyn core::fmt::Write) -> BinaryToWriteWrapper<'a> {
         BinaryToWriteWrapper { writer }
     }
 }
