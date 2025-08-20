@@ -229,6 +229,7 @@ pub trait StandardBitTiming {
 /// `<https://github.com/zephyrproject-rtos/zephyr/tree/main/drivers/can>`
 impl<T: Configure> StandardBitTiming for T {
     fn bit_timing_for_bitrate(clock_rate: u32, bitrate: u32) -> Result<BitTiming, ErrorCode> {
+        #[flux_rs::spec(fn (_, ts:u32{ts > 0},_ ,_, _) -> i32)]
         fn calc_sample_point_err(
             sp: u32,
             ts: u32,
@@ -243,8 +244,8 @@ impl<T: Configure> StandardBitTiming for T {
                 let mut ts2;
                 let mut res: i32 = 0;
 
-                let ts_tmp = (ts * sp) / 1000;
-                flux_support::assume(ts > ts_tmp);
+                // let ts_tmp = (ts * sp) / 1000;
+                // flux_support::assume(ts > ts_tmp);
 
                 ts2 = ts - (ts * sp) / 1000;
                 ts2 = if ts2 < max_bit_timings.segment2 as u32 {
@@ -254,7 +255,7 @@ impl<T: Configure> StandardBitTiming for T {
                 } else {
                     ts2
                 };
-                flux_support::assume(ts >= sync_seg as u32 + ts2);
+                // flux_support::assume(ts >= sync_seg as u32 + ts2);
 
                 ts1 = ts - sync_seg as u32 - ts2;
 
@@ -266,7 +267,7 @@ impl<T: Configure> StandardBitTiming for T {
                     }
                 } else if ts1 < ts1_min as u32 {
                     ts1 = ts1_min as u32;
-                    assume(ts > ts1);
+                    // assume(ts > ts1);
                     ts2 = ts - ts1;
                     if ts2 < max_bit_timings.segment2 as u32 {
                         res = -1;
@@ -284,7 +285,7 @@ impl<T: Configure> StandardBitTiming for T {
 
                     let prop = res_timing.propagation;
                     let ts1_2 = ts1 as u8;
-                    assume(ts1_2 >= prop);
+                    // assume(ts1_2 >= prop);
                     res_timing.segment1 = ts1_2 - prop;
                     res_timing.segment2 = ts2 as u8;
 
@@ -299,7 +300,9 @@ impl<T: Configure> StandardBitTiming for T {
                 }
             }
         }
-        assume(bitrate > 0);
+        if !(bitrate > 0) {
+            return Err(ErrorCode::INVAL); // TODO:GRADUAL-ASSUME
+        }
 
         if bitrate > 8_000_000 {
             return Err(ErrorCode::INVAL);
@@ -320,17 +323,19 @@ impl<T: Configure> StandardBitTiming for T {
             + Self::MAX_BIT_TIMINGS.segment2
             + Self::SYNC_SEG) as u32;
 
-        flux_support::assume(ts > 0);
+        if !(ts > 0) { return Err(ErrorCode::FAIL); } // TODO:GRADUAL-ASSUME
 
         for prescaler in
             max_u32(clock_rate / (ts * bitrate), 1)..Self::MAX_BIT_TIMINGS.baud_rate_prescaler
         {
             let scaled_rate = prescaler * bitrate;
-            assume(scaled_rate > 0);
+            if !(scaled_rate > 0) { return Err(ErrorCode::FAIL); } // TODO:GRADUAL-ASSUME;
             if clock_rate % scaled_rate != 0 {
                 continue;
             }
             ts = clock_rate / scaled_rate;
+
+            if !(ts > 0) { return Err(ErrorCode::FAIL); } // TODO:GRADUAL-ASSUME
 
             sample_point_err = calc_sample_point_err(
                 sp,
@@ -357,10 +362,10 @@ impl<T: Configure> StandardBitTiming for T {
             return Err(ErrorCode::INVAL);
         }
 
-        assume(res_timing.segment1 > 0);
-        assume(res_timing.segment2 > 0);
-        assume(res_timing.baud_rate_prescaler > 0);
-        assume(res_timing.sync_jump_width > 0);
+        // assume(res_timing.segment1 > 0);
+        // assume(res_timing.segment2 > 0);
+        // assume(res_timing.baud_rate_prescaler > 0);
+        // assume(res_timing.sync_jump_width > 0);
 
         Ok(BitTiming {
             segment1: res_timing.segment1 - 1,

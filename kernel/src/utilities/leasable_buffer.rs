@@ -341,7 +341,7 @@ impl<'a, T> SubSliceMut<'a, T> {
         };
 
         let new_start = self.active_range.start + start;
-        assume(end > start);
+        // assume(end > start);
         let new_end = new_start + (end - start);
 
         self.active_range = FluxRange {

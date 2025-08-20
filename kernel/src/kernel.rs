@@ -717,7 +717,6 @@ impl Kernel {
             } else {
                 match scheduler_timer.get_remaining_us() {
                     Some(remaining) => {
-                        assume(timeslice >= remaining); // Needs refined timer? talk to eric
                         timeslice - remaining
                     }
                     None => timeslice, // used whole timeslice

@@ -607,7 +607,7 @@ pub unsafe fn format_pmp_entries<const PHYSICAL_ENTRIES: usize>(
                 let pmpaddr = csr::CSR.pmpaddr_get(i);
                 let encoded_size = pmpaddr.trailing_ones();
                 let size_of_pmp_addr = core::mem::size_of_val(&pmpaddr);
-                flux_support::assume(size_of_pmp_addr > 0);
+                flux_support::assume(size_of_pmp_addr > 0); // TODO: sizeof
                 if (encoded_size as usize) < (size_of_pmp_addr * 8 - 1) {
                     let start = pmpaddr - ((1 << encoded_size) - 1);
                     let end = start + (1 << (encoded_size + 1)) - 1;
@@ -1777,7 +1777,7 @@ pub mod simple {
             // establish some verification specific details
             let mut hardware_state = HardwareState::new();
             all_available_regions_setup_up_to_base(&hardware_state);
-            flux_support::assume(AVAILABLE_ENTRIES > 0);
+            flux_support::assume(AVAILABLE_ENTRIES > 0); // TODO: const-generic
 
             configure_initial_pmp_tail(0, &mut hardware_state, AVAILABLE_ENTRIES)?;
 
@@ -2176,7 +2176,7 @@ pub mod kernel_protection {
                 );
             }
 
-            flux_support::assume(AVAILABLE_ENTRIES >= 7);
+            flux_support::assume(AVAILABLE_ENTRIES >= 7); // TODO: const-generic
 
             // Set the kernel `.text`, flash, RAM and MMIO regions, in no
             // particular order, with the exception of `.text` and flash:
@@ -2684,7 +2684,7 @@ pub mod kernel_protection_mml_epmp {
                 );
             }
 
-            flux_support::assume(AVAILABLE_ENTRIES >= 3);
+            flux_support::assume(AVAILABLE_ENTRIES >= 3); // TODO: const-generic
             // Set the kernel `.text`, flash, RAM and MMIO regions, in no
             // particular order, with the exception of `.text` and flash:
             // `.text` must precede flash, as otherwise we'd be revoking execute
