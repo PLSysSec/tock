@@ -150,7 +150,7 @@ pub struct MPU<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> {
 
 impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> MPU<NUM_REGIONS, MIN_REGION_SIZE> {
     pub const unsafe fn new() -> Self {
-        assume(NUM_REGIONS == 8 || NUM_REGIONS == 16); // TODO: const-generic
+        flux_support::const_assume!(NUM_REGIONS == 8 || NUM_REGIONS == 16);
         Self {
             registers: MPU_BASE_ADDRESS,
             hardware_is_configured_for: OptionalCell::empty(),

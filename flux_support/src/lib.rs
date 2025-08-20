@@ -15,6 +15,14 @@ pub use flux_range::*;
 pub use flux_register_interface::*;
 pub use math::*;
 
+#[macro_export]
+macro_rules! const_assume {
+    ($cond:expr) => {
+        const { assert!($cond) };
+        $crate::assume($cond);
+    }
+}
+
 #[allow(dead_code)]
 #[flux_rs::sig(fn(x: bool[true]))]
 pub const fn assert(_x: bool) {}

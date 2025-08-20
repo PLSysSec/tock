@@ -1777,7 +1777,7 @@ pub mod simple {
             // establish some verification specific details
             let mut hardware_state = HardwareState::new();
             all_available_regions_setup_up_to_base(&hardware_state);
-            flux_support::assume(AVAILABLE_ENTRIES > 0); // TODO: const-generic
+            flux_support::const_assume!(AVAILABLE_ENTRIES > 0);
 
             configure_initial_pmp_tail(0, &mut hardware_state, AVAILABLE_ENTRIES)?;
 
@@ -2176,7 +2176,7 @@ pub mod kernel_protection {
                 );
             }
 
-            flux_support::assume(AVAILABLE_ENTRIES >= 7); // TODO: const-generic
+            flux_support::const_assume!(AVAILABLE_ENTRIES >= 7);
 
             // Set the kernel `.text`, flash, RAM and MMIO regions, in no
             // particular order, with the exception of `.text` and flash:
@@ -2684,7 +2684,7 @@ pub mod kernel_protection_mml_epmp {
                 );
             }
 
-            flux_support::assume(AVAILABLE_ENTRIES >= 3); // TODO: const-generic
+            flux_support::const_assume!(AVAILABLE_ENTRIES >= 3);
             // Set the kernel `.text`, flash, RAM and MMIO regions, in no
             // particular order, with the exception of `.text` and flash:
             // `.text` must precede flash, as otherwise we'd be revoking execute
