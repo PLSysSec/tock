@@ -1301,7 +1301,7 @@ impl<const MAX_REGIONS: usize, P: TORUserPMP<MAX_REGIONS> + 'static> kernel::pla
     }
 
     #[flux_rs::trusted(reason = "fixpoint encoding error")]
-    fn configure_mpu(&self, config: &RArray<Self::Region>, id: usize) {
+    fn configure_mpu(&self, config: &RArray<Self::Region>, id: usize, is_dirty: bool) {
         let mut ac_config: [Self::Region; MAX_REGIONS] =
             core::array::from_fn(|i| <Self::Region as mpu::RegionDescriptor>::default(i));
         for i in 0..MAX_REGIONS {

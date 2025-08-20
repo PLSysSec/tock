@@ -901,8 +901,6 @@ impl CortexMRegion {
 
         let region_size_u32 = usize_to_u32(region_size);
         let size_value = log_base_two(region_size_u32) - 1;
-        kernel::debug!("ORIGINAL SIZE: {}", region_size);
-        kernel::debug!("SIZE VALUE: {}", size_value);
         // Attributes register
         RegionAttributes::ENABLE::SET()
             + RegionAttributes::SIZE().val(size_value)
@@ -1162,23 +1160,13 @@ impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> mpu::MPU
         self.registers.mpu_type.read(Type::DREGION().into_inner()) as usize
     }
 
-    fn configure_mpu(&self, config: &RArray<CortexMRegion>, id: usize) {
-        if self.is_configured_for(id) {
+    fn configure_mpu(&self, config: &RArray<CortexMRegion>, id: usize, is_dirty: bool) {
+        if self.is_configured_for(id) && !is_dirty {
             return; // fastpath - we are already using this config
         }
         for i in 0..NUM_REGIONS {
             if i < 8 {
                 let region = config.get(i);
-                kernel::debug!(
-                    "REGION {}: WRITING TO BASE REG {}",
-                    i,
-                    region.base_address().value()
-                );
-                kernel::debug!(
-                    "REGION {}: WRITING TO SIZE REG {}",
-                    i,
-                    region.attributes().value()
-                );
                 self.registers
                     .rbar
                     .write(region.base_address().into_inner());

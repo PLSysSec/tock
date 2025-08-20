@@ -289,12 +289,9 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
 
     #[flux_rs::sig(fn (&Self) -> Option<{idx. usize[idx] | idx > 2 && idx < 8}>)]
     fn next_available_ipc_idx(&self) -> Option<usize> {
-        let mut i = 0;
+        let mut i = FLASH_REGION_NUMBER + 1;
         let n = self.regions.len();
         while i < n {
-            if i <= FLASH_REGION_NUMBER {
-                continue;
-            }
             let region = self.regions.get(i);
             if !region.is_set() {
                 return Some(i);
@@ -727,10 +724,8 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         &self,
         mpu: &M,
     ) -> MpuConfiguredCapability {
-        if self.is_dirty.get() {
-            mpu.configure_mpu(&self.regions, self.id);
-            self.is_dirty.set(false);
-        }
+        mpu.configure_mpu(&self.regions, self.id, self.is_dirty.get());
+        self.is_dirty.set(false);
         MpuConfiguredCapability::new(self.memory_start(), self.app_break())
     }
 
