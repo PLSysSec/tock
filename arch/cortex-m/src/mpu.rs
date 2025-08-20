@@ -1177,7 +1177,6 @@ impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> mpu::MPU
                     .rbar
                     .write(region.base_address().into_inner());
                 self.registers.rasr.write(region.attributes().into_inner());
-                i += 1;
             }
         }
         self.hardware_is_configured_for.set(id);
