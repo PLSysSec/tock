@@ -288,14 +288,15 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
     }
 
     #[flux_rs::sig(fn (&Self) -> Option<{idx. usize[idx] | idx > 2 && idx < 8}>)]
-    #[flux_rs::trusted(
-        reason = "invariant might not hold (when place is folded) - there's no mutation"
-    )]
     fn next_available_ipc_idx(&self) -> Option<usize> {
         let mut i = 0;
-        while i < self.regions.len() {
+        let n = self.regions.len();
+        while i < n {
+            if i <= FLASH_REGION_NUMBER {
+                continue;
+            }
             let region = self.regions.get(i);
-            if i != FLASH_REGION_NUMBER && i <= MAX_RAM_REGION_NUMBER && !region.is_set() {
+            if !region.is_set() {
                 return Some(i);
             }
             i += 1;
