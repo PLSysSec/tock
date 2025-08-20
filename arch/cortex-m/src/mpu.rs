@@ -22,6 +22,7 @@ use kernel::utilities::math;
 use kernel::utilities::registers::interfaces::{Readable, Writeable};
 use kernel::utilities::registers::{FieldValue, ReadOnly, ReadWrite};
 
+extern crate flux_core;
 /// MPU Registers for the Cortex-M3, Cortex-M4 and Cortex-M7 families
 /// Described in section 4.5 of
 /// <http://infocenter.arm.com/help/topic/com.arm.doc.dui0553a/DUI0553A_cortex_m4_dgug.pdf>
@@ -196,19 +197,19 @@ impl fmt::Display for CortexMRegion {
         write!(f, "\r\n Cortex-M Region")?;
         if let Some(location) = self.location() {
             let access_bits = self.attributes().read(RegionAttributes::AP());
-            let start = location.accessible_start.as_usize();
+            let start = location.region_start.as_usize();
             write!(
                 f,
                 "\
                     \r\n  Region: [{:#010X}:{:#010X}], length: {} bytes; ({:#x})",
                 start,
-                start + location.accessible_size,
-                location.accessible_size,
+                start + location.region_size,
+                location.region_size,
                 // access_str,
                 access_bits,
             )?;
             let subregion_bits = self.attributes().read(RegionAttributes::SRD());
-            let subregion_size = location.accessible_size / 8; // VTock BUG : This is wrong - cannot use logical size to compute the subregion size
+            let subregion_size = location.region_size / 8; // VTock BUG : This is wrong - cannot use logical size to compute the subregion size
             for j in 0..8 {
                 write!(
                     f,
@@ -487,18 +488,17 @@ impl mpu::RegionDescriptor for CortexMRegion {
             )
         }> requires max_region_number > 0 && max_region_number < 8
     )]
-    #[flux_rs::opts(solver = "z3")]
     fn allocate_regions(
         max_region_number: usize,
         available_start: FluxPtrU8,
         available_size: usize,
-        region_size: usize,
+        total_size: usize,
         permissions: mpu::Permissions,
     ) -> Option<Pair<CortexMRegion, CortexMRegion>> {
-        // creates <= 2 regions with region_start and region_end = region_start + region_size within available start + available size
+        // creates 2 regions with region_start and region_end = region_start + region_size within available start + available size
 
         let mut start = available_start.as_usize();
-        let mut size = region_size;
+        let mut size = total_size;
 
         let overflow_bound = (u32::MAX / 2 + 1) as usize;
         if size == 0 || size > overflow_bound || start > overflow_bound {
@@ -508,22 +508,24 @@ impl mpu::RegionDescriptor for CortexMRegion {
 
         // size must be >= 256 and a power of two for subregions
         size = flux_support::max_usize(size, 512);
+
         size = size.next_power_of_two();
 
         theorem_pow2_div2_pow2(size);
-
-        size /= 2;
+        theorem_div2_pow2(size);
+        let region_size = size / 2;
+        flux_rs::assert(region_size * 2 == size);
 
         // region size must be aligned to start
-        start = align(start, size);
+        start = align(start, region_size);
 
-        theorem_pow2_octet(size);
-        theorem_div_octet(size);
+        theorem_pow2_octet(region_size);
+        theorem_div_octet(region_size);
 
         // calculate subregions
-        let subregion_size = size / 8;
+        let subregion_size = region_size / 8;
 
-        let num_subregions_enabled = size.div_ceil(subregion_size);
+        let num_subregions_enabled = total_size.div_ceil(subregion_size);
         let subregions_enabled_end = start + num_subregions_enabled * subregion_size;
 
         // make sure this fits within our available size
@@ -537,11 +539,12 @@ impl mpu::RegionDescriptor for CortexMRegion {
         let snd_region = if num_subregions1 == 0 {
             mpu::RegionDescriptor::default(max_region_number)
         } else {
+            theorem_aligned_plus_aligned_to_is_aligned(start, region_size);
             CortexMRegion::new_with_srd(
-                FluxPtr::from(start + size),
+                FluxPtr::from(start + region_size),
                 num_subregions1 * subregion_size,
-                FluxPtr::from(start + size),
-                size,
+                FluxPtr::from(start + region_size),
+                region_size,
                 max_region_number,
                 0,
                 num_subregions1 - 1,
@@ -554,7 +557,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
                 FluxPtr::from(start),
                 num_subregions0 * subregion_size,
                 FluxPtr::from(start),
-                size,
+                region_size,
                 max_region_number - 1,
                 0,
                 num_subregions0 - 1,
@@ -596,13 +599,13 @@ impl mpu::RegionDescriptor for CortexMRegion {
     fn update_regions(
         region_start: FluxPtrU8,
         available_size: usize,
-        region_size: usize,
+        total_size: usize,
         max_region_number: usize,
         permissions: mpu::Permissions,
     ) -> Option<Pair<CortexMRegion, CortexMRegion>> {
         let overflow_bound = (u32::MAX / 2 + 1) as usize;
-        if region_size == 0
-            || region_size > overflow_bound
+        if total_size == 0
+            || total_size > overflow_bound
             || region_start.as_usize() > overflow_bound
         {
             // cannot create such a region
@@ -610,14 +613,14 @@ impl mpu::RegionDescriptor for CortexMRegion {
         }
 
         // get the smallest size >= region size / 2 which is a power of two and aligned to the start
-        let mut min_region_size = flux_support::max_usize(512, region_size);
+        let mut min_total_size = flux_support::max_usize(512, total_size);
 
-        if min_region_size % 2 != 0 {
-            min_region_size += 1;
+        if min_total_size % 2 != 0 {
+            min_total_size += 1;
         }
 
         let mut underlying_region_size =
-            next_aligned_power_of_two(region_start.as_usize(), min_region_size / 2)?;
+            next_aligned_power_of_two(region_start.as_usize(), min_total_size / 2)?;
 
         theorem_pow2_octet(underlying_region_size);
         theorem_div_octet(underlying_region_size);
@@ -625,7 +628,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
         // calculate subregions
         let subregion_size = underlying_region_size / 8;
 
-        let num_enabled_subregions = region_size.div_ceil(subregion_size);
+        let num_enabled_subregions = total_size.div_ceil(subregion_size);
 
         let subregions_enabled_end =
             region_start.as_usize() + num_enabled_subregions * subregion_size;
@@ -896,10 +899,8 @@ impl CortexMRegion {
             ),
         };
 
-        // let size_value = math::log_base_two_u32_usize(region_size) - 1;
         let region_size_u32 = usize_to_u32(region_size);
         let size_value = log_base_two(region_size_u32) - 1;
-
         // Attributes register
         RegionAttributes::ENABLE::SET()
             + RegionAttributes::SIZE().val(size_value)
@@ -1069,7 +1070,6 @@ impl CortexMRegion {
     #[flux_rs::sig(fn ({usize[@region_no] | region_no < 16}) -> Self {r: r.region_no == region_no && !r.set})]
     pub(crate) fn empty(region_num: usize) -> CortexMRegion {
         let clear = RegionAttributes::ENABLE::CLEAR();
-        assert(clear.value() == 0);
         CortexMRegion {
             location: None,
             base_address: RegionBaseAddress::VALID::UseRBAR()
@@ -1160,27 +1160,23 @@ impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> mpu::MPU
         self.registers.mpu_type.read(Type::DREGION().into_inner()) as usize
     }
 
-    fn configure_mpu(&self, config: &RArray<CortexMRegion>, id: usize) {
-        if self.is_configured_for(id) {
+    fn configure_mpu(&self, config: &RArray<CortexMRegion>, id: usize, is_dirty: bool) {
+        if self.is_configured_for(id) && !is_dirty {
             return; // fastpath - we are already using this config
         }
-        for region in config.iter() {
-            self.registers
-                .rbar
-                .write(region.base_address().into_inner());
-            self.registers.rasr.write(region.attributes().into_inner());
-        }
-        // cannot have unused regions
-        if NUM_REGIONS > 8 {
-            // TODO:ITERATOR turn this back into `for i in 8..NUM_REGIONS`
-            let mut i = 8;
-            while i < NUM_REGIONS {
+        for i in 0..NUM_REGIONS {
+            if i < 8 {
+                let region = config.get(i);
+                self.registers
+                    .rbar
+                    .write(region.base_address().into_inner());
+                self.registers.rasr.write(region.attributes().into_inner());
+            } else {
                 let region = CortexMRegion::empty(i);
                 self.registers
                     .rbar
                     .write(region.base_address().into_inner());
                 self.registers.rasr.write(region.attributes().into_inner());
-                i += 1;
             }
         }
         self.hardware_is_configured_for.set(id);

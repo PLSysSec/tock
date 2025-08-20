@@ -1,5 +1,3 @@
-
-
  use flux_support::FluxPtrU8;
 
 #[flux_rs::trusted(reason = "bitwise arith")]
@@ -73,7 +71,7 @@ pub fn usize_to_u32(n: usize) -> u32 {
 /* extern specs have to live here because the defs for these specs are defined here */
 #[flux_rs::extern_spec]
 impl usize {
-    #[flux_rs::sig(fn (num: usize) -> usize{r: r >= num && pow2(r) && half_max(r)} requires half_max(num))]
+    #[flux_rs::sig(fn (num: usize) -> usize{r: r >= num && r <= num * 2 && pow2(r) && half_max(r)} requires half_max(num))]
     fn next_power_of_two(self) -> usize;
 
     #[flux_rs::sig(fn (num: usize) -> bool[pow2(num)])]

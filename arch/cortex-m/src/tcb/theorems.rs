@@ -31,6 +31,10 @@ pub fn theorem_pow2_octet(_n: usize) {}
 #[flux_rs::sig(fn (n:usize) requires pow2(n) && n >= 4 ensures pow2(n / 2))]
 pub fn theorem_pow2_div2_pow2(_n: usize) {}
 
+#[flux_rs::trusted(reason = "math")]
+#[flux_rs::sig(fn (n:usize) requires pow2(n) && n >= 2 ensures (n / 2) * 2 == n)]
+pub fn theorem_div2_pow2(_n: usize) {}
+
 #[flux_rs::reveal(octet)]
 #[flux_rs::sig(fn (r:usize) requires octet(r) ensures 8 * (r / 8) == r)]
 pub fn theorem_div_octet(_n: usize) {}

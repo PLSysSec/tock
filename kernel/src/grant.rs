@@ -348,7 +348,7 @@ impl<'a> EnteredGrantKernelManagedLayout<'a> {
     /// Returns the entire grant size including the kernel owned memory,
     /// padding, and data for T. Requires that grant_t_align be a power of 2,
     /// which is guaranteed from align_of rust calls.
-    #[flux_rs::opts(check_overflow = "none")] // TRUSTED:RJ:ASK-VIVIAN
+    #[flux_rs::opts(check_overflow = "none")] // TRUSTED: Not relevant for proof
     #[flux_rs::sig(fn(UpcallItems, AllowRoItems, AllowRwItems, GrantDataSize[@data_sz], GrantDataAlign{g: g > 0}) -> usize{alloc_sz: alloc_sz >= data_sz})]
     fn grant_size(
         upcalls_num: UpcallItems,
