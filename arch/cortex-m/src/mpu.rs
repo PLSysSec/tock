@@ -1172,13 +1172,15 @@ impl<const NUM_REGIONS: usize, const MIN_REGION_SIZE: usize> mpu::MPU
         }
         // cannot have unused regions
         if NUM_REGIONS > 8 {
-            for i in 8..NUM_REGIONS {
-                flux_support::assume(i < 16); // TODO: extern-spec-iter-range
+            // TODO:ITERATOR turn this back into `for i in 8..NUM_REGIONS`
+            let mut i = 8;
+            while i < NUM_REGIONS {
                 let region = CortexMRegion::empty(i);
                 self.registers
                     .rbar
                     .write(region.base_address().into_inner());
                 self.registers.rasr.write(region.attributes().into_inner());
+                i += 1;
             }
         }
         self.hardware_is_configured_for.set(id);
