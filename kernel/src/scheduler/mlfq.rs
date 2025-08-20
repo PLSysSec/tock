@@ -109,8 +109,10 @@ impl<'a, A: 'static + time::Alarm<'static>> MLFQSched<'a, A> {
     /// This method moves that node to the head of its queue.
     #[flux_rs::spec(fn (&Self) -> (Option<&MLFQProcessNode>, usize{v: v < 3}))]
     fn get_next_ready_process_node(&self) -> (Option<&MLFQProcessNode<'a>>, usize) {
-        for (idx, queue) in self.processes.iter().enumerate() {
-            flux_support::assume(idx < 3); // TODO: extern-spec enumerate
+        // TODO:ITERATOR turn this back into `for (idx, queue) in self.processes.iter().enumerate()`
+        let mut idx = 0;
+        while idx < 3 {
+            let queue = &self.processes[idx];
             let next = queue
                 .iter()
                 .find(|node_ref| node_ref.proc.map_or(false, |proc| proc.ready()));
@@ -129,6 +131,7 @@ impl<'a, A: 'static + time::Alarm<'static>> MLFQSched<'a, A> {
                     }
                 }
             }
+            idx += 1;
         }
         (None, 0)
     }
