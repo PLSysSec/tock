@@ -59,13 +59,14 @@ impl PowerOfTwo {
         PowerOfTwo(log_base_two(f.into()))
     }
 
-    /// Converts a number two the nearest `PowerOfTwo` greater-than-or-equal to
-    /// it.
-    pub fn ceiling<F: Into<u32>>(f: F) -> PowerOfTwo {
-        let v = f.into();
-        assume(v <= u32::MAX / 2);
-        PowerOfTwo(log_base_two(closest_power_of_two(v)))
-    }
+    // /// Converts a number two the nearest `PowerOfTwo` greater-than-or-equal to
+    // /// it.
+    // pub fn ceiling<F: Into<u32>>(f: F) -> PowerOfTwo {
+    //     let v = f.into();
+    //     assume(v <= u32::MAX / 2);
+    //     PowerOfTwo(log_base_two(closest_power_of_two(v)))
+    // }
+
 
     /// Creates a new `PowerOfTwo` representing the number zero.
     pub fn zero() -> PowerOfTwo {
