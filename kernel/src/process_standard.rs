@@ -20,12 +20,12 @@ use flux_support::*;
 use crate::allocator::{self, AppMemoryAllocator};
 use crate::collections::queue::Queue;
 use crate::collections::ring_buffer::RingBuffer;
-use crate::{config, process};
+use crate::config;
 use crate::debug;
 use crate::errorcode::ErrorCode;
 use crate::kernel::Kernel;
 use crate::platform::chip::Chip;
-use crate::platform::mpu::{self, MPU};
+use crate::platform::mpu;
 use crate::process::BinaryVersion;
 use crate::process::ProcessBinary;
 use crate::process::{Error, FunctionCall, FunctionCallSource, Process, Task};
@@ -602,15 +602,15 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             // Therefore, we can encapsulate the unsafe.
             Ok(unsafe { ReadWriteProcessBuffer::new(buf_start_addr, 0, self.processid()) })
         } else {
-            let process_buffer = self
-                 .app_memory_allocator
-                 .map(|app_mem| {
-                     if let Ok(_) = app_mem.add_shared_readwrite_buffer(buf_start_addr, size) {
-                       Ok(unsafe { ReadWriteProcessBuffer::new(buf_start_addr, size, self.processid()) })
-                     } else {
-                       Err(ErrorCode::INVAL)
-                     }
-                 });
+            let process_buffer = self.app_memory_allocator.map(|app_mem| {
+                if let Ok(_) = app_mem.add_shared_readwrite_buffer(buf_start_addr, size) {
+                    Ok(unsafe {
+                        ReadWriteProcessBuffer::new(buf_start_addr, size, self.processid())
+                    })
+                } else {
+                    Err(ErrorCode::INVAL)
+                }
+            });
 
             // Clippy complains that we're dereferencing a pointer in a public
             // and safe function here. While we are not dereferencing the
@@ -634,7 +634,6 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             match process_buffer {
                 Some(Ok(process_buffer)) => return Ok(process_buffer),
                 _ => return Err(ErrorCode::INVAL),
-
             }
         }
     }
@@ -1236,8 +1235,6 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
                 // PIC, need to specify the addresses.
                 let sram_start = self.mem_start()?.as_usize();
                 let flash_start = self.flash_start()?.as_usize();
-                let sram_start = self.mem_start()?.as_usize();
-                let flash_start = self.flash_start()?.as_usize();
                 let flash_init_fn = flash_start + self.header.get_init_function_offset() as usize;
 
                 let _ = writer.write_fmt(format_args!(
@@ -1338,16 +1335,20 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let callbacks_offset = Self::CALLBACKS_OFFSET;
         let process_struct_offset = Self::PROCESS_STRUCT_OFFSET;
 
-        if !(process_struct_offset < isize_into_usize(isize::MAX) &&
-            0 < process_struct_offset && process_struct_offset < upper_bound &&
-            0 < callbacks_offset && callbacks_offset < upper_bound &&
-            0 < usize_size && usize_size <= 8 &&
-            grant_ptrs_offset < upper_bound)
+        if !(process_struct_offset < isize_into_usize(isize::MAX)
+            && 0 < process_struct_offset
+            && process_struct_offset < upper_bound
+            && 0 < callbacks_offset
+            && callbacks_offset < upper_bound
+            && 0 < usize_size
+            && usize_size <= 8
+            && grant_ptrs_offset < upper_bound)
         {
             return Err((ProcessLoadError::NotEnoughMemory, remaining_memory));
         }
 
-        let initial_kernel_memory_size = grant_ptrs_offset + callbacks_offset + process_struct_offset + usize_size;
+        let initial_kernel_memory_size =
+            grant_ptrs_offset + callbacks_offset + process_struct_offset + usize_size;
 
         // By default we start with the initial size of process-accessible
         // memory set to 0. This maximizes the flexibility that processes have
@@ -1794,8 +1795,7 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         let grant_ptrs_offset = grant_ptrs_num * grant_ptr_size;
 
         let size_offset = Self::CALLBACKS_OFFSET + Self::PROCESS_STRUCT_OFFSET;
-        let initial_kernel_memory_size =
-            flux_support::flux_trusted_add(grant_ptrs_offset, size_offset);
+        let initial_kernel_memory_size = grant_ptrs_offset + size_offset;
         if !(0 < initial_kernel_memory_size && initial_kernel_memory_size <= u32::MAX as usize) {
             return Err(ErrorCode::FAIL);
         }
@@ -1876,19 +1876,25 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         }))
     }
 
-    #[flux_rs::trusted] // https://github.com/flux-rs/flux/issues/782
     fn update_debug_sp(&self, stack_pointer: Option<FluxPtrU8>) {
-        if let Some(sp) = stack_pointer {
-            self.debug.map(|debug| {
-                match debug.app_stack_min_pointer {
-                    None => debug.app_stack_min_pointer = Some(sp),
-                    Some(asmp) => {
-                        // Update max stack depth if needed.
-                        if sp < asmp {
-                            debug.app_stack_min_pointer = Some(sp);
-                        }
+        #[flux_rs::spec(
+            fn(debug: &mut ProcessStandardDebug, stack_pointer: _)
+            ensures debug: ProcessStandardDebug
+        )]
+        fn update_strg(debug: &mut ProcessStandardDebug, sp: FluxPtrU8) {
+            match debug.app_stack_min_pointer {
+                None => debug.app_stack_min_pointer = Some(sp),
+                Some(asmp) => {
+                    // Update max stack depth if needed.
+                    if sp < asmp {
+                        debug.app_stack_min_pointer = Some(sp);
                     }
                 }
+            }
+        }
+        if let Some(sp) = stack_pointer {
+            self.debug.map(|debug| {
+                update_strg(debug, sp);
             });
         }
     }

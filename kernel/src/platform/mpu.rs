@@ -629,5 +629,5 @@ impl MPU for () {
         0
     }
 
-    fn configure_mpu(&self, _config: &RArray<Self::Region>, id: usize) {}
+    fn configure_mpu(&self, _config: &RArray<Self::Region>, _id: usize) {}
 }

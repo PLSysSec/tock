@@ -134,7 +134,7 @@ use core::ptr::{write, NonNull};
 use core::slice;
 
 use crate::kernel::Kernel;
-use crate::process::{self, Error, Process, ProcessCustomGrantIdentifier, ProcessId};
+use crate::process::{Error, Process, ProcessCustomGrantIdentifier, ProcessId};
 use crate::processbuffer::{ReadOnlyProcessBuffer, ReadWriteProcessBuffer};
 use crate::processbuffer::{ReadOnlyProcessBufferRef, ReadWriteProcessBufferRef};
 use crate::upcall::{Upcall, UpcallError, UpcallId};
@@ -348,7 +348,7 @@ impl<'a> EnteredGrantKernelManagedLayout<'a> {
     /// Returns the entire grant size including the kernel owned memory,
     /// padding, and data for T. Requires that grant_t_align be a power of 2,
     /// which is guaranteed from align_of rust calls.
-    #[flux::opts(check_overflow = "none")] // TRUSTED:RJ:ASK-VIVIAN
+    #[flux_rs::opts(check_overflow = "none")] // TRUSTED:RJ:ASK-VIVIAN
     #[flux_rs::sig(fn(UpcallItems, AllowRoItems, AllowRwItems, GrantDataSize[@data_sz], GrantDataAlign{g: g > 0}) -> usize{alloc_sz: alloc_sz >= data_sz})]
     fn grant_size(
         upcalls_num: UpcallItems,
@@ -653,7 +653,7 @@ impl<'a> GrantKernelData<'a> {
     pub fn get_readonly_processbuffer(
         &self,
         allow_ro_num: usize,
-    ) -> Result<ReadOnlyProcessBufferRef, crate::process::Error> {
+    ) -> Result<ReadOnlyProcessBufferRef<'_>, crate::process::Error> {
         self.allow_ro.get(allow_ro_num).map_or(
             Err(crate::process::Error::AddressOutOfBounds),
             |saved_ro| {
@@ -694,7 +694,7 @@ impl<'a> GrantKernelData<'a> {
     pub fn get_readwrite_processbuffer(
         &self,
         allow_rw_num: usize,
-    ) -> Result<ReadWriteProcessBufferRef, crate::process::Error> {
+    ) -> Result<ReadWriteProcessBufferRef<'_>, crate::process::Error> {
         self.allow_rw.get(allow_rw_num).map_or(
             Err(crate::process::Error::AddressOutOfBounds),
             |saved_rw| {
@@ -789,7 +789,7 @@ unsafe fn write_default_array<T: Default>(base: *mut T, num: usize) {
 fn enter_grant_kernel_managed(
     process: &dyn Process,
     driver_num: usize,
-) -> Result<EnteredGrantKernelManagedLayout, ErrorCode> {
+) -> Result<EnteredGrantKernelManagedLayout<'_>, ErrorCode> {
     let grant_num = process.lookup_grant_from_driver_num(driver_num)?;
 
     // Check if the grant has been allocated, and if not we cannot enter this
@@ -954,9 +954,9 @@ fn update_saved_allow_rw(
     saved: &mut SavedAllowRw,
     buffer: ReadWriteProcessBuffer,
     process: &dyn Process,
-)  -> ReadWriteProcessBuffer {
+) -> ReadWriteProcessBuffer {
     let old_allow =
-      unsafe { ReadWriteProcessBuffer::new(saved.ptr, saved.len, process.processid()) };
+        unsafe { ReadWriteProcessBuffer::new(saved.ptr, saved.len, process.processid()) };
 
     let (ptr, len) = buffer.consume();
     saved.ptr = ptr;
@@ -1797,7 +1797,7 @@ impl<T: Default, Upcalls: UpcallSize, AllowROs: AllowRoSize, AllowRWs: AllowRwSi
     /// Calling this function when an [`ProcessGrant`] for a process is
     /// currently entered will result in a panic.
     #[flux_rs::trusted(reason = "ICE: assertion `left == right` failed `infer.rs:869`")]
-    pub fn iter(&self) -> Iter<T, Upcalls, AllowROs, AllowRWs> {
+    pub fn iter(&self) -> Iter<'_, T, Upcalls, AllowROs, AllowRWs> {
         Iter {
             grant: self,
             subiter: self.kernel.get_process_iter(),
