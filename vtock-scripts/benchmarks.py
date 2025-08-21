@@ -145,5 +145,9 @@ if __name__ == "__main__":
     vtock_avgs = outputs_into_avgs(vtock_output)
     tock_avgs = outputs_into_avgs(tock_output)
     for fn_name, vtock_avg in vtock_avgs.items():
-        tock_avg = tock_avgs[fn_name]
-        print("[{}] VTock: {} | Baseline: {} | Difference: {} Cycles | Percent Difference {:.2f}%".format(fn_name, vtock_avg, tock_avg, vtock_avg - tock_avg, (vtock_avg - tock_avg) / tock_avg * 100)) 
+        try:
+            tock_avg = tock_avgs[fn_name]
+            print("[{}] VTock: {} | Baseline: {} | Difference: {} Cycles | Percent Difference {:.2f}%".format(fn_name, vtock_avg, tock_avg, vtock_avg - tock_avg, (vtock_avg - tock_avg) / tock_avg * 100)) 
+        except:
+            ...
+    
