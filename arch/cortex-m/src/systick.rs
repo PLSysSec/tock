@@ -198,6 +198,7 @@ impl kernel::platform::scheduler_timer::SchedulerTimer for SysTick {
             .write(ControlAndStatus::TICKINT::CLEAR + ControlAndStatus::ENABLE::SET + clock_source);
     }
 
+    #[flux_rs::trusted]
     fn get_remaining_us(&self) -> Option<u32> {
         // use u64 in case of overflow when multiplying by 1,000,000
         let tics = SYSTICK_BASE.syst_cvr.read(CurrentValue::CURRENT) as u64;

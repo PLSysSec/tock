@@ -15,20 +15,13 @@ use flux_support::capability::*;
 #[cfg(all(target_arch = "arm", target_os = "none"))]
 use core::arch::global_asm;
 
-#[flux_rs::ignore]
 pub mod dcb;
-#[flux_rs::ignore]
 pub mod dwt;
-// pub mod mpu;
-#[flux_rs::ignore]
 pub mod nvic;
-#[flux_rs::ignore]
 pub mod scb;
-#[flux_rs::ignore]
 pub mod support;
-#[flux_rs::ignore]
+#[flux_rs::ignore] // crashes flux
 pub mod syscall;
-#[flux_rs::ignore]
 pub mod systick;
 
 pub mod mpu;

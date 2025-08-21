@@ -233,6 +233,7 @@ impl Nvic {
     }
 
     /// Enable the interrupt
+    #[flux_rs::trusted]
     pub fn enable(&self) {
         let idx = self.0 as usize;
 
@@ -240,6 +241,7 @@ impl Nvic {
     }
 
     /// Disable the interrupt
+    #[flux_rs::trusted]
     pub fn disable(&self) {
         let idx = self.0 as usize;
 
@@ -247,6 +249,7 @@ impl Nvic {
     }
 
     /// Clear pending state
+    #[flux_rs::trusted]
     pub fn clear_pending(&self) {
         let idx = self.0 as usize;
 
