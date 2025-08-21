@@ -23,7 +23,7 @@ pub(crate) enum AllocateAppMemoryError {
     flash_size: int
 )]
 #[flux_rs::invariant(memory_start + memory_size <= u32::MAX)]
-#[flux_rs::invariant(kernel_break < memory_start + memory_size)]
+#[flux_rs::invariant(kernel_break <= memory_start + memory_size)]
 #[flux_rs::invariant(flash_start + flash_size < memory_start)]
 #[flux_rs::invariant(app_break >= high_water_mark)]
 #[flux_rs::invariant(app_break <= kernel_break)]
@@ -124,7 +124,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         self.breaks.app_break
     }
 
-    #[flux_rs::sig(fn (&Self[@b]) -> FluxPtrU8{p: p == b.breaks.kernel_break && p < b.breaks.memory_start + b.breaks.memory_size })]
+    #[flux_rs::sig(fn (&Self[@b]) -> FluxPtrU8{p: p == b.breaks.kernel_break && p <= b.breaks.memory_start + b.breaks.memory_size })]
     pub(crate) fn kernel_break(&self) -> FluxPtrU8 {
         self.breaks.kernel_break
     }
@@ -256,7 +256,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         let new_break = FluxPtrU8::from(new_break_unaligned & alignment_mask);
 
         // Verify there is space for this allocation
-        if new_break < self.app_break() || new_break > self.kernel_break() {
+        if new_break < self.app_break() || new_break >= self.kernel_break() {
             None
         } else {
             // Allocation is valid.
@@ -612,12 +612,6 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             mpu::Permissions::ReadWriteOnly,
         );
         let memory_end = breaks.memory_start.wrapping_add(breaks.memory_size);
-        ram_regions
-            .fst
-            .lemma_no_overlap_le_addr_implies_no_overlap_addr(breaks.app_break, memory_end);
-        ram_regions
-            .snd
-            .lemma_no_overlap_le_addr_implies_no_overlap_addr(breaks.app_break, memory_end);
 
         app_regions
             .get(FLASH_REGION_NUMBER)
