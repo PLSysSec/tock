@@ -612,12 +612,6 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             mpu::Permissions::ReadWriteOnly,
         );
         let memory_end = breaks.memory_start.wrapping_add(breaks.memory_size);
-        ram_regions
-            .fst
-            .lemma_no_overlap_le_addr_implies_no_overlap_addr(breaks.app_break, memory_end);
-        ram_regions
-            .snd
-            .lemma_no_overlap_le_addr_implies_no_overlap_addr(breaks.app_break, memory_end);
 
         app_regions
             .get(FLASH_REGION_NUMBER)
