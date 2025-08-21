@@ -602,7 +602,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         // A process is allowed to pass any pointer if the buffer length is 0,
         // as to revoke kernel access to a memory region without granting access
         // to another one
-        if size == 0 {
+        let res = if size == 0 {
             // Clippy complains that we're dereferencing a pointer in a public
             // and safe function here. While we are not dereferencing the
             // pointer here, we pass it along to an unsafe function, which is as
@@ -650,15 +650,15 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             // We encapsulate the unsafe here on the condition in the TODO
             // above, as we must ensure that this `ReadWriteProcessBuffer` will
             // be the only reference to this memory.
-            let res = match process_buffer {
+            match process_buffer {
                 Some(Ok(process_buffer)) => return Ok(process_buffer),
                 _ => return Err(ErrorCode::INVAL),
-            };
-            dwt.stop();
-            let count = dwt.count();
-            crate::debug!("[EVAL] build_readwrite_process_buffer {:?}", count);
-            res
-        }
+            }
+        };
+        dwt.stop();
+        let count = dwt.count();
+        crate::debug!("[EVAL] build_readwrite_process_buffer {:?}", count);
+        res
     }
 
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
