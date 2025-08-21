@@ -23,6 +23,7 @@ use crate::collections::ring_buffer::RingBuffer;
 use crate::config;
 use crate::debug;
 use crate::errorcode::ErrorCode;
+use crate::hil::hw_debug::CycleCounter;
 use crate::kernel::Kernel;
 use crate::platform::chip::Chip;
 use crate::platform::mpu;
@@ -567,7 +568,8 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             return Err(Error::InactiveApp);
         }
 
-        let res = self.app_memory_allocator
+        let res = self
+            .app_memory_allocator
             .map_or(Err(Error::KernelError), |am| {
                 am.update_app_memory(new_break)?;
                 // VTOCK Note:
@@ -866,7 +868,8 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
 
         // Use the shared grant allocator function to actually allocate memory.
         // Returns `None` if the allocation cannot be created.
-        let res = self.app_memory_allocator
+        let res = self
+            .app_memory_allocator
             .map_or(Err(()), |am| am.allocate_custom_grant(size, align));
         dwt.stop();
         let count = dwt.count();
