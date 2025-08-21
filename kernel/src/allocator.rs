@@ -69,7 +69,6 @@ const FLASH_REGION_NUMBER: usize = 2;
     !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER), 0, breaks.memory_start) &&
     !<R as RegionDescriptor>::overlaps(map_select(regions, MAX_RAM_REGION_NUMBER), breaks.app_break, u32::MAX)
     &&
-    // no IPC region overlaps from the start to the end of memory
     <R as RegionDescriptor>::no_region_overlaps_app_block(regions, breaks.memory_start, breaks.memory_start + breaks.memory_size)
 )]
 pub(crate) struct AppMemoryAllocator<R: RegionDescriptor + Display + Copy> {
@@ -612,13 +611,16 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             mpu::Permissions::ReadWriteOnly,
         );
         let memory_end = breaks.memory_start.wrapping_add(breaks.memory_size);
-        ram_regions
-            .fst
-            .lemma_no_overlap_le_addr_implies_no_overlap_addr(breaks.app_break, memory_end);
-        ram_regions
-            .snd
-            .lemma_no_overlap_le_addr_implies_no_overlap_addr(breaks.app_break, memory_end);
+        // ram_regions
+        //     .fst
+        //     .lemma_no_overlap_le_addr_implies_no_overlap_addr(breaks.app_break, memory_end);
+        // ram_regions
+        //     .snd
+        //     .lemma_no_overlap_le_addr_implies_no_overlap_addr(breaks.app_break, memory_end);
 
+        // RJ:LAWS: Want to prove flash-region does not overlap ram-region, so use the "can_access_exactly"
+        // to get the not-overlaps; have to use the lemma because don't know what you want to NOT-overlap,
+        // until much after the flash-region allocation happens
         app_regions
             .get(FLASH_REGION_NUMBER)
             .lemma_region_can_access_flash_implies_no_app_block_overlaps(
