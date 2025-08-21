@@ -739,6 +739,7 @@ impl ReadableProcessSlice {
     /// # Panics
     ///
     /// This function will panic if `self.len() != dest.len()`.
+    #[flux_rs::trusted]
     pub fn copy_to_slice(&self, dest: &mut [u8]) {
         // The panic code path was put into a cold function to not
         // bloat the call site.
