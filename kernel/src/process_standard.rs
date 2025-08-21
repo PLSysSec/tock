@@ -531,12 +531,13 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         let dwt = self.chip.dwt();
         dwt.reset();
         dwt.start();
-        self.app_memory_allocator
+        let res = self.app_memory_allocator
             .map_or(Err(()), |am| Ok(am.configure_mpu(self.chip.mpu())))
-            .expect("Fatal kernel bug in setting up MPU - cannot branch to process as it would be unsafe")
+            .expect("Fatal kernel bug in setting up MPU - cannot branch to process as it would be unsafe");
         dwt.stop();
         let count = dwt.count();
         crate::debug!("[EVAL] setup_mpu {}", count);
+        res
     }
 
     #[flux_rs::sig(fn (_, start: FluxPtrU8, size: usize{valid_size(start+size)}) -> _)]
