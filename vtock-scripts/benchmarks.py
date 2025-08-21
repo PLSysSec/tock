@@ -72,7 +72,8 @@ def install_and_run_apps(serial_port, test_app_paths):
 def run_tests(kernel_path, serial_port, tests_to_run):
     output = []
     abs_dir = os.path.abspath(kernel_path)
-    os.system(f"cd {abs_dir} && git fetch && git checkout memory-benchmarks && make install")
+    os.system(f"cd {abs_dir} && make install") 
+    # && git fetch && git checkout memory-benchmarks && make install")
 
     for test in tests_to_run:
         output += install_and_run_apps(serial_port, test)
@@ -137,9 +138,8 @@ TESTS_TO_RUN = [
 ]
 
 
-# Example usage
 if __name__ == "__main__":
-    os.system(f"cd {LIBTOCKC_DIR} && git fetch && git checkout vtock-benchmarks")
+    os.system(f"cd {LIBTOCKC_DIR} && git fetch && git checkout vrindisbacher/vtock-nrf-benchmarks")
     serial_port = "/dev/cu.usbmodem0010502398691"
     vtock_output = run_tests(INSTRUMENTED_VTOCK_DIR, serial_port, TESTS_TO_RUN)
     tock_output = run_tests(INSTRUMENTED_TOCK_DIR, serial_port, TESTS_TO_RUN)
