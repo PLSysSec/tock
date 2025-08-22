@@ -133,4 +133,9 @@ flux_rs::defs! {
             false
         }
     }
+
+    property ShlGt0[<<](x, y) {
+        y < 8 => [<<](1, y) > 0
+    }
 }
+
