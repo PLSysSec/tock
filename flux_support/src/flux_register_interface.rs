@@ -46,11 +46,18 @@ impl<R: RegisterLongName> FieldU32<R> {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy)]
 #[flux_rs::opaque]
 #[flux_rs::refined_by(mask: bitvec<32>, value: bitvec<32>)]
 pub struct FieldValueU32<R: RegisterLongName> {
     inner: FieldValue<u32, R>,
+}
+
+#[flux_rs::trusted]
+impl<R: RegisterLongName + Clone> Clone for FieldValueU32<R> {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
 }
 
 impl<R: RegisterLongName> FieldValueU32<R> {
@@ -165,12 +172,19 @@ impl<R: RegisterLongName> FieldU8<R> {
         E::try_from_value(self.inner.read(val))
     }
 }
-#[derive(Copy, Clone)]
+#[derive(Copy)]
 #[flux_rs::opaque]
 #[flux_rs::refined_by(mask: bitvec<32>, value: bitvec<32>)]
 #[flux_rs::invariant(mask <= bv_int_to_bv32(u8::MAX) && value <= bv_int_to_bv32(u8::MAX))]
 pub struct FieldValueU8<R: RegisterLongName> {
     inner: FieldValue<u8, R>,
+}
+
+#[flux_rs::trusted]
+impl<R: RegisterLongName + Clone> Clone for FieldValueU8<R> {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
 }
 
 impl<R: RegisterLongName> FieldValueU8<R> {
@@ -724,13 +738,21 @@ macro_rules! register_bitmasks_u8 {
 
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy)]
 #[flux_rs::opaque]
 #[flux_rs::refined_by(val: bitvec<32>)]
 #[flux_rs::invariant(val <= bv_int_to_bv32(u8::MAX))]
 pub struct LocalRegisterCopyU8<R: RegisterLongName = ()> {
     inner: LocalRegisterCopy<u8, R>,
 }
+
+#[flux_rs::trusted]
+impl<R: RegisterLongName + Clone> Clone for LocalRegisterCopyU8<R> {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
 
 impl<R: RegisterLongName> LocalRegisterCopyU8<R> {
     #[flux_rs::trusted(reason = "flux wrappers")]
