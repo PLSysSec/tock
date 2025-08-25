@@ -91,7 +91,7 @@ global_asm!(
     // CONTROL[0]: Mode
     //   0 = Privileged in thread mode
     //   1 = User state in thread mode
-    mov r0, #1                        // r0 = 1
+    mov r0, #0                        // r0 = 1
     msr CONTROL, r0                   // CONTROL = 1
     // CONTROL writes must be followed by an Instruction Synchronization Barrier
     // (ISB). https://developer.arm.com/documentation/dai0321/latest
