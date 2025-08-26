@@ -22,10 +22,7 @@ use crate::interrupts;
 
 use virtio::transports::mmio::VirtIOMMIODevice;
 
-type QemuRv32VirtPMP = rv32i::pmp::PMPUserMPU<
-    5,
-    rv32i::pmp::kernel_protection_mml_epmp::KernelProtectionMMLEPMP<16, 5>,
->;
+type QemuRv32VirtPMP = rv32i::pmp::PMPUserMPU<8, rv32i::pmp::simple::SimplePMP<16>>;
 
 pub type QemuRv32VirtClint<'a> = sifive::clint::Clint<'a, Freq10MHz>;
 
@@ -79,14 +76,10 @@ impl<'a> InterruptService for QemuRv32VirtDefaultPeripherals<'a> {
 }
 
 impl<'a, I: InterruptService + 'a> QemuRv32VirtChip<'a, I> {
-    pub unsafe fn new(
-        plic_interrupt_service: &'a I,
-        timer: &'a QemuRv32VirtClint<'a>,
-        pmp: rv32i::pmp::kernel_protection_mml_epmp::KernelProtectionMMLEPMP<16, 5>,
-    ) -> Self {
+    pub unsafe fn new(plic_interrupt_service: &'a I, timer: &'a QemuRv32VirtClint<'a>) -> Self {
         Self {
             userspace_kernel_boundary: rv32i::syscall::SysCall::new(),
-            pmp: rv32i::pmp::PMPUserMPU::new(pmp),
+            pmp: rv32i::pmp::PMPUserMPU::new(rv32i::pmp::simple::SimplePMP::new().unwrap()),
             plic: &*addr_of!(PLIC),
             timer,
             plic_interrupt_service,
