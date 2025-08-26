@@ -190,6 +190,7 @@ unsafe fn start() -> (
     // Basic setup of the RISC-V IMAC platform
     rv32i::configure_trap_handler();
 
+
     // Acquire required capabilities
     let process_mgmt_cap = create_capability!(capabilities::ProcessManagementCapability);
     let memory_allocation_cap = create_capability!(capabilities::MemoryAllocationCapability);
