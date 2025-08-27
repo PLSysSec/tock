@@ -650,8 +650,11 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         })
     }
 
-    #[flux_rs::sig(fn (self: &strg Self, new_app_break: FluxPtrU8Mut) -> Result<(), Error> ensures self: Self)]
-    pub(crate) fn update_app_memory(&mut self, new_app_break: FluxPtrU8Mut) -> Result<(), Error> {
+    #[flux_rs::sig(fn (self: &strg Self, new_app_break: FluxPtrU8Mut) -> Result<FluxPtrU8, Error> ensures self: Self)]
+    pub(crate) fn update_app_memory(
+        &mut self,
+        new_app_break: FluxPtrU8Mut,
+    ) -> Result<FluxPtrU8, Error> {
         let memory_start = self.breaks.memory_start;
         let high_water_mark = self.breaks.high_water_mark;
         let kernel_break = self.breaks.kernel_break;
@@ -685,6 +688,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             return Err(Error::OutOfMemory);
         }
 
+        let old_app_break = self.breaks.app_break;
         self.breaks.app_break = FluxPtrU8::from(new_app_break);
 
         R::lemma_regions_can_access_exactly_implies_no_overlap(
@@ -711,7 +715,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         self.is_dirty.set(true);
 
         flux_rs::assert(self.breaks.app_break >= self.breaks.high_water_mark);
-        Ok(())
+        Ok(old_app_break)
     }
 
     pub(crate) fn configure_mpu<M: mpu::MPU<Region = R>>(

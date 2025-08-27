@@ -559,13 +559,8 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
 
         self.app_memory_allocator
             .map_or(Err(Error::KernelError), |am| {
-                am.update_app_memory(new_break)?;
-                // VTOCK Note:
-                // The natural thing here seems to be to expose the actual
-                // end of the heap to the process. However, doing this crashes
-                // apps as they seem to use the value returned here to immediately
-                // read/write to memory.
-                Ok(new_break)
+                let old_break = am.update_app_memory(new_break)?;
+                Ok(old_break)
             })
     }
 
