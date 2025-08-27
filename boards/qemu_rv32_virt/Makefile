@@ -96,3 +96,20 @@ run-app: $(TOCK_ROOT_DIRECTORY)target/$(TARGET)/release/$(PLATFORM).elf
 	$(QEMU_BASE_CMDLINE) \
 	  -bios $< \
 	  -device loader,file=$(APP),addr=0x80100000
+
+# Same as `run`, but load an application specified by $(APP) into the respective
+# memory location.
+.PHONY: run-ipc-apps
+run-ipc-apps: $(TOCK_ROOT_DIRECTORY)target/$(TARGET)/release/$(PLATFORM).elf
+	@echo
+	@echo -e "Running $$(qemu-system-riscv32 --version | head -n1)"\
+	  "(tested: $(WORKING_QEMU_VERSION)) with\n"\
+          " - kernel $(TOCK_ROOT_DIRECTORY)target/$(TARGET)/release/$(PLATFORM).elf\n"\
+	  " - app1 $(APP)"\
+	  " - app2 $(APP2)"
+	@echo "To exit type C-a x"
+	@echo
+	$(QEMU_BASE_CMDLINE) \
+	  -bios $< \
+	  -device loader,file=rv32imac.0x80100080.0x80210000.tbf,addr=0x80100000
+	  -device loader,file=rv32imac.0x80104080.0x80214000.tbf,addr=0x80104000
