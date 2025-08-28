@@ -10,10 +10,13 @@ use kernel::debug;
 use kernel::platform::chip::InterruptService;
 use kernel::utilities::registers::interfaces::{ReadWriteable, Readable};
 use rv32i::csr::{mcause, mie::mie, CSR};
+use rv32i::pmp::simple::SimplePMP;
 use rv32i::pmp::{kernel_protection::KernelProtectionPMP, PMPUserMPU};
 use rv32i::syscall::SysCall;
 
 use crate::interrupt_controller::VexRiscvInterruptController;
+
+type LitexVirtPMP = rv32i::pmp::PMPUserMPU<8, rv32i::pmp::simple::SimplePMP<16>>;
 
 /// Global static variable for the InterruptController, as it must be
 /// accessible to the raw interrupt handler functions
@@ -26,7 +29,7 @@ pub struct LiteXVexRiscv<I: 'static + InterruptService> {
     soc_identifier: &'static str,
     userspace_kernel_boundary: SysCall,
     interrupt_controller: &'static VexRiscvInterruptController,
-    pmp_mpu: PMPUserMPU<4, KernelProtectionPMP<16>>,
+    pmp_mpu: LitexVirtPMP,
     interrupt_service: &'static I,
 }
 
@@ -34,13 +37,12 @@ impl<I: 'static + InterruptService> LiteXVexRiscv<I> {
     pub unsafe fn new(
         soc_identifier: &'static str,
         interrupt_service: &'static I,
-        pmp: KernelProtectionPMP<16>,
     ) -> Self {
         Self {
             soc_identifier,
             userspace_kernel_boundary: SysCall::new(),
             interrupt_controller: &*addr_of!(INTERRUPT_CONTROLLER),
-            pmp_mpu: PMPUserMPU::new(pmp),
+            pmp_mpu: PMPUserMPU::new(rv32i::pmp::simple::SimplePMP::new().unwrap()),
             interrupt_service,
         }
     }
@@ -60,7 +62,7 @@ impl<I: 'static + InterruptService> LiteXVexRiscv<I> {
 }
 
 impl<I: 'static + InterruptService> kernel::platform::chip::Chip for LiteXVexRiscv<I> {
-    type MPU = PMPUserMPU<4, KernelProtectionPMP<16>>;
+    type MPU = LitexVirtPMP;
     type UserspaceKernelBoundary = SysCall;
 
     fn mpu(&self) -> &Self::MPU {

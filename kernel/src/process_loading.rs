@@ -157,9 +157,7 @@ pub fn load_processes<C: Chip>(
     }
     for proc in procs.iter() {
         proc.map(|p| {
-            if config::CONFIG.debug_process_credentials {
                 debug!("Running {}", p.get_process_name());
-            }
         });
     }
     Ok(())

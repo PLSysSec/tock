@@ -269,37 +269,37 @@ unsafe fn start() -> (
     // Set up memory protection immediately after setting the trap handler, to
     // ensure that much of the board initialization routine runs with PMP kernel
     // memory protection.
-    let pmp = rv32i::pmp::kernel_protection::KernelProtectionPMP::new(
-        rv32i::pmp::kernel_protection::FlashRegion(
-            rv32i::pmp::NAPOTRegionSpec::new(
-                FluxPtr::from(core::ptr::addr_of!(_sflash)),
-                core::ptr::addr_of!(_eflash) as usize - core::ptr::addr_of!(_sflash) as usize,
-            )
-            .unwrap(),
-        ),
-        rv32i::pmp::kernel_protection::RAMRegion(
-            rv32i::pmp::NAPOTRegionSpec::new(
-                FluxPtr::from(core::ptr::addr_of!(_ssram)),
-                core::ptr::addr_of!(_esram) as usize - core::ptr::addr_of!(_ssram) as usize,
-            )
-            .unwrap(),
-        ),
-        rv32i::pmp::kernel_protection::MMIORegion(
-            rv32i::pmp::NAPOTRegionSpec::new(
-                FluxPtr::from(0xf0000000), // start
-                0x10000000,                // size
-            )
-            .unwrap(),
-        ),
-        rv32i::pmp::kernel_protection::KernelTextRegion(
-            rv32i::pmp::TORRegionSpec::new(
-                core::ptr::addr_of!(_stext),
-                core::ptr::addr_of!(_etext),
-            )
-            .unwrap(),
-        ),
-    )
-    .unwrap();
+    // let pmp = rv32i::pmp::kernel_protection::KernelProtectionPMP::new(
+    //     rv32i::pmp::kernel_protection::FlashRegion(
+    //         rv32i::pmp::NAPOTRegionSpec::new(
+    //             FluxPtr::from(core::ptr::addr_of!(_sflash)),
+    //             core::ptr::addr_of!(_eflash) as usize - core::ptr::addr_of!(_sflash) as usize,
+    //         )
+    //         .unwrap(),
+    //     ),
+    //     rv32i::pmp::kernel_protection::RAMRegion(
+    //         rv32i::pmp::NAPOTRegionSpec::new(
+    //             FluxPtr::from(core::ptr::addr_of!(_ssram)),
+    //             core::ptr::addr_of!(_esram) as usize - core::ptr::addr_of!(_ssram) as usize,
+    //         )
+    //         .unwrap(),
+    //     ),
+    //     rv32i::pmp::kernel_protection::MMIORegion(
+    //         rv32i::pmp::NAPOTRegionSpec::new(
+    //             FluxPtr::from(0xf0000000), // start
+    //             0x10000000,                // size
+    //         )
+    //         .unwrap(),
+    //     ),
+    //     rv32i::pmp::kernel_protection::KernelTextRegion(
+    //         rv32i::pmp::TORRegionSpec::new(
+    //             core::ptr::addr_of!(_stext),
+    //             core::ptr::addr_of!(_etext),
+    //         )
+    //         .unwrap(),
+    //     ),
+    // )
+    // .unwrap();
 
     // initialize capabilities
     let process_mgmt_cap = create_capability!(capabilities::ProcessManagementCapability);
@@ -615,7 +615,6 @@ unsafe fn start() -> (
         litex_vexriscv::chip::LiteXVexRiscv::new(
             "Verilated LiteX on VexRiscv",
             interrupt_service,
-            pmp,
         )
     );
 
@@ -654,6 +653,24 @@ unsafe fn start() -> (
     .finalize(components::low_level_debug_component_static!());
 
     debug!("Verilated LiteX+VexRiscv: initialization complete, entering main loop.");
+
+    use core::arch::asm;
+
+    // read cycle counter
+    // Example using inline assembly (requires `riscv-target-features` crate or similar for `asm!` macro)
+    unsafe {
+        let cycle_count_start: u32; // Use u64 for 64-bit cycle counter
+        let cycle_count_stop: u32; // Use u64 for 64-bit cycle counter
+        asm!("csrr {}, cycle", out(reg) cycle_count_start);
+        // Now cycle_count holds the current CPU cycle count
+        asm!("csrr {}, cycle", out(reg) cycle_count_stop);
+        debug!("Cycle count at init: {}", cycle_count_start);
+        debug!("Cycle count at main loop start: {}", cycle_count_stop);
+        debug!("Cycles elapsed during init: {}", cycle_count_stop - cycle_count_start);
+        // Now cycle_count holds the current CPU cycle count
+    }
+
+
 
     let scheduler =
         components::sched::cooperative::CooperativeComponent::new(&*addr_of!(PROCESSES))
