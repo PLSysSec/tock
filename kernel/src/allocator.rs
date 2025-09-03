@@ -326,17 +326,6 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             || self.regions.get(7).overlaps(start, end)
     }
 
-    #[expect(dead_code)]
-    #[flux_rs::sig(fn () -> usize[10])]
-    fn test() -> usize {
-        let mut n0 = 0;
-        n0 += 1;
-        n0 += 2;
-        n0 += 3;
-        n0 += 4;
-        n0
-    }
-
     #[flux_rs::sig(fn (&Self[@app], &R[@region]) -> bool[
             <R as RegionDescriptor>::overlaps(region, app.breaks.memory_start, app.breaks.memory_start + app.breaks.memory_size)
         ]
