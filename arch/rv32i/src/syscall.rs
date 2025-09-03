@@ -230,10 +230,10 @@ impl kernel::syscall::UserspaceKernelBoundary for SysCall {
     #[cfg(all(target_arch = "riscv32", target_os = "none"))]
     unsafe fn switch_to_process(
         &self,
-        _accessible_memory_start: *const u8,
-        _app_brk: *const u8,
+        mpu_configured_capability: MpuConfiguredCapability,
+        mpu_enabled_capability: MpuEnabledCapability,
         state: &mut Riscv32iStoredState,
-    ) -> (ContextSwitchReason, Option<*const u8>) {
+    ) -> (ContextSwitchReason, Option<flux_support::FluxPtr>) {
         use core::arch::asm;
         // We need to ensure that the compiler does not reorder
         // kernel memory writes to after the userspace context switch
@@ -651,7 +651,7 @@ impl kernel::syscall::UserspaceKernelBoundary for SysCall {
             }
         };
         let new_stack_pointer = state.regs[R_SP];
-        (ret, Some(new_stack_pointer as *const u8))
+        (ret, Some(FluxPtr::from(new_stack_pointer as *const u8)))
     }
     #[flux_rs::ignore]
     unsafe fn print_context(
