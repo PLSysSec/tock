@@ -112,46 +112,46 @@ impl Display for MpuRegionDefault {
 #[flux_rs::assoc(fn perms(r: Self) -> Permissions)]
 #[flux_rs::assoc(fn overlaps(r1: Self, start: int, end: int) -> bool)]
 #[flux_rs::assoc(final fn region_can_access_exactly(r: Self, start: int, end: int, perms: Permissions) -> bool {
-    <Self as RegionDescriptor>::is_set(r) &&
-    start == <Self as RegionDescriptor>::start(r) &&
-    end == <Self as RegionDescriptor>::start(r) + <Self as RegionDescriptor>::size(r) &&
-    perms == <Self as RegionDescriptor>::perms(r)
+    Self::is_set(r) &&
+    start == Self::start(r) &&
+    end == Self::start(r) + Self::size(r) &&
+    perms == Self::perms(r)
 })]
 #[flux_rs::assoc(final fn regions_can_access_exactly(r1: Self, r2: Self, start: int, end: int, perms: Permissions) -> bool {
-    <Self as RegionDescriptor>::is_set(r1) &&
-    <Self as RegionDescriptor>::perms(r1) == perms &&
-    start == <Self as RegionDescriptor>::start(r1) &&
-    <Self as RegionDescriptor>::size(r1) > 0 &&
-    ((!<Self as RegionDescriptor>::is_set(r2)) => (
-        end == <Self as RegionDescriptor>::start(r1) + <Self as RegionDescriptor>::size(r1)
+    Self::is_set(r1) &&
+    Self::perms(r1) == perms &&
+    start == Self::start(r1) &&
+    Self::size(r1) > 0 &&
+    ((!Self::is_set(r2)) => (
+        end == Self::start(r1) + Self::size(r1)
     )) &&
-    (<Self as RegionDescriptor>::is_set(r2) => (
-        <Self as RegionDescriptor>::size(r2) > 0 &&
-        <Self as RegionDescriptor>::start(r1) + <Self as RegionDescriptor>::size(r1) == <Self as RegionDescriptor>::start(r2) &&
-        end == <Self as RegionDescriptor>::start(r1) + <Self as RegionDescriptor>::size(r1) + <Self as RegionDescriptor>::size(r2) &&
-        <Self as RegionDescriptor>::perms(r2) == perms
+    (Self::is_set(r2) => (
+        Self::size(r2) > 0 &&
+        Self::start(r1) + Self::size(r1) == Self::start(r2) &&
+        end == Self::start(r1) + Self::size(r1) + Self::size(r2) &&
+        Self::perms(r2) == perms
     ))
 })]
 #[flux_rs::assoc(final fn no_region_overlaps_app_block(regions: Map<int, Self>, mem_start: int, mem_end: int) -> bool {
     forall i: int in 2..8 {
         let region = map_select(regions, i);
-        !<Self as RegionDescriptor>::overlaps(region, mem_start, mem_end)
+        !Self::overlaps(region, mem_start, mem_end)
     }
 })]
 pub trait RegionDescriptor: core::marker::Sized {
-    #[flux_rs::sig(fn (rnum: usize) -> Self {r: !<Self as RegionDescriptor>::is_set(r) && <Self as RegionDescriptor>::rnum(r) == rnum})]
+    #[flux_rs::sig(fn (rnum: usize) -> Self {r: !Self::is_set(r) && Self::rnum(r) == rnum})]
     fn default(region_num: usize) -> Self;
 
-    #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::start(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: Self::start(r) == ptr}>[Self::is_set(r)])]
     fn start(&self) -> Option<FluxPtrU8>;
 
-    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{sz: <Self as RegionDescriptor>::size(r) == sz && valid_size(sz) && valid_size(<Self as RegionDescriptor>::start(r) + sz)}>[<Self as RegionDescriptor>::is_set(r)])]
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{sz: Self::size(r) == sz && valid_size(sz) && valid_size(Self::start(r) + sz)}>[Self::is_set(r)])]
     fn size(&self) -> Option<usize>;
 
-    #[flux_rs::sig(fn (&Self[@r]) -> bool[<Self as RegionDescriptor>::is_set(r)])]
+    #[flux_rs::sig(fn (&Self[@r]) -> bool[Self::is_set(r)])]
     fn is_set(&self) -> bool;
 
-    #[flux_rs::sig(fn (&Self[@r], start: usize, end: usize) -> bool[<Self as RegionDescriptor>::overlaps(r, start, end)])]
+    #[flux_rs::sig(fn (&Self[@r], start: usize, end: usize) -> bool[Self::overlaps(r, start, end)])]
     fn overlaps(&self, start: usize, end: usize) -> bool;
 
     /// Deals with the alignment, size, and other constraints of the specific
@@ -166,22 +166,22 @@ pub trait RegionDescriptor: core::marker::Sized {
         region_size: usize,
         permissions: Permissions,
     ) -> Option<Pair<Self, Self>{p:
-            <Self as RegionDescriptor>::start(p.fst) >= available_start &&
-            ((!<Self as RegionDescriptor>::is_set(p.snd)) =>
-                <Self as RegionDescriptor>::regions_can_access_exactly(
+            Self::start(p.fst) >= available_start &&
+            ((!Self::is_set(p.snd)) =>
+                Self::regions_can_access_exactly(
                     p.fst,
                     p.snd,
-                    <Self as RegionDescriptor>::start(p.fst),
-                    <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst),
+                    Self::start(p.fst),
+                    Self::start(p.fst) + Self::size(p.fst),
                     permissions
                 )
             ) &&
-            (<Self as RegionDescriptor>::is_set(p.snd) =>
-                <Self as RegionDescriptor>::regions_can_access_exactly(
+            (Self::is_set(p.snd) =>
+                Self::regions_can_access_exactly(
                     p.fst,
                     p.snd,
-                    <Self as RegionDescriptor>::start(p.fst),
-                    <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd),
+                    Self::start(p.fst),
+                    Self::start(p.fst) + Self::size(p.fst) + Self::size(p.snd),
                     permissions
                 )
             )
@@ -202,25 +202,25 @@ pub trait RegionDescriptor: core::marker::Sized {
         max_region_number: usize,
         permissions: Permissions,
     ) -> Option<Pair<Self, Self>{p:
-        ((!<Self as RegionDescriptor>::is_set(p.snd)) =>
-            <Self as RegionDescriptor>::regions_can_access_exactly(
+        ((!Self::is_set(p.snd)) =>
+            Self::regions_can_access_exactly(
                 p.fst,
                 p.snd,
                 region_start,
-                region_start + <Self as RegionDescriptor>::size(p.fst),
+                region_start + Self::size(p.fst),
                 permissions
             ) &&
-            <Self as RegionDescriptor>::size(p.fst) >= region_size
+            Self::size(p.fst) >= region_size
         ) &&
-        (<Self as RegionDescriptor>::is_set(p.snd) =>
-            <Self as RegionDescriptor>::regions_can_access_exactly(
+        (Self::is_set(p.snd) =>
+            Self::regions_can_access_exactly(
                 p.fst,
                 p.snd,
                 region_start,
-                region_start + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd),
+                region_start + Self::size(p.fst) + Self::size(p.snd),
                 permissions
             ) &&
-            <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) >= region_size
+            Self::size(p.fst) + Self::size(p.snd) >= region_size
         )
     }> requires valid_size(region_start + available_size) && max_region_number > 0 && max_region_number < 8)]
     fn update_regions(
@@ -237,7 +237,7 @@ pub trait RegionDescriptor: core::marker::Sized {
             start: FluxPtrU8,
             size: usize,
             permissions: Permissions,
-        ) -> Option<Self{r: <Self as RegionDescriptor>::region_can_access_exactly(r, start, start + size, permissions)}>
+        ) -> Option<Self{r: Self::region_can_access_exactly(r, start, start + size, permissions)}>
         requires valid_size(start + size) && region_number < 8
     )]
     fn create_exact_region(
@@ -249,10 +249,10 @@ pub trait RegionDescriptor: core::marker::Sized {
 
     // a lemma to help with safety critical invariants
     #[flux_rs::sig(fn (&Self[@r], start: FluxPtrU8, end: FluxPtrU8, perms: Permissions)
-        requires <Self as RegionDescriptor>::region_can_access_exactly(r, start, end, perms)
+        requires Self::region_can_access_exactly(r, start, end, perms)
         ensures
-            !<Self as RegionDescriptor>::overlaps(r, 0, start) &&
-            !<Self as RegionDescriptor>::overlaps(r, end, u32::MAX)
+            !Self::overlaps(r, 0, start) &&
+            !Self::overlaps(r, end, u32::MAX)
     )]
     fn lemma_region_can_access_exactly_implies_no_overlap(
         &self,
@@ -263,12 +263,12 @@ pub trait RegionDescriptor: core::marker::Sized {
 
     #[flux_rs::sig(fn (&Self[@r1], &Self[@r2], start: FluxPtrU8, end: FluxPtrU8, perms: Permissions)
         requires
-            <Self as RegionDescriptor>::regions_can_access_exactly(r1, r2, start, end, perms)
+            Self::regions_can_access_exactly(r1, r2, start, end, perms)
         ensures
-            !<Self as RegionDescriptor>::overlaps(r1, 0, start) &&
-            !<Self as RegionDescriptor>::overlaps(r1, end, u32::MAX) &&
-            !<Self as RegionDescriptor>::overlaps(r2, 0, start) &&
-            !<Self as RegionDescriptor>::overlaps(r2, end, u32::MAX)
+            !Self::overlaps(r1, 0, start) &&
+            !Self::overlaps(r1, end, u32::MAX) &&
+            !Self::overlaps(r2, 0, start) &&
+            !Self::overlaps(r2, end, u32::MAX)
     )]
     fn lemma_regions_can_access_exactly_implies_no_overlap(
         _r1: &Self,
@@ -280,9 +280,9 @@ pub trait RegionDescriptor: core::marker::Sized {
 
     #[flux_rs::sig(fn (&Self[@r], access_end: FluxPtrU8, desired_end: FluxPtrU8)
         requires
-            !<Self as RegionDescriptor>::overlaps(r, access_end, u32::MAX) &&
+            !Self::overlaps(r, access_end, u32::MAX) &&
             access_end <= desired_end
-        ensures !<Self as RegionDescriptor>::overlaps(r, desired_end, u32::MAX)
+        ensures !Self::overlaps(r, desired_end, u32::MAX)
     )]
     fn lemma_no_overlap_le_addr_implies_no_overlap_addr(
         &self,
@@ -291,8 +291,8 @@ pub trait RegionDescriptor: core::marker::Sized {
     );
 
     #[flux_rs::sig(fn (&Self[@r], start: FluxPtrU8, end: FluxPtrU8)
-        requires !<Self as RegionDescriptor>::is_set(r)
-        ensures !<Self as RegionDescriptor>::overlaps(r, start, end)
+        requires !Self::is_set(r)
+        ensures !Self::overlaps(r, start, end)
     )]
     fn lemma_region_not_set_implies_no_overlap(&self, start: FluxPtrU8, end: FluxPtrU8);
 
@@ -303,11 +303,11 @@ pub trait RegionDescriptor: core::marker::Sized {
             mem_end: FluxPtrU8
         )
         requires
-            <Self as RegionDescriptor>::region_can_access_exactly(r, flash_start, flash_end, Permissions { r: true, x: true, w: false })
+            Self::region_can_access_exactly(r, flash_start, flash_end, Permissions { r: true, x: true, w: false })
             &&
             flash_end <= mem_start
         ensures
-            !<Self as RegionDescriptor>::overlaps(r, mem_start, mem_end)
+            !Self::overlaps(r, mem_start, mem_end)
 
     )]
     fn lemma_region_can_access_flash_implies_no_app_block_overlaps(
@@ -328,7 +328,7 @@ pub trait RegionDescriptor: core::marker::Sized {
     false
 })]
 impl RegionDescriptor for MpuRegionDefault {
-    #[flux_rs::sig(fn (rnum: usize) -> Self {r: !<Self as RegionDescriptor>::is_set(r) && <Self as RegionDescriptor>::rnum(r) == rnum})]
+    #[flux_rs::sig(fn (rnum: usize) -> Self {r: !Self::is_set(r) && Self::rnum(r) == rnum})]
     fn default(num: usize) -> Self {
         Self {
             start: None,
@@ -339,12 +339,12 @@ impl RegionDescriptor for MpuRegionDefault {
         }
     }
 
-    #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: <Self as RegionDescriptor>::start(r) == ptr}>[<Self as RegionDescriptor>::is_set(r)])]
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<FluxPtrU8{ptr: Self::start(r) == ptr}>[Self::is_set(r)])]
     fn start(&self) -> Option<FluxPtrU8> {
         self.start
     }
 
-    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: <Self as RegionDescriptor>::size(r) == ptr && valid_size(ptr) && valid_size(<Self as RegionDescriptor>::start(r) + ptr) }>[<Self as RegionDescriptor>::is_set(r)])]
+    #[flux_rs::sig(fn (&Self[@r]) -> Option<usize{ptr: Self::size(r) == ptr && valid_size(ptr) && valid_size(Self::start(r) + ptr) }>[Self::is_set(r)])]
     fn size(&self) -> Option<usize> {
         // TODO:RJ:YUCK
         match self.size {
@@ -353,11 +353,11 @@ impl RegionDescriptor for MpuRegionDefault {
         }
     }
 
-    #[flux_rs::sig(fn (&Self[@r]) -> bool[<Self as RegionDescriptor>::is_set(r)])]
+    #[flux_rs::sig(fn (&Self[@r]) -> bool[Self::is_set(r)])]
     fn is_set(&self) -> bool {
         self.start.is_some()
     }
-    #[flux_rs::sig(fn (&Self[@r1], start: usize, end: usize) -> bool[<Self as RegionDescriptor>::overlaps(r1, start, end)])]
+    #[flux_rs::sig(fn (&Self[@r1], start: usize, end: usize) -> bool[Self::overlaps(r1, start, end)])]
     fn overlaps(&self, _start: usize, _end: usize) -> bool {
         false
     }
@@ -369,23 +369,23 @@ impl RegionDescriptor for MpuRegionDefault {
         region_size: usize,
         permissions: Permissions,
     ) -> Option<Pair<Self, Self>{p:
-            <Self as RegionDescriptor>::start(p.fst) >= available_start &&
+            Self::start(p.fst) >= available_start &&
             valid_size(<MpuRegionDefault as RegionDescriptor>::start(p.fst) + <MpuRegionDefault as RegionDescriptor>::size(p.fst)) &&
-            ((!<Self as RegionDescriptor>::is_set(p.snd)) =>
-                <Self as RegionDescriptor>::regions_can_access_exactly(
+            ((!Self::is_set(p.snd)) =>
+                Self::regions_can_access_exactly(
                     p.fst,
                     p.snd,
-                    <Self as RegionDescriptor>::start(p.fst),
-                    <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst),
+                    Self::start(p.fst),
+                    Self::start(p.fst) + Self::size(p.fst),
                     permissions
                 )
             ) &&
-            (<Self as RegionDescriptor>::is_set(p.snd) =>
-                <Self as RegionDescriptor>::regions_can_access_exactly(
+            (Self::is_set(p.snd) =>
+                Self::regions_can_access_exactly(
                     p.fst,
                     p.snd,
-                    <Self as RegionDescriptor>::start(p.fst),
-                    <Self as RegionDescriptor>::start(p.fst) + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd),
+                    Self::start(p.fst),
+                    Self::start(p.fst) + Self::size(p.fst) + Self::size(p.snd),
                     permissions
                 )
             )
@@ -421,25 +421,25 @@ impl RegionDescriptor for MpuRegionDefault {
         permissions: Permissions,
     ) -> Option<Pair<Self, Self>{p:
         valid_size(<MpuRegionDefault as RegionDescriptor>::start(p.fst) + <MpuRegionDefault as RegionDescriptor>::size(p.fst)) &&
-        ((!<Self as RegionDescriptor>::is_set(p.snd)) =>
-            <Self as RegionDescriptor>::regions_can_access_exactly(
+        ((!Self::is_set(p.snd)) =>
+            Self::regions_can_access_exactly(
                 p.fst,
                 p.snd,
                 region_start,
-                region_start + <Self as RegionDescriptor>::size(p.fst),
+                region_start + Self::size(p.fst),
                 permissions
             ) &&
-            <Self as RegionDescriptor>::size(p.fst) >= region_size
+            Self::size(p.fst) >= region_size
         ) &&
-        (<Self as RegionDescriptor>::is_set(p.snd) =>
-            <Self as RegionDescriptor>::regions_can_access_exactly(
+        (Self::is_set(p.snd) =>
+            Self::regions_can_access_exactly(
                 p.fst,
                 p.snd,
                 region_start,
-                region_start + <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd),
+                region_start + Self::size(p.fst) + Self::size(p.snd),
                 permissions
             ) &&
-            <Self as RegionDescriptor>::size(p.fst) + <Self as RegionDescriptor>::size(p.snd) >= region_size
+            Self::size(p.fst) + Self::size(p.snd) >= region_size
         )
     }> requires max_region_number > 0 && max_region_number < 8)]
     fn update_regions(
@@ -471,7 +471,7 @@ impl RegionDescriptor for MpuRegionDefault {
             start: FluxPtrU8,
             size: usize{valid_size(start + size)},
             permissions: Permissions,
-        ) -> Option<Self{r: <Self as RegionDescriptor>::region_can_access_exactly(r, start, start + size, permissions)}>
+        ) -> Option<Self{r: Self::region_can_access_exactly(r, start, start + size, permissions)}>
         requires region_number < 8
     )]
     fn create_exact_region(
@@ -490,10 +490,10 @@ impl RegionDescriptor for MpuRegionDefault {
     }
 
     #[flux_rs::sig(fn (&Self[@r], start: FluxPtrU8, end: FluxPtrU8, perms: Permissions)
-        requires <Self as RegionDescriptor>::region_can_access_exactly(r, start, end, perms)
+        requires Self::region_can_access_exactly(r, start, end, perms)
         ensures
-            !<Self as RegionDescriptor>::overlaps(r, 0, start) &&
-            !<Self as RegionDescriptor>::overlaps(r, end, u32::MAX)
+            !Self::overlaps(r, 0, start) &&
+            !Self::overlaps(r, end, u32::MAX)
     )]
     fn lemma_region_can_access_exactly_implies_no_overlap(
         &self,
@@ -504,12 +504,12 @@ impl RegionDescriptor for MpuRegionDefault {
     }
 
     #[flux_rs::sig(fn (&Self[@r1], &Self[@r2], start: FluxPtrU8, end: FluxPtrU8, perms: Permissions)
-        requires <Self as RegionDescriptor>::regions_can_access_exactly(r1, r2, start, end, perms)
+        requires Self::regions_can_access_exactly(r1, r2, start, end, perms)
         ensures
-            !<Self as RegionDescriptor>::overlaps(r1, 0, start) &&
-            !<Self as RegionDescriptor>::overlaps(r1, end, u32::MAX) &&
-            !<Self as RegionDescriptor>::overlaps(r2, 0, start) &&
-            !<Self as RegionDescriptor>::overlaps(r2, end, u32::MAX)
+            !Self::overlaps(r1, 0, start) &&
+            !Self::overlaps(r1, end, u32::MAX) &&
+            !Self::overlaps(r2, 0, start) &&
+            !Self::overlaps(r2, end, u32::MAX)
     )]
     fn lemma_regions_can_access_exactly_implies_no_overlap(
         _r1: &Self,
@@ -522,9 +522,9 @@ impl RegionDescriptor for MpuRegionDefault {
 
     #[flux_rs::sig(fn (&Self[@r], access_end: FluxPtrU8, desired_end: FluxPtrU8)
         requires
-            !<Self as RegionDescriptor>::overlaps(r, access_end, u32::MAX) &&
+            !Self::overlaps(r, access_end, u32::MAX) &&
             access_end <= desired_end
-        ensures !<Self as RegionDescriptor>::overlaps(r, desired_end, u32::MAX)
+        ensures !Self::overlaps(r, desired_end, u32::MAX)
     )]
     fn lemma_no_overlap_le_addr_implies_no_overlap_addr(
         &self,
@@ -534,8 +534,8 @@ impl RegionDescriptor for MpuRegionDefault {
     }
 
     #[flux_rs::sig(fn (&Self[@r], start: FluxPtrU8, end: FluxPtrU8)
-        requires !<Self as RegionDescriptor>::is_set(r)
-        ensures !<Self as RegionDescriptor>::overlaps(r, start, end)
+        requires !Self::is_set(r)
+        ensures !Self::overlaps(r, start, end)
     )]
     fn lemma_region_not_set_implies_no_overlap(&self, _start: FluxPtrU8, _end: FluxPtrU8) {}
 
@@ -546,11 +546,11 @@ impl RegionDescriptor for MpuRegionDefault {
             mem_end: FluxPtrU8
         )
         requires
-            <Self as RegionDescriptor>::region_can_access_exactly(r, flash_start, flash_end, Permissions { r: true, x: true, w: false })
+            Self::region_can_access_exactly(r, flash_start, flash_end, Permissions { r: true, x: true, w: false })
             &&
             flash_end <= mem_start
         ensures
-            !<Self as RegionDescriptor>::overlaps(r, mem_start, mem_end)
+            !Self::overlaps(r, mem_start, mem_end)
 
     )]
     fn lemma_region_can_access_flash_implies_no_app_block_overlaps(
