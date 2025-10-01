@@ -370,7 +370,7 @@ impl RegionDescriptor for MpuRegionDefault {
         permissions: Permissions,
     ) -> Option<Pair<Self, Self>{p:
             Self::start(p.fst) >= available_start &&
-            valid_size(<MpuRegionDefault as RegionDescriptor>::start(p.fst) + <MpuRegionDefault as RegionDescriptor>::size(p.fst)) &&
+            valid_size(Self::start(p.fst) + Self::size(p.fst)) &&
             ((!Self::is_set(p.snd)) =>
                 Self::regions_can_access_exactly(
                     p.fst,
@@ -420,7 +420,7 @@ impl RegionDescriptor for MpuRegionDefault {
         max_region_number: usize,
         permissions: Permissions,
     ) -> Option<Pair<Self, Self>{p:
-        valid_size(<MpuRegionDefault as RegionDescriptor>::start(p.fst) + <MpuRegionDefault as RegionDescriptor>::size(p.fst)) &&
+        valid_size(Self::start(p.fst) + Self::size(p.fst)) &&
         ((!Self::is_set(p.snd)) =>
             Self::regions_can_access_exactly(
                 p.fst,
