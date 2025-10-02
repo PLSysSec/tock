@@ -321,7 +321,7 @@ mod test {
 
 
 // ===== Flux proof ========
-#[cfg(feature=flux)]
+#[cfg(feature="flux")]
 mod flux_specs {
     // Need to tell Flux what slice.len() does
     #[flux_rs::extern_spec]
