@@ -601,6 +601,7 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             mpu::Permissions::ReadWriteOnly,
         );
         let memory_end = breaks.memory_start.wrapping_add(breaks.memory_size);
+
         app_regions
             .get(FLASH_REGION_NUMBER)
             .lemma_region_can_access_flash_implies_no_app_block_overlaps(
