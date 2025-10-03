@@ -232,15 +232,19 @@ impl FluxPtr {
     }
 }
 
+#[flux_rs::assoc(
+    fn eq(x:Self, y:Self) -> bool { x == y } 
+    fn ne(x:Self, y:Self) -> bool { x != y } 
+ )]
 impl PartialEq for FluxPtr {
     #[flux_rs::trusted(reason = "flux wrappers")]
-    #[flux_rs::sig(fn (&Self[@x], &Self[@y]) -> bool[x == y])]
+    #[flux_rs::sig(fn (&Self[@x], &Self[@y]) -> bool[Self::eq(x, y)])]
     fn eq(&self, other: &Self) -> bool {
         self.inner == other.inner
     }
 
     #[flux_rs::trusted(reason = "flux wrappers")]
-    #[flux_rs::sig(fn (&Self[@x], &Self[@y]) -> bool[x != y])]
+    #[flux_rs::sig(fn (&Self[@x], &Self[@y]) -> bool[Self::ne(x, y)])]
     fn ne(&self, other: &Self) -> bool {
         self.inner == other.inner
     }
