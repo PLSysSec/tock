@@ -601,9 +601,6 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
             mpu::Permissions::ReadWriteOnly,
         );
         let memory_end = breaks.memory_start.wrapping_add(breaks.memory_size);
-        // RJ:LAWS: Want to prove flash-region does not overlap ram-region, so use the "can_access_exactly"
-        // to get the not-overlaps; have to use the lemma because don't know what you want to NOT-overlap,
-        // until much after the flash-region allocation happens
         app_regions
             .get(FLASH_REGION_NUMBER)
             .lemma_region_can_access_flash_implies_no_app_block_overlaps(
