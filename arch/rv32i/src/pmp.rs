@@ -928,7 +928,7 @@ impl<const MPU_REGIONS: usize> RegionDescriptor for PMPUserRegion<MPU_REGIONS> {
         ) -> Option<Self{r:
             Self::region_can_access_exactly(r, start, start + size, permissions)
         }>
-        requires region_number < 8
+        requires valid_size(start + size) && region_number < 8
     )]
     fn create_exact_region(
         region_num: usize,
@@ -998,7 +998,7 @@ impl<const MPU_REGIONS: usize> RegionDescriptor for PMPUserRegion<MPU_REGIONS> {
                 )
             ) &&
             !Self::is_set(p.snd)
-        }> requires max_region_number > 0 && max_region_number < 8
+        }> requires valid_size(available_start + available_size) && max_region_number > 0 && max_region_number < 8
     )]
     fn allocate_regions(
         region_number: usize,
@@ -1019,6 +1019,8 @@ impl<const MPU_REGIONS: usize> RegionDescriptor for PMPUserRegion<MPU_REGIONS> {
         if start % 4 != 0 {
             start += 4 - (start % 4);
         }
+
+        if region_size > u32::MAX as usize { return None;} // FLUX: else, overflows!
 
         // Region size always has to align to 4 bytes. Round up to a 4 byte
         // boundary if required:
@@ -1105,7 +1107,7 @@ impl<const MPU_REGIONS: usize> RegionDescriptor for PMPUserRegion<MPU_REGIONS> {
             ) &&
             Self::size(p.fst) + Self::size(p.snd) >= region_size
         )
-    }> requires max_region_number > 0 && max_region_number < 8)]
+    }> requires valid_size(region_start + available_size) && max_region_number > 0 && max_region_number < 8)]
     fn update_regions(
         region_start: FluxPtrU8,
         available_size: usize,
@@ -1124,6 +1126,9 @@ impl<const MPU_REGIONS: usize> RegionDescriptor for PMPUserRegion<MPU_REGIONS> {
             return None;
         }
 
+        if region_size > available_size { // FLUX: should this be a precondition?
+            return None;
+        }
         let mut end = region_start.as_usize() + region_size;
         // Ensure that the requested app_memory_break complies with PMP
         // alignment constraints, namely that the region's end address is 4 byte
@@ -1831,7 +1836,7 @@ pub mod simple {
                 // Note: these pre and post conditions (all_regions_configured) seem silly
                 // but we need them because otherwise Flux forgets
                 // all state after we return
-                requires all_regions_configured_correctly_up_to(i, og_hw) && i % 2 == 0
+                requires all_regions_configured_correctly_up_to(i, og_hw) && i <= (u32::MAX / 2) && i % 2 == 0
                 ensures hw_state: HardwareState{new_hw: all_regions_configured_correctly_up_to(i + 2, new_hw) }
             )]
             fn configure_region_pair<const MPU_REGIONS: usize>(
@@ -1914,7 +1919,7 @@ pub mod simple {
                 // Note: these pre and post conditions (all_regions_configured) seem silly
                 // but we need them because otherwise Flux forgets
                 // all state after we return
-                requires all_regions_configured_correctly_up_to(i, og_hw) && i % 2 == 0
+                requires all_regions_configured_correctly_up_to(i, og_hw) && i <= (u32::MAX / 2) && i % 2 == 0
                 ensures hw_state: HardwareState{new_hw:
                     all_regions_configured_correctly_up_to(i + 1, new_hw)
                 }
@@ -1975,6 +1980,8 @@ pub mod simple {
                 max_regions: usize,
                 hardware_state: &mut HardwareState,
             ) {
+                // FLUX: the invariant here is i + regions_iter.len() == MPU_REGIONS, but ...
+                flux_support::assume(i <= (u32::MAX / 2) as usize);
                 if let Some(even_region) = regions_iter.next() {
                     let odd_region_opt = regions_iter.next();
 
