@@ -532,7 +532,6 @@ impl mpu::RegionDescriptor for CortexMRegion {
         let subregion_size = region_size / 8;
 
         let num_subregions_enabled = total_size.div_ceil(subregion_size);
-
         let subregions_enabled_end = start + num_subregions_enabled * subregion_size;
 
         // make sure this fits within our available size
