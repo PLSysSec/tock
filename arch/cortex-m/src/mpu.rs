@@ -486,7 +486,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
                     permissions
                 )
             )
-        }> requires max_region_number > 0 && max_region_number < 8
+        }> requires valid_size(available_start + available_size) && max_region_number > 0 && max_region_number < 8
     )]
     fn allocate_regions(
         max_region_number: usize,
@@ -505,19 +505,25 @@ impl mpu::RegionDescriptor for CortexMRegion {
             // cannot create such a region
             return None;
         }
+        // RJ: IF size, start = (u32::MAX/2 + 1)
 
         // size must be >= 256 and a power of two for subregions
         size = flux_support::max_usize(size, 512);
 
         size = size.next_power_of_two();
+        // RJ: size = u32::MAX
 
         theorem_pow2_div2_pow2(size);
         theorem_div2_pow2(size);
         let region_size = size / 2;
         flux_rs::assert(region_size * 2 == size);
-
         // region size must be aligned to start
         start = align(start, region_size);
+        // RJ: start = u32::MAX, region_size = u32::MAX/2 --> start + region_size overflows!
+         if start > overflow_bound {
+            // RJ: defensively adding check as otherwise `start + region_size` can overflow?
+            return None;
+        }
 
         theorem_pow2_octet(region_size);
         theorem_div_octet(region_size);
@@ -526,7 +532,10 @@ impl mpu::RegionDescriptor for CortexMRegion {
         let subregion_size = region_size / 8;
 
         let num_subregions_enabled = total_size.div_ceil(subregion_size);
-        let subregions_enabled_end = start + num_subregions_enabled * subregion_size;
+
+        let subregions_enabled_size = num_subregions_enabled * subregion_size;
+
+        let subregions_enabled_end = start.checked_add(subregions_enabled_size)?;
 
         // make sure this fits within our available size
         if subregions_enabled_end > available_start.as_usize() + available_size {
