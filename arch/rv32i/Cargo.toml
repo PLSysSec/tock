@@ -19,6 +19,7 @@ flux-rs = { git  = "https://github.com/flux-rs/flux.git" }
 
 [package.metadata.flux]
 enabled = true
+check_overflow = "lazy"
 
 [lints]
 workspace = true
