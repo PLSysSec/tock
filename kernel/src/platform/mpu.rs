@@ -183,7 +183,8 @@ pub trait RegionDescriptor: core::marker::Sized {
                     Self::start(p.fst),
                     Self::start(p.fst) + Self::size(p.fst) + Self::size(p.snd),
                     permissions
-                )
+                ) &&
+                valid_size(Self::start(p.fst) + Self::size(p.fst) + Self::size(p.snd))
             )
         }> requires valid_size(available_start + available_size) && max_region_number > 0 && max_region_number < 8
     )]
@@ -387,7 +388,8 @@ impl RegionDescriptor for MpuRegionDefault {
                     Self::start(p.fst),
                     Self::start(p.fst) + Self::size(p.fst) + Self::size(p.snd),
                     permissions
-                )
+                ) &&
+                valid_size(Self::start(p.fst) + Self::size(p.fst) + Self::size(p.snd))
             )
         }> requires max_region_number > 0 && max_region_number < 8)]
     fn allocate_regions(
