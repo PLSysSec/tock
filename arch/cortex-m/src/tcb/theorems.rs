@@ -19,19 +19,19 @@ pub fn theorem_to_pow2_gt1(x: usize) {}
 #[flux_rs::sig(fn (usize[@n]) requires n < 32 ensures pow2(to_pow2(n)))]
 pub fn theorem_to_pow2_is_pow2(_n: usize) {}
 
-#[flux_rs::trusted(reason = "math")]
+#[flux_rs::proven_externally]
 #[flux_rs::sig(fn (usize[@x], usize[@y], usize[@z]) requires aligned(x, y) && z <= y && pow2(y) && pow2(z) ensures aligned(x, z))]
 pub fn theorem_pow2_le_aligned(x: usize, y: usize, z: usize) {}
 
-#[flux_rs::trusted(reason = "math")]
+#[flux_rs::proven_externally]
 #[flux_rs::sig(fn (r:usize) requires pow2(r) && r >= 8 ensures octet(r))]
 pub fn theorem_pow2_octet(_n: usize) {}
 
-#[flux_rs::trusted(reason = "math")]
+#[flux_rs::proven_externally]
 #[flux_rs::sig(fn (n:usize) requires pow2(n) && n >= 4 ensures pow2(n / 2))]
 pub fn theorem_pow2_div2_pow2(_n: usize) {}
 
-#[flux_rs::trusted(reason = "math")]
+#[flux_rs::proven_externally]
 #[flux_rs::sig(fn (n:usize) requires pow2(n) && n >= 2 ensures (n / 2) * 2 == n)]
 pub fn theorem_div2_pow2(_n: usize) {}
 
@@ -43,7 +43,7 @@ pub fn theorem_div_octet(_n: usize) {}
 #[flux_rs::sig(fn (x: usize, y: usize) requires aligned(x, y) ensures aligned(x + y, y))]
 pub fn theorem_aligned_plus_aligned_to_is_aligned(_x: usize, _y: usize) {}
 
-#[flux_rs::trusted(reason = "math")]
+#[flux_rs::proven_externally]
 #[flux_rs::sig(fn (x: usize, y: usize) requires y >= 32 && pow2(y) && aligned(x, y) ensures least_five_bits(bv32(x)) == 0)]
 pub fn theorem_aligned_value_ge32_lowest_five_bits0(x: usize, y: usize) {}
 
