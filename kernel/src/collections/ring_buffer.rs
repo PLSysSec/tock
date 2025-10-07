@@ -344,44 +344,44 @@ mod flux_specs {
     use crate::collections::ring_buffer::RingBuffer;
 
     #[flux::specs {
-                // Specify well-formedness for RingBuffer<T>
-                #[refined_by(ring_len: int, hd: int, tl: int)]
-                struct RingBuffer<T> {
-                    ring: {&mut [T][ring_len] | ring_len > 1},
-                    head: {usize[hd] | hd < ring_len},
-                    tail: {usize[tl] | tl < ring_len},
-                }
+        // Specify well-formedness for RingBuffer<T>
+        #[refined_by(ring_len: int, hd: int, tl: int)]
+        struct RingBuffer<T> {
+            ring: {&mut [T][ring_len] | ring_len > 1},
+            head: {usize[hd] | hd < ring_len},
+            tail: {usize[tl] | tl < ring_len},
+        }
 
-                impl RingBuffer<T> {
-                    // Every time RingBuffer::new() is called,
-                    // Flux will ensure the slice passed in has length > 1.
-                    fn new({&mut [T][@ring_len] | ring_len > 1}) -> RingBuffer<T>[ring_len, 0, 0];
-                }
+        impl RingBuffer<T> {
+            // Every time RingBuffer::new() is called,
+            // Flux will ensure the slice passed in has length > 1.
+            fn new({&mut [T][@ring_len] | ring_len > 1}) -> RingBuffer<T>[ring_len, 0, 0];
+        }
 
-                impl Queue<T> for RingBuffer<T> {
-                    fn enqueue(self: &mut RingBuffer<T>, val: T) -> bool
-                        ensures self: RingBuffer<T>;
+        impl Queue<T> for RingBuffer<T> {
+            fn enqueue(self: &mut RingBuffer<T>, val: T) -> bool
+                ensures self: RingBuffer<T>;
 
-                    fn push(self: &mut RingBuffer<T>, val: T) -> Option<T>
-                        ensures self: RingBuffer<T>;
+            fn push(self: &mut RingBuffer<T>, val: T) -> Option<T>
+                ensures self: RingBuffer<T>;
 
-                    fn dequeue(self: &mut RingBuffer<T>) -> Option<T>
-                        ensures self: RingBuffer<T>;
+            fn dequeue(self: &mut RingBuffer<T>) -> Option<T>
+                ensures self: RingBuffer<T>;
 
-                    fn remove_first_matching<F>(self: &mut RingBuffer<T>, _) -> Option<T>
-                        ensures self: RingBuffer<T>;
+            fn remove_first_matching<F>(self: &mut RingBuffer<T>, _) -> Option<T>
+                ensures self: RingBuffer<T>;
 
-                    fn retain<F>(self: &mut RingBuffer<T>, _)
-                        ensures self: RingBuffer<T>;
+            fn retain<F>(self: &mut RingBuffer<T>, _)
+                ensures self: RingBuffer<T>;
 
-                    fn empty(self: &mut RingBuffer<T>[@old])
-                        ensures self: RingBuffer<T>[old.ring_len, 0, 0];
-                }
+            fn empty(self: &mut RingBuffer<T>[@old])
+                ensures self: RingBuffer<T>[old.ring_len, 0, 0];
+        }
 
-                    impl Iterator for ListIterator<T> {
-                        fn next(self: &mut ListIterator<T>) -> Option<&T>
-                            ensures self: ListIterator<T>;
-                    }
+        impl Iterator for ListIterator<T> {
+            fn next(self: &mut ListIterator<T>) -> Option<&T>
+                ensures self: ListIterator<T>;
+        }
     }]
     const _: () = ();
 }
