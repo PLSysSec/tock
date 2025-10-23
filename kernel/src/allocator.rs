@@ -457,7 +457,8 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
                 b.memory_start >= unallocated_memory_start &&
                 valid_size(b.memory_start + b.memory_size) &&
                 b.memory_start > 0 &&
-                b.memory_size >= initial_kernel_memory_size
+                b.memory_size >= initial_kernel_memory_size &&
+                (b.memory_start + b.memory_size) - b.kernel_break == initial_kernel_memory_size
             }, ()>
             requires
                 valid_size(R::size(ram_regions.fst) + initial_kernel_memory_size) &&
@@ -525,7 +526,8 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
                 app.breaks.memory_start >= mem_start &&
                 valid_size(app.breaks.memory_start + app.breaks.memory_size) &&
                 app.breaks.memory_start > 0 &&
-                app.breaks.memory_size >= initial_kernel_memory_size
+                app.breaks.memory_size >= initial_kernel_memory_size &&
+                (app.breaks.memory_start + app.breaks.memory_size) - app.breaks.kernel_break == initial_kernel_memory_size
             }, AllocateAppMemoryError>
         requires valid_size(mem_start + mem_size) && flash_start + flash_size < mem_start
     )]
