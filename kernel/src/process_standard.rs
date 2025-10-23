@@ -1318,6 +1318,9 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // Make room for grant pointers.
         let grant_ptr_size = mem::size_of::<GrantPointerEntry>();
         let grant_ptrs_num = kernel.get_grant_count_and_finalize();
+        if grant_ptr_size == 0 || usize::MAX / grant_ptr_size < grant_ptrs_num {
+            return Err((ProcessLoadError::NotEnoughMemory, remaining_memory));
+        }
         let grant_ptrs_offset = grant_ptrs_num * grant_ptr_size;
 
         // Initial size of the kernel-owned part of process memory can be
@@ -1332,7 +1335,12 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // `sizeof(usize)` bytes.
         let upper_bound = (u32::MAX / 4) as usize;
         let usize_size = core::mem::size_of::<usize>();
-        let callbacks_offset = Self::CALLBACKS_OFFSET;
+        let callbacks_len = Self::CALLBACK_LEN;
+        let task_size = core::mem::size_of::<Task>();
+        if task_size == 0 || usize::MAX / task_size < callbacks_len {
+            return Err((ProcessLoadError::NotEnoughMemory, remaining_memory));
+        }
+        let callbacks_offset = task_size * callbacks_len;
         let process_struct_offset = Self::PROCESS_STRUCT_OFFSET;
 
         if !(process_struct_offset < isize_into_usize(isize::MAX)
@@ -1342,7 +1350,9 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
             && callbacks_offset < upper_bound
             && 0 < usize_size
             && usize_size <= 8
-            && grant_ptrs_offset < upper_bound)
+            && grant_ptrs_offset < upper_bound
+            && callbacks_offset % usize_size == 0
+            && grant_ptrs_offset % usize_size == 0)
         {
             return Err((ProcessLoadError::NotEnoughMemory, remaining_memory));
         }
@@ -1582,52 +1592,68 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         // Calling `wrapping_sub` is safe here, as we've factored in an optional
         // padding of at most `sizeof(usize)` bytes in the calculation of
         // `initial_kernel_memory_size` above.
-        let mut kernel_memory_break = app_memory_alloc.memory_end();
+        let memory_end = app_memory_alloc.memory_end();
+        let actual_kernel_break = app_memory_alloc.kernel_break();
+        let mut kernel_memory_break = memory_end;
 
+        // aligned to 4 bytes
         kernel_memory_break =
             kernel_memory_break.wrapping_sub(kernel_memory_break.as_usize() % usize_size);
 
         // Now that we know we have the space we can setup the grant pointers.
-        // kernel_memory_break = kernel_memory_break.offset(-(grant_ptrs_offset as isize)); // VTOCK TODO: Something about usize cast to isize here?
+        let grant_ptrs_offset = usize_into_isize(grant_ptrs_offset);
+        kernel_memory_break = kernel_memory_break.offset(-grant_ptrs_offset);
 
         // This is safe, `kernel_memory_break` is aligned to a word-boundary,
         // and `grant_ptrs_offset` is a multiple of the word size.
-        #[allow(clippy::cast_ptr_alignment)]
         // Set all grant pointers to null.
-        let grant_pointers = core::slice::from_raw_parts_mut(
-            kernel_memory_break.unsafe_as_ptr() as *mut GrantPointerEntry,
+        let grant_pointers: &mut [GrantPointerEntry] = flux_support::from_raw_parts_mut(
+            kernel_memory_break,
+            grant_ptr_size,
             grant_ptrs_num,
+            usize_size,
         );
         for grant_entry in grant_pointers.iter_mut() {
             grant_entry.driver_num = 0;
             grant_entry.grant_ptr = FluxPtr::null_mut();
         }
+        // would be nice to have a start addr for grant_pointers but we'll trust its kernel_memory_break
+        // assert we aren't overflowing the end of memory
+        flux_support::assert(
+            kernel_memory_break.as_usize() + grant_pointers.len() <= memory_end.as_usize(),
+        );
+        let grant_entry_checkpoint = kernel_memory_break;
 
         // Now that we know we have the space we can setup the memory for the
         // upcalls.
         let callbacks_isize = usize_into_isize(callbacks_offset);
         kernel_memory_break = kernel_memory_break.offset(-callbacks_isize);
 
-        // This is safe today, as MPU constraints ensure that `memory_start`
-        // will always be aligned on at least a word boundary, and that
-        // memory_size will be aligned on at least a word boundary, and
-        // `grant_ptrs_offset` is a multiple of the word size. Thus,
-        // `kernel_memory_break` must be word aligned. While this is unlikely to
-        // change, it should be more proactively enforced.
-        //
-        // TODO: https://github.com/tock/tock/issues/1739
-        #[allow(clippy::cast_ptr_alignment)]
         // Set up ring buffer for upcalls to the process.
         let upcall_buf = flux_support::from_raw_parts_mut(
-            kernel_memory_break.unsafe_as_ptr() as *mut Task,
-            Self::CALLBACK_LEN,
+            kernel_memory_break,
+            task_size,
+            callbacks_len,
+            usize_size,
         );
+        // assert we aren't overflowing the start of the grant entries
+        flux_support::assert(
+            kernel_memory_break.as_usize() + upcall_buf.len() <= grant_entry_checkpoint.as_usize(),
+        );
+        let upcall_buf_checkpoint = kernel_memory_break;
         let tasks = RingBuffer::new(upcall_buf);
 
         // Last thing in the kernel region of process RAM is the process struct.
         let process_struct_offset = usize_into_isize(process_struct_offset);
         kernel_memory_break = kernel_memory_break.offset(-process_struct_offset);
         let process_struct_memory_location = kernel_memory_break;
+        flux_support::assert(
+            process_struct_memory_location.as_usize() + isize_into_usize(process_struct_offset)
+                <= upcall_buf_checkpoint.as_usize(),
+        );
+
+        // assert we don't allocate past the kernel memory break the allocator set up
+        flux_support::assert(kernel_memory_break >= actual_kernel_break);
 
         // Create the Process struct in the app grant region.
         // Note that this requires every field be explicitly initialized
@@ -1683,13 +1709,6 @@ impl<C: 'static + Chip> ProcessStandard<'_, C> {
         });
 
         // Handle any architecture-specific requirements for a new process.
-        //
-        // NOTE! We have to ensure that the start of process-accessible memory
-        // (`app_memory_start`) is word-aligned. Since we currently start
-        // process-accessible memory at the beginning of the allocated memory
-        // region, we trust the MPU to give us a word-aligned starting address.
-        //
-        // TODO: https://github.com/tock/tock/issues/1739
         match process.stored_state.map(|stored_state| {
             chip.userspace_kernel_boundary().initialize_process(
                 memory_start,
