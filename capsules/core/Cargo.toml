@@ -13,5 +13,10 @@ kernel = { path = "../../kernel" }
 enum_primitive = { path = "../../libraries/enum_primitive" }
 tickv = { path = "../../libraries/tickv" }
 
+[package.metadata.flux]
+enabled = true
+check_overflow = "lazy"
+include = [ "src/button.rs", "src/led.rs", "src/console.rs", "src/alarm.rs", "src/spi_peripheral.rs", "src/stream.rs"  ]
+
 [lints]
 workspace = true
