@@ -411,7 +411,8 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
                     R::start(p.fst),
                     R::start(p.fst) + R::size(p.fst) + R::size(p.snd),
                     mpu::Permissions { r: true, w: true, x: false }
-                )
+                ) &&
+                valid_size(R::start(p.fst) + R::size(p.fst) + R::size(p.snd))
             )
         }, ()>
     )]
@@ -467,7 +468,11 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
                 unallocated_memory_start + unallocated_memory_size <= u32::MAX &&
                 unallocated_memory_start > 0 &&
                 initial_kernel_memory_size > 0 &&
-                flash_start + flash_size < unallocated_memory_start
+                flash_start + flash_size < unallocated_memory_start &&
+                valid_size(R::start(ram_regions.fst) + R::size(ram_regions.fst) + initial_kernel_memory_size) &&
+                (R::is_set(ram_regions.snd) => (
+                    valid_size(initial_kernel_memory_size + R::start(ram_regions.fst) + R::size(ram_regions.fst) + R::size(ram_regions.snd))
+                ))
     )]
     fn get_app_breaks(
         ram_regions: Pair<R, R>,
@@ -580,7 +585,21 @@ impl<R: RegionDescriptor + Display + Copy> AppMemoryAllocator<R> {
         let Some(ram0_size) = ram_regions.fst.size() else {
             return Err(AllocateAppMemoryError::HeapError);
         };
+        let Some(ram0_start) = ram_regions.fst.start() else {
+            return Err(AllocateAppMemoryError::HeapError);
+        };
         if ram0_size > (u32::MAX as usize) - initial_kernel_memory_size {
+            return Err(AllocateAppMemoryError::HeapError);
+        }
+
+        if ram0_size + initial_kernel_memory_size
+                > (u32::MAX as usize) - ram0_start.as_usize() {
+                    return Err(AllocateAppMemoryError::HeapError);   
+                }
+        if ram_regions.snd.is_set()
+            && ram0_size + initial_kernel_memory_size
+                > (u32::MAX as usize) - ram_regions.snd.size().unwrap() - ram0_start.as_usize()
+        {
             return Err(AllocateAppMemoryError::HeapError);
         }
 
