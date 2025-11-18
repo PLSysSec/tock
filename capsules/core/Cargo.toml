@@ -16,6 +16,7 @@ tickv = { path = "../../libraries/tickv" }
 [package.metadata.flux]
 enabled = true
 check_overflow = "lazy"
+no_panic = true
 include = [ "src/button.rs", "src/led.rs", "src/console.rs", "src/alarm.rs", "src/spi_peripheral.rs", "src/stream.rs"  ]
 
 [lints]
