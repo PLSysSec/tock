@@ -15,6 +15,7 @@ use core::slice::{self, Iter, SliceIndex};
 
 #[flux_rs::extern_spec]
 impl<T> [T] {
+    #[flux_rs::no_panic]
     #[flux_rs::sig(fn(&[T][@len]) -> usize[len])]
     fn len(v: &[T]) -> usize;
 
