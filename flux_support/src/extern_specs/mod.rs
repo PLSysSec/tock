@@ -1,3 +1,4 @@
+mod cell;
 mod cmp;
 mod iter;
 mod mem;

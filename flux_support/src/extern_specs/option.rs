@@ -14,4 +14,11 @@ impl<T> Option<T> {
 
     #[sig(fn(&Option<T>[@b]) -> bool[!b])]
     const fn is_none(&self) -> bool;
+
+    #[flux_rs::no_panic]
+    fn unwrap_or_default(self) -> T
+    where
+        T: Default;
+
+
 }
