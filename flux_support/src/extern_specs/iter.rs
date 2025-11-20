@@ -1,10 +1,30 @@
 #![allow(unused)]
 use crate::assert;
 use core::slice::Iter;
+use core::iter::IntoIterator;
 
 #[flux_rs::extern_spec(core::slice)]
 #[flux_rs::refined_by(idx: int, len: int)]
 struct Iter<'a, T>;
+
+#[flux_rs::extern_spec]
+trait FromIterator<A> {}
+
+#[flux_rs::extern_spec(core::iter)]
+trait IntoIterator {
+    #[flux_rs::spec(fn(self: Self) -> Self::IntoIter)]
+    #[flux_rs::no_panic]
+    fn into_iter(self) -> Self::IntoIter
+    where
+        Self: Sized;
+}
+
+#[flux_rs::extern_spec(core::ops)]
+impl<I: Iterator> IntoIterator for I {
+    #[flux_rs::spec(fn(self: I[@s]) -> I[s])]
+    #[flux_rs::no_panic]
+    fn into_iter(self) -> I;
+}
 
 // #[flux_rs::extern_spec(std::iter)]
 // #[flux_rs::refined_by(idx: int, inner: I)]
