@@ -115,6 +115,7 @@ pub trait Transmit<'a> {
     ///
     /// Calling `transmit_buffer` while there is an outstanding
     /// `transmit_buffer` or `transmit_word` operation will return BUSY.
+    #[flux_rs::no_panic]
     fn transmit_buffer(
         &self,
         tx_buffer: &'static mut [u8],
@@ -184,6 +185,7 @@ pub trait Receive<'a> {
     /// should use `receive_word`.  Calling `receive_buffer` while
     /// there is an outstanding `receive_buffer` or `receive_word`
     /// operation will return `Err(BUSY, rx_buffer)`.
+    #[flux_rs::no_panic]
     fn receive_buffer(
         &self,
         rx_buffer: &'static mut [u8],
@@ -215,6 +217,7 @@ pub trait Receive<'a> {
     /// of `CANCEL`.  If there was a reception outstanding, which is
     /// not cancelled successfully, then `FAIL` will be returned and
     /// there will be a later callback.
+    #[flux_rs::no_panic]
     fn receive_abort(&self) -> Result<(), ErrorCode>;
 }
 

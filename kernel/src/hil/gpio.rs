@@ -96,6 +96,7 @@ pub trait Configure {
     /// Make the pin an input, returning the current configuration,
     /// which should be ither `Configuration::Input` or
     /// `Configuration::InputOutput`.
+    #[flux_rs::no_panic]
     fn make_input(&self) -> Configuration;
     /// Disable the pin as an input, returning the current configuration.
     fn disable_input(&self) -> Configuration;
@@ -109,6 +110,7 @@ pub trait Configure {
     fn deactivate_to_low_power(&self);
 
     /// Set the floating state of the pin.
+    #[flux_rs::no_panic]
     fn set_floating_state(&self, state: FloatingState);
     /// Return the current floating state of the pin.
     fn floating_state(&self) -> FloatingState;
@@ -180,9 +182,11 @@ pub trait Input {
     /// Get the current state of an input GPIO pin. For an output
     /// pin, return the output; for an input pin, return the input;
     /// for disabled or function pins the value is undefined.
+    #[flux_rs::no_panic]
     fn read(&self) -> bool;
 
     /// Get the current state of a GPIO pin, for a given activation mode.
+    #[flux_rs::no_panic]
     fn read_activation(&self, mode: ActivationMode) -> ActivationState {
         let value = self.read();
         match (mode, value) {
@@ -203,9 +207,11 @@ pub trait Interrupt<'a>: Input {
     /// Enable an interrupt on the GPIO pin. This does not
     /// configure the pin except to enable an interrupt: it
     /// should be separately configured as an input, etc.
+    #[flux_rs::no_panic]
     fn enable_interrupts(&self, mode: InterruptEdge);
 
     /// Disable interrupts for the GPIO pin.
+    #[flux_rs::no_panic]
     fn disable_interrupts(&self);
 
     /// Return whether this interrupt is pending
@@ -288,6 +294,7 @@ impl<'a, IP: InterruptPin<'a>> InterruptValueWrapper<'a, IP> {
 }
 
 impl<'a, IP: InterruptPin<'a>> InterruptWithValue<'a> for InterruptValueWrapper<'a, IP> {
+    #[flux_rs::no_panic]
     fn set_value(&self, value: u32) {
         self.value.set(value);
     }
@@ -304,11 +311,13 @@ impl<'a, IP: InterruptPin<'a>> InterruptWithValue<'a> for InterruptValueWrapper<
         self.source.is_pending()
     }
 
+    #[flux_rs::no_panic]
     fn enable_interrupts(&self, edge: InterruptEdge) -> Result<(), ErrorCode> {
         self.source.enable_interrupts(edge);
         Ok(())
     }
 
+    #[flux_rs::no_panic]
     fn disable_interrupts(&self) {
         self.source.disable_interrupts();
     }
@@ -333,6 +342,7 @@ impl<'a, IP: InterruptPin<'a>> Configure for InterruptValueWrapper<'a, IP> {
         self.source.disable_output()
     }
 
+    #[flux_rs::no_panic]
     fn make_input(&self) -> Configuration {
         self.source.make_input()
     }
@@ -345,6 +355,7 @@ impl<'a, IP: InterruptPin<'a>> Configure for InterruptValueWrapper<'a, IP> {
         self.source.deactivate_to_low_power();
     }
 
+    #[flux_rs::no_panic]
     fn set_floating_state(&self, state: FloatingState) {
         self.source.set_floating_state(state);
     }

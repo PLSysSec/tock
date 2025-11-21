@@ -16,15 +16,19 @@ use crate::hil::gpio;
 /// well.
 pub trait Led {
     /// Initialize the LED. Must be called before the LED is used.
+    #[flux_rs::no_panic]
     fn init(&self);
 
     /// Turn the LED on.
+    #[flux_rs::no_panic]
     fn on(&self);
 
     /// Turn the LED off.
+    #[flux_rs::no_panic]
     fn off(&self);
 
     /// Toggle the LED.
+    #[flux_rs::no_panic]
     fn toggle(&self);
 
     /// Return the on/off state of the LED. `true` if the LED is on, `false` if

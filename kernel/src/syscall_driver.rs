@@ -30,6 +30,7 @@ impl CommandReturn {
     }
 
     /// Command error
+    #[flux_rs::no_panic]
     pub fn failure(rc: ErrorCode) -> Self {
         CommandReturn(SyscallReturn::Failure(rc))
     }
@@ -50,11 +51,13 @@ impl CommandReturn {
     }
 
     /// Successful command
+    #[flux_rs::no_panic]
     pub fn success() -> Self {
         CommandReturn(SyscallReturn::Success)
     }
 
     /// Successful command with an additional 32-bit data field
+    #[flux_rs::no_panic]
     pub fn success_u32(data0: u32) -> Self {
         CommandReturn(SyscallReturn::SuccessU32(data0))
     }

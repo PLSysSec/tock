@@ -32,11 +32,13 @@ pub trait Ticks: Clone + Copy + From<u32> + fmt::Debug + Ord + PartialOrd + Eq {
     /// The return value is a `u32`, in accordance with the bit widths
     /// specified using the BITS associated const on Rust integer
     /// types.
+    #[flux_rs::no_panic]
     fn width() -> u32;
 
     /// Converts the type into a `usize`, stripping the higher bits
     /// it if it is larger than `usize` and filling the higher bits
     /// with 0 if it is smaller than `usize`.
+    #[flux_rs::no_panic]
     fn into_usize(self) -> usize;
 
     /// The amount of bits required to left-justify this ticks value
@@ -44,6 +46,7 @@ pub trait Ticks: Clone + Copy + From<u32> + fmt::Debug + Ord + PartialOrd + Eq {
     /// usize::BITS) - 1` bits. For timers with a `width` larger than
     /// usize, this value will be `0` (i.e., they can simply be
     /// truncated to usize::BITS bits).
+    #[flux_rs::no_panic]
     fn usize_padding() -> u32 {
         usize::BITS.saturating_sub(Self::width())
     }
@@ -64,6 +67,7 @@ pub trait Ticks: Clone + Copy + From<u32> + fmt::Debug + Ord + PartialOrd + Eq {
     /// Convert the generic [`Frequency`] argument into a frequency
     /// (Hertz) describing a left-justified ticks value as returned by
     /// [`Ticks::into_usize_left_justified`].
+    #[flux_rs::no_panic]
     fn usize_left_justified_scale_freq<F: Frequency>() -> u32 {
         F::frequency() << Self::usize_padding()
     }
@@ -73,6 +77,7 @@ pub trait Ticks: Clone + Copy + From<u32> + fmt::Debug + Ord + PartialOrd + Eq {
     /// with 0 if it is smaller than `u32`. Included as a simple
     /// helper since Tock uses `u32` pervasively and most platforms
     /// are 32 bits.
+    #[flux_rs::no_panic]
     fn into_u32(self) -> u32;
 
     /// The amount of bits required to left-justify this ticks value
@@ -84,6 +89,7 @@ pub trait Ticks: Clone + Copy + From<u32> + fmt::Debug + Ord + PartialOrd + Eq {
     /// The return value is a `u32`, in accordance with the bit widths
     /// specified using the BITS associated const on Rust integer
     /// types.
+    #[flux_rs::no_panic]
     fn u32_padding() -> u32 {
         u32::BITS.saturating_sub(Self::width())
     }
@@ -97,6 +103,7 @@ pub trait Ticks: Clone + Copy + From<u32> + fmt::Debug + Ord + PartialOrd + Eq {
     /// `2 ** u32_padding()`). Use `u32_left_justified_scale_freq` to
     /// convert the underlying timer's frequency into the padded ticks
     /// frequency in Hertz.
+    #[flux_rs::no_panic]
     fn into_u32_left_justified(self) -> u32 {
         self.into_u32() << Self::u32_padding()
     }
@@ -104,15 +111,18 @@ pub trait Ticks: Clone + Copy + From<u32> + fmt::Debug + Ord + PartialOrd + Eq {
     /// Convert the generic [`Frequency`] argument into a frequency
     /// (Hertz) describing a left-justified ticks value as returned by
     /// [`Ticks::into_u32_left_justified`].
+    #[flux_rs::no_panic]
     fn u32_left_justified_scale_freq<F: Frequency>() -> u32 {
         F::frequency() << Self::u32_padding()
     }
 
     /// Add two values, wrapping around on overflow using standard
     /// unsigned arithmetic.
+    #[flux_rs::no_panic]
     fn wrapping_add(self, other: Self) -> Self;
     /// Subtract two values, wrapping around on underflow using standard
     /// unsigned arithmetic.
+    #[flux_rs::no_panic]
     fn wrapping_sub(self, other: Self) -> Self;
 
     /// Returns whether the value is in the range of [`start, `end`) using
@@ -120,6 +130,7 @@ pub trait Ticks: Clone + Copy + From<u32> + fmt::Debug + Ord + PartialOrd + Eq {
     /// if, incrementing from `start`, the value will be reached before `end`.
     /// Put another way, it returns `(self - start) < (end - start)` in
     /// unsigned arithmetic.
+    #[flux_rs::no_panic]
     fn within_range(self, start: Self, end: Self) -> bool;
 
     /// Returns the maximum value of this type, which should be (2^width)-1.
@@ -143,6 +154,7 @@ pub trait Ticks: Clone + Copy + From<u32> + fmt::Debug + Ord + PartialOrd + Eq {
 /// an associated type for an implementation of the `Time` trait.
 pub trait Frequency {
     /// Returns frequency in Hz.
+    #[flux_rs::no_panic]
     #[flux_rs::sig(fn() -> u32{r: r > 0})]
     fn frequency() -> u32;
 }
@@ -159,6 +171,7 @@ pub trait Time {
     /// a sample of a counter; if an implementation relies on
     /// it being constant or changing it should use `Timestamp`
     /// or `Counter`.
+    #[flux_rs::no_panic]
     fn now(&self) -> Self::Ticks;
 }
 
@@ -305,6 +318,7 @@ pub trait Alarm<'a>: Time {
     /// and `dt` rather than a single value denoting the counter value so it
     /// can distinguish between alarms which have very recently already
     /// passed and those in the far far future (see #1651).
+    #[flux_rs::no_panic]
     fn set_alarm(&self, reference: Self::Ticks, dt: Self::Ticks);
 
     /// Return the current alarm value. This is undefined at boot and
@@ -317,6 +331,7 @@ pub trait Alarm<'a>: Time {
     ///   the callback in the future
     ///   - `Err(ErrorCode::FAIL)` the alarm could not be disarmed and will invoke
     ///   the callback in the future
+    #[flux_rs::no_panic]
     fn disarm(&self) -> Result<(), ErrorCode>;
 
     /// Returns whether the alarm is currently armed. Note that this
