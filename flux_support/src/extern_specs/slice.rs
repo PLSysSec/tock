@@ -19,10 +19,17 @@ impl<T> [T] {
     #[flux_rs::sig(fn(&[T][@len]) -> usize[len])]
     fn len(v: &[T]) -> usize;
 
+    #[flux_rs::no_panic]
     #[flux_rs::sig(fn(&[T][@len]) -> Iter<T>[0, len])]
     fn iter(v: &[T]) -> Iter<'_, T>;
 
     // #[flux_rs::sig(fn(&[T][@len], I[@idx]) -> Option<_>[<I as SliceIndex<[T]>>::in_bounds(idx, len)])]
     #[flux_rs::no_panic]
     fn get<I: core::slice::SliceIndex<[T]>>(&self, index: I) -> Option<&<I as SliceIndex<[T]>>::Output>;
+}
+
+#[flux_rs::extern_spec]
+impl<T, I: core::slice::SliceIndex<[T]>> core::ops::Index<I> for [T] {
+    #[flux_rs::no_panic]
+    fn index(&self, index: I) -> &I::Output;
 }

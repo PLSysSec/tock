@@ -542,12 +542,14 @@ impl<'a, T: 'a + ?Sized> GrantData<'a, T> {
 
 impl<'a, T: 'a + ?Sized> Deref for GrantData<'a, T> {
     type Target = T;
+    #[flux_rs::no_panic]
     fn deref(&self) -> &T {
         self.data
     }
 }
 
 impl<'a, T: 'a + ?Sized> DerefMut for GrantData<'a, T> {
+    #[flux_rs::no_panic]
     fn deref_mut(&mut self) -> &mut T {
         self.data
     }

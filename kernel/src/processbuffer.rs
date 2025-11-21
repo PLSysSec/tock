@@ -406,6 +406,7 @@ impl ReadOnlyProcessBufferRef<'_> {
 
 impl Deref for ReadOnlyProcessBufferRef<'_> {
     type Target = ReadOnlyProcessBuffer;
+    #[flux_rs::no_panic]
     fn deref(&self) -> &Self::Target {
         &self.buf
     }
@@ -533,6 +534,7 @@ impl ReadWriteProcessBuffer {
 impl ReadableProcessBuffer for ReadWriteProcessBuffer {
     /// Return the length of the buffer in bytes.
     #[flux_rs::sig(fn (&Self[@p]) -> usize{len: valid_size(p.ptr + len)})]
+    #[flux_rs::no_panic]
     fn len(&self) -> usize {
         self.process_id
             .map_or(0, |pid| pid.kernel.process_map_or(0, pid, |_| self.len))
@@ -586,6 +588,8 @@ impl ReadableProcessBuffer for ReadWriteProcessBuffer {
 }
 
 impl WriteableProcessBuffer for ReadWriteProcessBuffer {
+    #[flux_rs::trusted]
+    #[flux_rs::no_panic]
     fn mut_enter<F, R>(&self, fun: F) -> Result<R, process::Error>
     where
         F: FnOnce(&WriteableProcessSlice) -> R,
@@ -653,6 +657,7 @@ impl ReadWriteProcessBufferRef<'_> {
 
 impl Deref for ReadWriteProcessBufferRef<'_> {
     type Target = ReadWriteProcessBuffer;
+    #[flux_rs::no_panic]
     fn deref(&self) -> &Self::Target {
         &self.buf
     }
@@ -690,6 +695,7 @@ pub struct ReadableProcessByte {
 
 impl ReadableProcessByte {
     #[inline]
+    #[flux_rs::no_panic]
     pub fn get(&self) -> u8 {
         self.cell.get()
     }
@@ -712,6 +718,8 @@ pub struct ReadableProcessSlice {
     slice: [ReadableProcessByte],
 }
 
+#[flux_rs::trusted]
+#[flux_rs::no_panic]
 fn cast_byte_slice_to_process_slice(byte_slice: &[ReadableProcessByte]) -> &ReadableProcessSlice {
     // As ReadableProcessSlice is a transparent wrapper around its inner type,
     // [ReadableProcessByte], we can safely transmute a reference to the inner
@@ -805,11 +813,13 @@ impl ReadableProcessSlice {
     }
 
     /// Return the length of the slice in bytes.
+    #[flux_rs::no_panic]
     pub fn len(&self) -> usize {
         self.slice.len()
     }
 
     /// Return an iterator over the bytes of the slice.
+    #[flux_rs::no_panic]
     pub fn iter(&self) -> core::slice::Iter<'_, ReadableProcessByte> {
         self.slice.iter()
     }
@@ -827,6 +837,7 @@ impl ReadableProcessSlice {
 
     /// Access a portion of the slice with bounds checking. If the access is not
     /// within the slice then `None` is returned.
+    #[flux_rs::no_panic]
     pub fn get(&self, range: Range<usize>) -> Option<&ReadableProcessSlice> {
         if let Some(slice) = self.slice.get(range) {
             Some(cast_byte_slice_to_process_slice(slice))
@@ -860,6 +871,7 @@ impl Index<Range<usize>> for ReadableProcessSlice {
     // Subslicing will still yield a ReadableProcessSlice reference
     type Output = Self;
 
+    #[flux_rs::no_panic]
     fn index(&self, idx: Range<usize>) -> &Self::Output {
         cast_byte_slice_to_process_slice(&self.slice[idx])
     }
@@ -914,6 +926,8 @@ pub struct WriteableProcessSlice {
     slice: [Cell<u8>],
 }
 
+#[flux_rs::trusted]
+#[flux_rs::no_panic]
 fn cast_cell_slice_to_process_slice(cell_slice: &[Cell<u8>]) -> &WriteableProcessSlice {
     // # Safety
     //
@@ -1046,11 +1060,13 @@ impl WriteableProcessSlice {
     }
 
     /// Return the length of the slice in bytes.
+    #[flux_rs::no_panic]
     pub fn len(&self) -> usize {
         self.slice.len()
     }
 
     /// Return an iterator over the slice.
+    #[flux_rs::no_panic]
     pub fn iter(&self) -> core::slice::Iter<'_, Cell<u8>> {
         self.slice.iter()
     }
@@ -1101,6 +1117,7 @@ impl Index<Range<usize>> for WriteableProcessSlice {
     // Subslicing will still yield a WriteableProcessSlice reference.
     type Output = Self;
 
+    #[flux_rs::no_panic]
     fn index(&self, idx: Range<usize>) -> &Self::Output {
         cast_cell_slice_to_process_slice(&self.slice[idx])
     }
@@ -1131,6 +1148,7 @@ impl Index<usize> for WriteableProcessSlice {
 
     #[flux_rs::trusted_impl(reason = "needs associated refinement on Index trait")]
     #[flux_rs::sig(fn(self: &WriteableProcessSlice[@len], idx: usize) -> &Self::Output requires len > idx)]
+    #[flux_rs::no_panic]
     fn index(&self, idx: usize) -> &Self::Output {
         // As WriteableProcessSlice is a transparent wrapper around
         // its inner type, [Cell<u8>], we can use the regular slicing
