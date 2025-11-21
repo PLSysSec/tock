@@ -51,6 +51,8 @@ use flux_support::*;
 ///
 /// It is sound for multiple overlapping [`ReadableProcessSlice`]s or
 /// [`WriteableProcessSlice`]s to be in scope at the same time.
+#[flux_rs::trusted]
+#[flux_rs::no_panic]
 unsafe fn raw_processbuf_to_roprocessslice<'a>(
     ptr: FluxPtrU8Mut,
     len: usize,
@@ -158,6 +160,7 @@ pub trait ReadableProcessBuffer {
     /// # Default Process Buffer
     ///
     /// A default instance of a process buffer must return 0.
+    #[flux_rs::no_panic]
     fn len(&self) -> usize;
 
     /// Pointer to the first byte of the userspace memory region.
@@ -189,6 +192,7 @@ pub trait ReadableProcessBuffer {
     /// A default instance of a process buffer must return
     /// `Err(process::Error::NoSuchApp)` without executing the passed
     /// closure.
+    #[flux_rs::no_panic]
     fn enter<F, R>(&self, fun: F) -> Result<R, process::Error>
     where
         F: FnOnce(&ReadableProcessSlice) -> R;
@@ -311,6 +315,7 @@ impl ReadOnlyProcessBuffer {
 
 impl ReadableProcessBuffer for ReadOnlyProcessBuffer {
     /// Return the length of the buffer in bytes.
+    #[flux_rs::no_panic]
     fn len(&self) -> usize {
         self.process_id
             .map_or(0, |pid| pid.kernel.process_map_or(0, pid, |_| self.len))
@@ -329,6 +334,8 @@ impl ReadableProcessBuffer for ReadOnlyProcessBuffer {
     ///
     /// This verifies the process is still valid before accessing the underlying
     /// memory.
+    #[flux_rs::no_panic]
+    #[flux_rs::trusted]
     fn enter<F, R>(&self, fun: F) -> Result<R, process::Error>
     where
         F: FnOnce(&ReadableProcessSlice) -> R,
