@@ -16,3 +16,10 @@ trait PartialOrd<Rhs: ?Sized = Self>: PartialEq<Rhs> {
     fn lt(&self, other: &Rhs) -> bool;
     fn le(&self, other: &Rhs) -> bool;
 }
+
+
+#[flux_rs::extern_spec(core::cmp)]
+trait PartialEq<Rhs: ?Sized = Self> {
+    #[flux_rs::no_panic]
+    fn eq(&self, other: &Rhs) -> bool;
+}

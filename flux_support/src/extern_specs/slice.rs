@@ -23,5 +23,6 @@ impl<T> [T] {
     fn iter(v: &[T]) -> Iter<'_, T>;
 
     // #[flux_rs::sig(fn(&[T][@len], I[@idx]) -> Option<_>[<I as SliceIndex<[T]>>::in_bounds(idx, len)])]
-    // fn get(&self, index: I) -> Option<&<I as SliceIndex<[T]>>::Output>;
+    #[flux_rs::no_panic]
+    fn get<I: core::slice::SliceIndex<[T]>>(&self, index: I) -> Option<&<I as SliceIndex<[T]>>::Output>;
 }

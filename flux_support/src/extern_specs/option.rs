@@ -16,6 +16,11 @@ impl<T> Option<T> {
     const fn is_none(&self) -> bool;
 
     #[flux_rs::no_panic]
+    fn map_or<U, F>(self, default: U, f: F) -> U
+    where
+        F: FnOnce(T) -> U;
+
+    #[flux_rs::no_panic]
     fn unwrap_or_default(self) -> T
     where
         T: Default;

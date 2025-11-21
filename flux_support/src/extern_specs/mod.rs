@@ -1,5 +1,6 @@
 mod cell;
 mod cmp;
+mod func;
 mod iter;
 mod mem;
 mod non_null;
