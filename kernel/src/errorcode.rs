@@ -117,6 +117,7 @@ impl From<ErrorCode> for Result<(), ErrorCode> {
 /// is that [`ErrorCode`], which only expresses errors, is assigned fixed
 /// values, but does not use value 0 by convention. This allows us to use 0 as
 /// success in StatusCode.
+#[flux_rs::no_panic]
 pub fn into_statuscode(r: Result<(), ErrorCode>) -> usize {
     match r {
         Ok(()) => 0,

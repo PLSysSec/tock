@@ -1,4 +1,8 @@
 #![no_std]
+#![cfg_attr(flux, feature(step_trait))]
+#![feature(try_trait_v2)]
+#![feature(sized_hierarchy)]
+#![feature(ptr_metadata)]
 
 mod extern_specs;
 mod flux_arr;

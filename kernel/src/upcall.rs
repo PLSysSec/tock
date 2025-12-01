@@ -95,6 +95,7 @@ pub(crate) struct Upcall {
 }
 
 impl Upcall {
+    #[flux_rs::no_panic]
     pub(crate) fn new(
         process_id: ProcessId,
         upcall_id: UpcallId,
@@ -124,6 +125,13 @@ impl Upcall {
     /// parameter so we take advantage of it. If in the future that is not the
     /// case we could have `process` be an Option and just do the search with
     /// the stored [`ProcessId`].
+    #[flux_rs::no_panic]
+    #[flux_rs::trusted]
+    // Andrew note: marking this as trusted because the debug! call introduces
+    // verification burden to annotated core::fmt::rt::blah as no_panic!.
+    // The symbols referred to in core::fmt::rt are things like new_v1_formatted,
+    // which may have been patched out? In any case, it's hard to get working on
+    // my machine.
     pub(crate) fn schedule(
         &self,
         process: &dyn process::Process,

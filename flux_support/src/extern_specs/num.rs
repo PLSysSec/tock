@@ -12,6 +12,9 @@ impl u32 {
 
     #[flux_rs::no_panic]
     fn saturating_sub(self, rhs: u32) -> u32;
+
+    #[flux_rs::no_panic]
+    fn from_be_bytes(bytes: [u8; 4]) -> u32;
 }
 
 #[flux_rs::extern_spec]

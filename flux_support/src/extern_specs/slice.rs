@@ -28,6 +28,12 @@ impl<T> [T] {
     fn get<I: core::slice::SliceIndex<[T]>>(&self, index: I) -> Option<&<I as SliceIndex<[T]>>::Output>;
 }
 
+#[flux_rs::extern_spec(core::slice)]
+impl<'a, T> Iterator for Iter<'a, T> {
+    #[flux_rs::no_panic]
+    fn next(&mut self) -> Option<&'a T>;
+}
+
 #[flux_rs::extern_spec]
 impl<T, I: core::slice::SliceIndex<[T]>> core::ops::Index<I> for [T] {
     #[flux_rs::no_panic]

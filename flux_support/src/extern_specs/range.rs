@@ -1,7 +1,10 @@
 #![allow(unused)]
 
 use core::ops::Bound;
+use core::ops;
 use core::ops::{Range, RangeBounds};
+use core::iter::Step;
+
 
 #[flux_rs::extern_spec]
 #[flux_rs::refined_by(included: bool, unbounded: bool)]
@@ -52,6 +55,16 @@ trait RangeBounds<T> {
     //         Unbounded => true,
     //     })
     // }
+}
+
+
+#[flux_rs::extern_spec(core::iter)]
+trait Step {}
+
+#[flux_rs::extern_spec(core::ops)]
+impl<A: core::iter::Step> Iterator for ops::Range<A> {
+    #[flux_rs::no_panic]
+    fn next(&mut self) -> Option<A>;
 }
 
 #[flux_rs::extern_spec(core::ops)]

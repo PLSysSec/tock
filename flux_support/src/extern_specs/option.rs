@@ -10,9 +10,11 @@ enum Option<T> {
 #[flux_rs::extern_spec]
 impl<T> Option<T> {
     #[sig(fn(&Option<T>[@b]) -> bool[b])]
+    #[flux_rs::no_panic]
     const fn is_some(&self) -> bool;
 
     #[sig(fn(&Option<T>[@b]) -> bool[!b])]
+    #[flux_rs::no_panic]
     const fn is_none(&self) -> bool;
 
     #[flux_rs::no_panic]
@@ -25,5 +27,13 @@ impl<T> Option<T> {
     where
         T: Default;
 
+    #[flux_rs::no_panic]
+    fn map_or_else<U, D, F>(self, default: D, f: F) -> U
+    where
+        // Andrew note: why does this not match up with source?
+        D: FnOnce() -> U,
+        F: FnOnce(T) -> U;
 
+    #[flux_rs::no_panic]
+    fn ok_or<E>(self, err: E) -> Result<T, E>;
 }

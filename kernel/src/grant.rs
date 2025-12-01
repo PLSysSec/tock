@@ -310,6 +310,12 @@ impl<'a> EnteredGrantKernelManagedLayout<'a> {
     /// not be any other `EnteredGrantKernelManagedLayout` for
     /// the given `base_ptr` at the same time, otherwise multiple mutable
     /// references to the same upcall/allow slices could be created.
+    #[flux_rs::no_panic]
+    // Andrew note: this is here because marking this as _not_ trusted
+    // yields a lot of verification burden about core::ptr::* that is a lot right now.
+    // We can come back to it, but I don't think flux even lets you write extern
+    // specs for those functions yet.
+    #[flux_rs::trusted]
     unsafe fn initialize_from_counts(
         base_ptr: NonNull<u8>,
         upcalls_num_val: UpcallItems,
@@ -350,6 +356,7 @@ impl<'a> EnteredGrantKernelManagedLayout<'a> {
     /// which is guaranteed from align_of rust calls.
     #[flux_rs::opts(check_overflow = "none")] // TRUSTED: Not relevant for proof
     #[flux_rs::sig(fn(UpcallItems, AllowRoItems, AllowRwItems, GrantDataSize[@data_sz], GrantDataAlign{g: g > 0}) -> usize{alloc_sz: alloc_sz >= data_sz})]
+    #[flux_rs::no_panic]
     fn grant_size(
         upcalls_num: UpcallItems,
         allow_ro_num: AllowRoItems,
@@ -359,6 +366,7 @@ impl<'a> EnteredGrantKernelManagedLayout<'a> {
     ) -> usize {
         #[flux_rs::trusted(reason = "arithmetic operation may overflow (bitwise arithmetic)")]
         #[flux_rs::sig(fn(usize, align:usize{0 < align}) -> usize{n: 0 < n && n < align})]
+        #[flux_rs::no_panic]
         fn calc_padding(kernel_managed_size: usize, align: usize) -> usize {
             // We know that grant_t_align is a power of 2, so we can make a mask
             // that will save only the remainder bits.
@@ -367,6 +375,8 @@ impl<'a> EnteredGrantKernelManagedLayout<'a> {
             // Determine padding to get to the next multiple of grant_t_align by
             // taking the remainder and subtracting that from the alignment, then
             // ensuring a full alignment value maps to 0.
+            // Andrew note: This might overflow, but it seems that this is trusted and
+            // we don't care?
             (align - (kernel_managed_size & grant_t_align_mask)) & grant_t_align_mask
         }
 
@@ -384,6 +394,7 @@ impl<'a> EnteredGrantKernelManagedLayout<'a> {
 
     /// Returns the alignment of the entire grant region based on the alignment
     /// of data T.
+    #[flux_rs::no_panic]
     fn grant_align(grant_t_align: GrantDataAlign) -> usize {
         // The kernel owned memory all aligned to usize. We need to use the
         // higher of the two alignment to ensure our padding calculations work
@@ -399,6 +410,8 @@ impl<'a> EnteredGrantKernelManagedLayout<'a> {
     /// least the alignment of T and points to a grant that is of size
     /// grant_size bytes.
     #[flux_rs::sig(fn(NonNull<u8>, usize[@grant_sz], GrantDataSize{data_sz: data_sz <= grant_sz}) -> NonNull<u8>)]
+    #[flux_rs::no_panic]
+    #[flux_rs::trusted]
     unsafe fn offset_of_grant_data_t(
         base_ptr: NonNull<u8>,
         grant_size: usize,
@@ -610,6 +623,7 @@ impl<'a> GrantKernelData<'a> {
     /// identified by the `subscribe_num`, which must match the subscribe number
     /// used when the upcall was originally subscribed by a process.
     /// `subscribe_num`s are indexed starting at zero.
+    #[flux_rs::no_panic]
     pub fn schedule_upcall(
         &self,
         subscribe_num: usize,
@@ -652,6 +666,7 @@ impl<'a> GrantKernelData<'a> {
     /// returns a [`crate::process::Error`] to allow for easy chaining of this
     /// function with the `ReadOnlyProcessBuffer::enter()` function with
     /// `and_then`.
+    #[flux_rs::no_panic]
     pub fn get_readonly_processbuffer(
         &self,
         allow_ro_num: usize,
@@ -693,6 +708,7 @@ impl<'a> GrantKernelData<'a> {
     /// returns a [`crate::process::Error`] to allow for easy chaining of this
     /// function with the `ReadWriteProcessBuffer::enter()` function with
     /// `and_then`.
+    #[flux_rs::no_panic]
     pub fn get_readwrite_processbuffer(
         &self,
         allow_rw_num: usize,
@@ -779,6 +795,8 @@ impl Default for SavedAllowRw {
 /// function is called. The memory does not need to be initialized yet. If it
 /// already does contain initialized memory, then those contents will be
 /// overwritten without being `Drop`ed first.
+#[flux_rs::no_panic]
+#[flux_rs::trusted]
 unsafe fn write_default_array<T: Default>(base: *mut T, num: usize) {
     for i in 0..num {
         base.add(i).write(T::default());
@@ -1014,6 +1032,8 @@ impl<'a, T: Default, Upcalls: UpcallSize, AllowROs: AllowRoSize, AllowRWs: Allow
     /// If the grant is already allocated or could be allocated, and the process
     /// is valid, this returns `Ok(ProcessGrant)`. Otherwise it returns a
     /// relevant error.
+    #[flux_rs::no_panic]
+    #[flux_rs::trusted]
     fn new(
         grant: &Grant<T, Upcalls, AllowROs, AllowRWs>,
         processid: ProcessId,
@@ -1196,6 +1216,7 @@ impl<'a, T: Default, Upcalls: UpcallSize, AllowROs: AllowRoSize, AllowRWs: Allow
     /// Return a [`ProcessGrant`] for a grant in a process if the process is
     /// valid and that process grant has already been allocated, or `None`
     /// otherwise.
+    #[flux_rs::no_panic]
     fn new_if_allocated(
         grant: &Grant<T, Upcalls, AllowROs, AllowRWs>,
         process: &'a dyn Process,
@@ -1220,6 +1241,7 @@ impl<'a, T: Default, Upcalls: UpcallSize, AllowROs: AllowRoSize, AllowRWs: Allow
 
     /// Return the [`ProcessId`] of the process this [`ProcessGrant`] is
     /// associated with.
+    #[flux_rs::no_panic]
     pub fn processid(&self) -> ProcessId {
         self.process.processid()
     }
@@ -1234,6 +1256,11 @@ impl<'a, T: Default, Upcalls: UpcallSize, AllowROs: AllowRoSize, AllowRWs: Allow
     /// Note, a grant can only be entered once at a time. Attempting to call
     /// `.enter()` on a grant while it is already entered will result in a
     /// `panic!()`. See the comment in `access_grant()` for more information.
+    // Andrew note: We need to actually add a no_panic spec which tracks if
+    // this grant is entered or not. The tricky part will be that entering
+    // a grant is implemented in the process, so I'm not sure how to handle this.
+    #[flux_rs::trusted]
+    #[flux_rs::no_panic]
     pub fn enter<F, R>(self, fun: F) -> R
     where
         F: FnOnce(&mut GrantData<T>, &GrantKernelData) -> R,
@@ -1734,6 +1761,7 @@ impl<T: Default, Upcalls: UpcallSize, AllowROs: AllowRoSize, AllowRWs: AllowRwSi
     /// This creates a [`ProcessGrant`] which is a handle for a grant allocated
     /// for a specific process. Then, that [`ProcessGrant`] is entered and the
     /// provided closure is run with access to the memory in the grant region.
+    #[flux_rs::no_panic]
     pub fn enter<F, R>(&self, processid: ProcessId, fun: F) -> Result<R, Error>
     where
         F: FnOnce(&mut GrantData<T>, &GrantKernelData) -> R,
@@ -1780,6 +1808,10 @@ impl<T: Default, Upcalls: UpcallSize, AllowROs: AllowRoSize, AllowRWs: AllowRwSi
     ///
     /// Calling this function when an [`ProcessGrant`] for a process is
     /// currently entered will result in a panic.
+    // Andrew note: placing `trusted` on this to work around FnMut::call_mut,
+    // and because we need to eventually come up with a no_panic spec for this.
+    #[flux_rs::trusted]
+    #[flux_rs::no_panic]
     pub fn each<F>(&self, mut fun: F)
     where
         F: FnMut(ProcessId, &mut GrantData<T>, &GrantKernelData),
@@ -1798,6 +1830,7 @@ impl<T: Default, Upcalls: UpcallSize, AllowROs: AllowRoSize, AllowRWs: AllowRwSi
     ///
     /// Calling this function when an [`ProcessGrant`] for a process is
     /// currently entered will result in a panic.
+    #[flux_rs::no_panic]
     #[flux_rs::trusted(reason = "ICE: assertion `left == right` failed `infer.rs:869`")]
     pub fn iter(&self) -> Iter<'_, T, Upcalls, AllowROs, AllowRWs> {
         Iter {
@@ -1830,6 +1863,7 @@ impl<'a, T: Default, Upcalls: UpcallSize, AllowROs: AllowRoSize, AllowRWs: Allow
 {
     type Item = ProcessGrant<'a, T, Upcalls, AllowROs, AllowRWs>;
 
+    #[flux_rs::no_panic]
     fn next(&mut self) -> Option<Self::Item> {
         let grant = self.grant;
         // Get the next `ProcessId` from the kernel processes array that is

@@ -33,15 +33,18 @@ impl<I: Iterator> IntoIterator for I {
 // #[flux_rs::extern_spec(std::iter)]
 // #[flux_rs::assoc(fn done(self: Self) -> bool )]
 // #[flux_rs::assoc(fn step(self: Self, other: Self) -> bool )]
-// trait Iterator {
-//     #[flux_rs::sig(fn(self: &strg Self[@curr_s]) -> Option<Self::Item>[!<Self as Iterator>::done(curr_s)] ensures self: Self{next_s: <Self as Iterator>::step(curr_s, next_s)})]
-//     fn next(&mut self) -> Option<Self::Item>;
 
-//     #[flux_rs::sig(fn(Self[@s]) -> Enumerate<Self>[0, s])]
-//     fn enumerate(self) -> Enumerate<Self>
-//     where
-//         Self: Sized;
-// }
+#[flux_rs::extern_spec(core::iter)]
+trait Iterator {
+    #[flux_rs::no_panic]
+    fn find_map<B, F>(&mut self, f: F) -> Option<B>
+    where
+        Self: Sized,
+        F: FnMut(Self::Item) -> Option<B>;
+
+    #[flux_rs::no_panic]
+    fn next(&mut self) -> Option<Self::Item>;
+}
 
 // #[flux_rs::extern_spec(std::slice)]
 // #[flux_rs::assoc(fn done(x: Iter<T>) -> bool { x.idx >= x.len })]

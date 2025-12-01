@@ -16,4 +16,13 @@ impl<T> Cell<T> {
 
     #[flux_rs::no_panic]
     fn set(&self, value: T);
+
+    #[flux_rs::no_panic]
+    fn replace(&self, val: T) -> T;
+}
+
+#[flux_rs::extern_spec(core::cell)]
+impl<T: Default> Cell<T> {
+    #[flux_rs::no_panic]
+    fn take(&self) -> T;
 }

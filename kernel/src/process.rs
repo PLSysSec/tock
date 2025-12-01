@@ -373,6 +373,7 @@ pub trait Process {
     ///   there is insufficient space in the internal task queue.
     ///
     /// Other return values must be treated as kernel-internal errors.
+    #[flux_rs::no_panic]
     fn enqueue_task(&self, task: Task) -> Result<(), ErrorCode>;
 
     /// Remove the scheduled operation from the front of the queue and return it
@@ -696,6 +697,7 @@ pub trait Process {
     /// - There is not enough available memory to do the allocation, or
     /// - The grant_num is invalid, or
     /// - The grant_num already has an allocated grant.
+    #[flux_rs::no_panic]
     fn allocate_grant(
         &self,
         grant_num: usize,
@@ -708,6 +710,7 @@ pub trait Process {
     ///
     /// Returns `None` if the process is not active. Otherwise, returns `true`
     /// if the grant has been allocated, `false` otherwise.
+    #[flux_rs::no_panic]
     fn grant_is_allocated(&self, grant_num: usize) -> Option<bool>;
 
     /// Allocate memory from the grant region that is `size` bytes long and
@@ -733,6 +736,7 @@ pub trait Process {
     /// is invalid, if the grant has not been allocated, or if the grant is
     /// already entered. If this returns `Ok()` then the pointer points to the
     /// previously allocated memory for this grant.
+    #[flux_rs::no_panic]
     fn enter_grant(&self, grant_num: usize) -> Result<NonNull<u8>, Error>;
 
     /// Enter a custom grant based on the `identifier`.
