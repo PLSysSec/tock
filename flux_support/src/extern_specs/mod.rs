@@ -3,6 +3,7 @@ mod cmp;
 mod default;
 mod func;
 mod fmt;
+mod from;
 mod iter;
 mod mem;
 mod non_null;

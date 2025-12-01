@@ -1,6 +1,7 @@
 #![allow(unused)]
 use crate::assert;
-use core::slice::Iter;
+use core::iter::Enumerate;
+use core::iter::FilterMap;
 use core::iter::IntoIterator;
 
 #[flux_rs::extern_spec(core::slice)]
@@ -37,6 +38,12 @@ impl<I: Iterator> IntoIterator for I {
 #[flux_rs::extern_spec(core::iter)]
 trait Iterator {
     #[flux_rs::no_panic]
+    fn filter_map<B, F>(self, f: F) -> FilterMap<Self, F>
+    where
+        Self: Sized,
+        F: FnMut(Self::Item) -> Option<B>;
+
+    #[flux_rs::no_panic]
     fn find_map<B, F>(&mut self, f: F) -> Option<B>
     where
         Self: Sized,
@@ -44,7 +51,47 @@ trait Iterator {
 
     #[flux_rs::no_panic]
     fn next(&mut self) -> Option<Self::Item>;
+
+    #[flux_rs::no_panic]
+    fn enumerate(self) -> Enumerate<Self>
+    where
+        Self: Sized;
+
+    #[flux_rs::no_panic]
+    fn rev(self) -> Rev<Self>
+    where
+        Self: Sized + DoubleEndedIterator;
+
+    #[flux_rs::no_panic]
+    fn take(self, n: usize) -> Take<Self>
+    where
+        Self: Sized;
+
+    #[flux_rs::no_panic]
+    fn zip<U>(self, other: U) -> Zip<Self, U::IntoIter>
+    where
+        Self: Sized,
+        U: IntoIterator;
 }
+
+#[flux_rs::extern_spec(core::iter)]
+struct Enumerate<I>;
+
+#[flux_rs::extern_spec(core::iter)]
+impl<I: Iterator> Iterator for Enumerate<I> {
+    // Andrew note: This indeed can panic!
+    // Don't merge until we create a refinement for this so that
+    // we can't call it unless we're sure it won't panic.
+    #[flux_rs::no_panic]
+    fn next(&mut self) -> Option<(usize, I::Item)>;
+}
+
+#[flux_rs::extern_spec(core::iter)]
+impl<A: Iterator, B: Iterator> Iterator for Zip<A, B> {
+    #[flux_rs::no_panic]
+    fn next(&mut self) -> Option<<Zip<A, B> as Iterator>::Item>;
+}
+
 
 // #[flux_rs::extern_spec(std::slice)]
 // #[flux_rs::assoc(fn done(x: Iter<T>) -> bool { x.idx >= x.len })]
