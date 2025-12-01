@@ -100,6 +100,7 @@ impl Kernel {
 
     /// Helper function that moves all non-generic portions of process_map_or
     /// into a non-generic function to reduce code bloat from monomorphization.
+    #[flux_rs::no_panic]
     pub(crate) fn get_process(&self, processid: ProcessId) -> Option<&dyn process::Process> {
         // We use the index in the [`ProcessId`] so we can do a direct lookup.
         // However, we are not guaranteed that the app still exists at that
@@ -129,6 +130,8 @@ impl Kernel {
     /// different index in the processes array. Note that a match _will_ be
     /// found if the process still exists in the correct location in the array
     /// but is in any "stopped" state.
+    #[flux_rs::trusted]
+    #[flux_rs::no_panic]
     pub(crate) fn process_map_or<F, R>(&self, default: R, processid: ProcessId, closure: F) -> R
     where
         F: FnOnce(&dyn process::Process) -> R,

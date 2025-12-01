@@ -435,6 +435,7 @@ pub trait SpiSlaveDevice<'a> {
     ///   - Err(INVAL): the `len` parameter is 0
     ///
     /// `Err` return values return the passed buffer `Option`s.
+    #[flux_rs::no_panic]
     fn read_write_bytes(
         &self,
         write_buffer: Option<&'static mut [u8]>,
@@ -453,8 +454,10 @@ pub trait SpiSlaveDevice<'a> {
     ///   - Err(BUSY): the SPI bus is busy with a `read_write_bytes`
     ///     operation whose callback hasn't been called yet.
     ///   - Err(FAIL): other failure
+    #[flux_rs::no_panic]
     fn set_polarity(&self, polarity: ClockPolarity) -> Result<(), ErrorCode>;
     /// Return the current bus polarity.
+    #[flux_rs::no_panic]
     fn get_polarity(&self) -> ClockPolarity;
 
     /// Set the bus phase (whether data is sent/received on leading or
@@ -463,8 +466,10 @@ pub trait SpiSlaveDevice<'a> {
     ///   - Err(BUSY): the SPI bus is busy with a `read_write_bytes`
     ///     operation whose callback hasn't been called yet.
     ///   - Err(FAIL): other failure
+    #[flux_rs::no_panic]
     fn set_phase(&self, phase: ClockPhase) -> Result<(), ErrorCode>;
 
     /// Return the current bus phase.
+    #[flux_rs::no_panic]
     fn get_phase(&self) -> ClockPhase;
 }

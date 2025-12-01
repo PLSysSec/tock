@@ -12,10 +12,12 @@ edition.workspace = true
 kernel = { path = "../../kernel" }
 enum_primitive = { path = "../../libraries/enum_primitive" }
 tickv = { path = "../../libraries/tickv" }
+flux-rs = { git  = "https://github.com/flux-rs/flux.git" }
 
 [package.metadata.flux]
 enabled = true
 check_overflow = "lazy"
+no_panic = true
 include = [ "src/button.rs", "src/led.rs", "src/console.rs", "src/alarm.rs", "src/spi_peripheral.rs", "src/stream.rs"  ]
 
 [lints]

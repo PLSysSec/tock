@@ -1,10 +1,31 @@
 #![allow(unused)]
 use crate::assert;
-use core::slice::Iter;
+use core::iter::Enumerate;
+use core::iter::FilterMap;
+use core::iter::IntoIterator;
 
 #[flux_rs::extern_spec(core::slice)]
 #[flux_rs::refined_by(idx: int, len: int)]
 struct Iter<'a, T>;
+
+#[flux_rs::extern_spec]
+trait FromIterator<A> {}
+
+#[flux_rs::extern_spec(core::iter)]
+trait IntoIterator {
+    #[flux_rs::spec(fn(self: Self) -> Self::IntoIter)]
+    #[flux_rs::no_panic]
+    fn into_iter(self) -> Self::IntoIter
+    where
+        Self: Sized;
+}
+
+#[flux_rs::extern_spec(core::ops)]
+impl<I: Iterator> IntoIterator for I {
+    #[flux_rs::spec(fn(self: I[@s]) -> I[s])]
+    #[flux_rs::no_panic]
+    fn into_iter(self) -> I;
+}
 
 // #[flux_rs::extern_spec(std::iter)]
 // #[flux_rs::refined_by(idx: int, inner: I)]
@@ -13,15 +34,64 @@ struct Iter<'a, T>;
 // #[flux_rs::extern_spec(std::iter)]
 // #[flux_rs::assoc(fn done(self: Self) -> bool )]
 // #[flux_rs::assoc(fn step(self: Self, other: Self) -> bool )]
-// trait Iterator {
-//     #[flux_rs::sig(fn(self: &strg Self[@curr_s]) -> Option<Self::Item>[!<Self as Iterator>::done(curr_s)] ensures self: Self{next_s: <Self as Iterator>::step(curr_s, next_s)})]
-//     fn next(&mut self) -> Option<Self::Item>;
 
-//     #[flux_rs::sig(fn(Self[@s]) -> Enumerate<Self>[0, s])]
-//     fn enumerate(self) -> Enumerate<Self>
-//     where
-//         Self: Sized;
-// }
+#[flux_rs::extern_spec(core::iter)]
+trait Iterator {
+    #[flux_rs::no_panic]
+    fn filter_map<B, F>(self, f: F) -> FilterMap<Self, F>
+    where
+        Self: Sized,
+        F: FnMut(Self::Item) -> Option<B>;
+
+    #[flux_rs::no_panic]
+    fn find_map<B, F>(&mut self, f: F) -> Option<B>
+    where
+        Self: Sized,
+        F: FnMut(Self::Item) -> Option<B>;
+
+    #[flux_rs::no_panic]
+    fn next(&mut self) -> Option<Self::Item>;
+
+    #[flux_rs::no_panic]
+    fn enumerate(self) -> Enumerate<Self>
+    where
+        Self: Sized;
+
+    #[flux_rs::no_panic]
+    fn rev(self) -> Rev<Self>
+    where
+        Self: Sized + DoubleEndedIterator;
+
+    #[flux_rs::no_panic]
+    fn take(self, n: usize) -> Take<Self>
+    where
+        Self: Sized;
+
+    #[flux_rs::no_panic]
+    fn zip<U>(self, other: U) -> Zip<Self, U::IntoIter>
+    where
+        Self: Sized,
+        U: IntoIterator;
+}
+
+#[flux_rs::extern_spec(core::iter)]
+struct Enumerate<I>;
+
+#[flux_rs::extern_spec(core::iter)]
+impl<I: Iterator> Iterator for Enumerate<I> {
+    // Andrew note: This indeed can panic!
+    // Don't merge until we create a refinement for this so that
+    // we can't call it unless we're sure it won't panic.
+    #[flux_rs::no_panic]
+    fn next(&mut self) -> Option<(usize, I::Item)>;
+}
+
+#[flux_rs::extern_spec(core::iter)]
+impl<A: Iterator, B: Iterator> Iterator for Zip<A, B> {
+    #[flux_rs::no_panic]
+    fn next(&mut self) -> Option<<Zip<A, B> as Iterator>::Item>;
+}
+
 
 // #[flux_rs::extern_spec(std::slice)]
 // #[flux_rs::assoc(fn done(x: Iter<T>) -> bool { x.idx >= x.len })]

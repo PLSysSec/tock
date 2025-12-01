@@ -9,6 +9,7 @@ use kernel::grant::{AllowRoCount, AllowRwCount, Grant, UpcallCount};
 use kernel::hil::time::{self, Alarm, Ticks};
 use kernel::syscall::{CommandReturn, SyscallDriver};
 use kernel::{ErrorCode, ProcessId};
+use kernel::process;
 
 /// Syscall driver number.
 use crate::driver;
@@ -76,6 +77,8 @@ impl<'a, A: Alarm<'a>> AlarmDriver<'a, A> {
     /// To stop iteration on any expired [`Expiration`], its callback can return
     /// `Some(R)`. Then this function will return `Err(Expiration, UD, R)`.
     /// This avoids consuming the entire iterator.
+    #[flux_rs::no_panic]
+    #[flux_rs::trusted] // Andrew note: trusted because of closure usage
     fn earliest_alarm<UD, R, F: FnOnce(Expiration<A::Ticks>, &UD) -> Option<R>>(
         now: A::Ticks,
         expirations: impl Iterator<Item = (Expiration<A::Ticks>, UD, F)>,
@@ -150,6 +153,8 @@ impl<'a, A: Alarm<'a>> AlarmDriver<'a, A> {
     /// - invoke upcalls for all expired app alarms, resetting them afterwards,
     /// - re-arming the alarm for the next earliest [`Expiration`], or
     /// - disarming the alarm if no unexpired [`Expiration`] is found.
+    #[flux_rs::no_panic]
+    #[flux_rs::trusted] // Andrew note: The `unreachable!()` here needs to be a refinement
     fn process_rearm_or_callback(&self) {
         // Ask the clock about a current reference once. This can incur a
         // volatile read, and this may not be optimized if done in a loop:
@@ -501,7 +506,7 @@ impl<'a, A: Alarm<'a>> SyscallDriver for AlarmDriver<'a, A> {
                 }
             })
             .map_or_else(
-                |err| CommandReturn::failure(err.into()),
+                |err: process::Error| CommandReturn::failure(err.into()),
                 |(retval, rearm_timer)| {
                     if rearm_timer {
                         self.process_rearm_or_callback();

@@ -1,9 +1,16 @@
+mod cell;
+mod cmp;
+mod default;
+mod func;
+mod fmt;
+mod from;
 mod iter;
 mod mem;
 mod non_null;
 mod num;
 mod option;
 mod partial_cmp;
+mod ptr;
 mod range;
 mod result;
 mod slice;

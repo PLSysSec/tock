@@ -24,17 +24,20 @@ impl<'a, T: ?Sized> TakeCell<'a, T> {
         val: Cell::new(None),
     };
 
+    #[flux_rs::no_panic]
     pub const fn empty() -> TakeCell<'a, T> {
         Self::EMPTY
     }
 
     /// Creates a new `TakeCell` containing `value`
+    #[flux_rs::no_panic]
     pub fn new(value: &'a mut T) -> TakeCell<'a, T> {
         TakeCell {
             val: Cell::new(Some(value)),
         }
     }
 
+    #[flux_rs::no_panic]
     pub fn is_none(&self) -> bool {
         let inner = self.take();
         let return_val = inner.is_none();
@@ -64,17 +67,20 @@ impl<'a, T: ?Sized> TakeCell<'a, T> {
     /// x.take();
     /// assert_eq!(y.take(), None);
     /// ```
+    #[flux_rs::no_panic]
     pub fn take(&self) -> Option<&'a mut T> {
         self.val.replace(None)
     }
 
     /// Stores `val` in the `TakeCell`
+    #[flux_rs::no_panic]
     pub fn put(&self, val: Option<&'a mut T>) {
         self.val.replace(val);
     }
 
     /// Replaces the contents of the `TakeCell` with `val`. If the cell was not
     /// empty, the previous value is returned, otherwise `None` is returned.
+    #[flux_rs::no_panic]
     pub fn replace(&self, val: &'a mut T) -> Option<&'a mut T> {
         self.val.replace(Some(val))
     }
@@ -125,6 +131,8 @@ impl<'a, T: ?Sized> TakeCell<'a, T> {
     }
 
     /// Performs a `map` or returns a default value if the `TakeCell` is empty
+    #[flux_rs::trusted] // Andrew: marking as trusted because of FnOnce::call_once
+    #[flux_rs::no_panic]
     pub fn map_or<F, R>(&self, default: R, closure: F) -> R
     where
         F: FnOnce(&mut T) -> R,

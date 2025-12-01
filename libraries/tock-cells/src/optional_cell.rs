@@ -6,6 +6,8 @@
 
 use core::cell::Cell;
 
+use flux_support::*;
+
 /// `OptionalCell` is a `Cell` that wraps an `Option`. This is helper type
 /// that makes keeping types that can be `None` a little cleaner.
 pub struct OptionalCell<T> {
@@ -14,6 +16,7 @@ pub struct OptionalCell<T> {
 
 impl<T> OptionalCell<T> {
     /// Create a new OptionalCell.
+    #[flux_rs::no_panic]
     pub const fn new(val: T) -> OptionalCell<T> {
         OptionalCell {
             value: Cell::new(Some(val)),
@@ -21,6 +24,7 @@ impl<T> OptionalCell<T> {
     }
 
     /// Create an empty `OptionalCell` (contains just `None`).
+    #[flux_rs::no_panic]
     pub const fn empty() -> OptionalCell<T> {
         OptionalCell {
             value: Cell::new(None),
@@ -28,6 +32,7 @@ impl<T> OptionalCell<T> {
     }
 
     /// Update the stored value.
+    #[flux_rs::no_panic]
     pub fn set(&self, val: T) {
         self.value.set(Some(val));
     }
@@ -48,11 +53,13 @@ impl<T> OptionalCell<T> {
     }
 
     /// Reset the stored value to `None`.
+    #[flux_rs::no_panic]
     pub fn clear(&self) {
         self.value.set(None);
     }
 
     /// Check if the cell contains something.
+    #[flux_rs::no_panic]
     pub fn is_some(&self) -> bool {
         let value = self.value.take();
         let out = value.is_some();
@@ -61,6 +68,7 @@ impl<T> OptionalCell<T> {
     }
 
     /// Check if the cell is None.
+    #[flux_rs::no_panic]
     pub fn is_none(&self) -> bool {
         let value = self.value.take();
         let out = value.is_none();
@@ -137,6 +145,7 @@ impl<T> OptionalCell<T> {
     }
 
     /// Return the contained value and replace it with None.
+    #[flux_rs::no_panic]
     pub fn take(&self) -> Option<T> {
         self.value.take()
     }
@@ -211,6 +220,8 @@ impl<T: Copy> OptionalCell<T> {
     }
 
     /// Call a closure on the value if the value exists.
+    #[flux_rs::no_panic]
+    #[flux_rs::trusted]
     pub fn map<F, R>(&self, closure: F) -> Option<R>
     where
         F: FnOnce(T) -> R,
@@ -220,6 +231,8 @@ impl<T: Copy> OptionalCell<T> {
 
     /// Call a closure on the value if the value exists, or return the
     /// default if the value is `None`.
+    #[flux_rs::no_panic]
+    #[flux_rs::trusted]
     pub fn map_or<F, R>(&self, default: R, closure: F) -> R
     where
         F: FnOnce(T) -> R,

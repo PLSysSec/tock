@@ -15,12 +15,37 @@ use core::slice::{self, Iter, SliceIndex};
 
 #[flux_rs::extern_spec]
 impl<T> [T] {
+    #[flux_rs::no_panic]
     #[flux_rs::sig(fn(&[T][@len]) -> usize[len])]
     fn len(v: &[T]) -> usize;
 
+    #[flux_rs::no_panic]
     #[flux_rs::sig(fn(&[T][@len]) -> Iter<T>[0, len])]
     fn iter(v: &[T]) -> Iter<'_, T>;
 
     // #[flux_rs::sig(fn(&[T][@len], I[@idx]) -> Option<_>[<I as SliceIndex<[T]>>::in_bounds(idx, len)])]
-    // fn get(&self, index: I) -> Option<&<I as SliceIndex<[T]>>::Output>;
+    #[flux_rs::no_panic]
+    fn get<I: core::slice::SliceIndex<[T]>>(&self, index: I) -> Option<&<I as SliceIndex<[T]>>::Output>;
+
+    #[flux_rs::no_panic]
+    fn copy_from_slice(&mut self, src: &[T]) where
+        T: Copy;
+}
+
+#[flux_rs::extern_spec(core::slice)]
+impl<'a, T> Iterator for Iter<'a, T> {
+    #[flux_rs::no_panic]
+    fn next(&mut self) -> Option<&'a T>;
+}
+
+#[flux_rs::extern_spec]
+impl<T, I: core::slice::SliceIndex<[T]>> core::ops::Index<I> for [T] {
+    #[flux_rs::no_panic]
+    fn index(&self, index: I) -> &I::Output;
+}
+
+#[flux_rs::extern_spec]
+impl<T, I: core::slice::SliceIndex<[T]>> core::ops::IndexMut<I> for [T] {
+    #[flux_rs::no_panic]
+    fn index_mut(&mut self, index: I) -> &mut I::Output;
 }
