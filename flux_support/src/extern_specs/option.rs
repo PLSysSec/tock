@@ -22,6 +22,17 @@ impl<T> Option<T> {
     where
         F: FnOnce(T) -> U;
 
+
+    #[flux_rs::no_panic]
+    fn map<U, F>(self, op: F) -> Option<U>
+    where
+        F: FnOnce(T) -> U;
+
+    #[flux_rs::no_panic]
+    fn inspect<F>(self, op: F) -> Self
+    where
+        F: FnOnce(&T);
+
     #[flux_rs::no_panic]
     fn unwrap_or_default(self) -> T
     where
