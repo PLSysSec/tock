@@ -393,35 +393,6 @@ mod flux_specs {
             // that was only safe if head/tail was 0 after it called new, we could prove its safety only with the stronger contract).
             fn new({&mut [T][@ring_len] | ring_len > 0}) -> RingBuffer<T>[ring_len, 0, 0];
         }
-    
-        impl Queue<T> for RingBuffer<T> {        
-            // These specs of the form: `(self: RingBuffer) ensures RingBuffer` 
-            // are present to compensate for a current technical limitation of Flux,
-            // and should be gone in the near future.
-            fn empty(self: &mut RingBuffer<T>[@old]) 
-                ensures self: RingBuffer<T>;
-                
-            fn enqueue(self: &mut RingBuffer<T>, val: T) -> bool 
-                ensures self: RingBuffer<T>;
-
-            fn push(self: &mut RingBuffer<T>, val: T) -> Option<T>
-                ensures self: RingBuffer<T>;
-
-            fn dequeue(self: &mut RingBuffer<T>) -> Option<T>
-                ensures self: RingBuffer<T>;
-
-            fn remove_first_matching<F>(self: &mut RingBuffer<T>, _) -> Option<T> 
-                ensures self: RingBuffer<T>;
-
-            fn retain<F>(self: &mut RingBuffer<T>, _) 
-                ensures self: RingBuffer<T>;
-        }
-
-        impl core::iter::Iterator for ListIterator<T> {
-            fn next(self: &mut ListIterator<T>) -> Option<&T> 
-                ensures self: ListIterator<T>;
-        }
-        
     }]
     const _: () = ();
 
