@@ -1,5 +1,12 @@
 # ![TockOS](http://www.tockos.org/assets/img/tock.svg "TockOS Logo")
 
+This repository contains TickTock-a fork of the Tock OS that verifies memory isolation for user space processes. [Flux](https://github.com/flux-rs/flux) is used for the verification.
+
+[![paper]](https://dl.acm.org/doi/epdf/10.1145/3731569.3764856)
+
+The main verification bits can be found under the `kernel` directory, along with the arch directory. Specifically, `allocator.rs` contains the memory allocator referenced in the paper. `arch/cortex-m/src/mpu.rs` contains the MPU implementation for ARMv6m and ARMv7m devices. `arch/rv32i/src/pmp.rs` contains the MPU implementation for RISC devices.
+
+
 [![tock-ci](https://github.com/tock/tock/workflows/tock-ci/badge.svg)][tock-ci]
 [![slack](https://img.shields.io/badge/slack-tockos-informational)][slack]
 [![book](https://img.shields.io/badge/book-Tock_Book-green)][tock-book]
