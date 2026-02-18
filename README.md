@@ -6,6 +6,7 @@ This repository contains TickTock-a fork of the Tock OS that verifies memory iso
 
 The main verification bits can be found under the `kernel` directory, along with the arch directory. Specifically, `allocator.rs` contains the memory allocator referenced in the paper. `arch/cortex-m/src/mpu.rs` contains the MPU implementation for ARMv6m and ARMv7m devices. `arch/rv32i/src/pmp.rs` contains the MPU implementation for RISC devices.
 
+You can find Lean proofs for SMT solver issues in this [repo](https://github.com/PLSysSec/vtock-lean). Verification of the ARM interrupt handlers and context switching code can be found in this [repo](https://github.com/PLSysSec/tock-veri-asm).
 
 [![tock-ci](https://github.com/tock/tock/workflows/tock-ci/badge.svg)][tock-ci]
 [![slack](https://img.shields.io/badge/slack-tockos-informational)][slack]
