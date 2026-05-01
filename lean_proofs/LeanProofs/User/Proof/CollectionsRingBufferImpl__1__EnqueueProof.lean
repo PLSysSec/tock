@@ -1,11 +1,12 @@
 import LeanProofs.Flux.Prelude
-import LeanProofs.Flux.VC.CollectionsRingBufferImpl__Enqueue
+import LeanProofs.Flux.VC.CollectionsRingBufferImpl__1__Enqueue
 open Classical
 
 namespace F
 
-def CollectionsRingBufferImpl__Enqueue_proof : CollectionsRingBufferImpl__Enqueue := by
-  unfold CollectionsRingBufferImpl__Enqueue
+
+def CollectionsRingBufferImpl__1__Enqueue_proof : CollectionsRingBufferImpl__1__Enqueue := by
+  unfold CollectionsRingBufferImpl__1__Enqueue
   repeat (any_goals
     first
       | (intro)

@@ -1,10 +1,10 @@
 import LeanProofs.Flux.Prelude
-import LeanProofs.Flux.VC.CollectionsRingBufferImpl__Retain
+import LeanProofs.Flux.VC.CollectionsRingBufferImpl__1__Retain
 open Classical
 
 namespace F
 
-open CollectionsRingBufferImplRetainKVarSolutions
+open CollectionsRingBufferImpl1RetainKVarSolutions
 
 def k6 (_a'₃₅ : Int) (_a'₃₆ : Int) (_a'₃₇ : (Slc Int)) (_a'₃₈ : (Slc Int)) (_a'₃₉ : Int) (_a'₄₀ : Int) (_a'₄₁ : Int) (_a'₄₂ : Int) (_a'₄₃ : Int) (_a'₄₄ : Int) (_a'₄₅ : (Slc Int)) (_a'₄₆ : Int) (_a'₄₇ : Prop) (_a'₄₈ : Int) : Prop :=
   True
@@ -21,8 +21,8 @@ theorem len_set2 (s : Slc Int)
   : collections_sslice_len (collections_sslice_set s p v) = collections_sslice_len s := by
   grind
 
-def CollectionsRingBufferImpl__Retain_proof : CollectionsRingBufferImpl__Retain := by
-  unfold CollectionsRingBufferImpl__Retain
+def CollectionsRingBufferImpl__1__Retain_proof : CollectionsRingBufferImpl__1__Retain := by
+  unfold CollectionsRingBufferImpl__1__Retain
   exists k0 ; exists k1 ; exists k2 ; exists k3 ; exists k4 ; exists k5
   exists k6 ; exists k7 ; exists k8 ; exists k9 ; exists k10
   repeat (any_goals
@@ -56,4 +56,5 @@ def CollectionsRingBufferImpl__Retain_proof : CollectionsRingBufferImpl__Retain 
       apply Int.emod_lt_of_pos ; omega
     · simp_all
       apply Int.emod_lt_of_pos ; grind only [k3]
+
 end F

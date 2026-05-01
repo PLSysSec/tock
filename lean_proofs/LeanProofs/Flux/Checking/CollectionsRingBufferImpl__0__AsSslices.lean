@@ -1,0 +1,4 @@
+import LeanProofs.Flux.VC.CollectionsRingBufferImpl__0__AsSslices
+import LeanProofs.User.Proof.CollectionsRingBufferImpl__0__AsSslicesProof
+
+#check (F.CollectionsRingBufferImpl__0__AsSslices_proof : F.CollectionsRingBufferImpl__0__AsSslices)

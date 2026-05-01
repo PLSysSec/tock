@@ -80,10 +80,10 @@ impl<'a, T: Copy> RingBuffer<'a, T> {
     #[flux_rs::spec(fn(&Self[@slf]) ->
         (
             Option<SSlice<T>{ v : 
-                slf.hd < slf.tl => v == subslice(v, slf.hd, slf.tl) &&
-                slf.hd > slf.tl => v == subslice(v, slf.hd, len(v) - 1)
+                slf.hd < slf.tl => v == subslice(slf.ring, slf.hd, slf.tl) &&
+                slf.hd > slf.tl => v == subslice(slf.ring, slf.hd, len(v) - 1)
             }>, 
-            Option<SSlice<T>{ v : slf.hd > slf.tl => v == subslice(v, 0, slf.tl) }>
+            Option<SSlice<T>{ v : slf.hd > slf.tl => v == subslice(slf.ring, 0, slf.tl) }>
         )
     )]
     pub fn as_sslices(&'a self) -> (Option<SSlice<'a, T>>, Option<SSlice<'a, T>>) {

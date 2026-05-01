@@ -1,10 +1,10 @@
 import LeanProofs.Flux.Prelude
-import LeanProofs.Flux.VC.CollectionsRingBufferImpl__RemoveFirstMatching
+import LeanProofs.Flux.VC.CollectionsRingBufferImpl__1__RemoveFirstMatching
 open Classical
 
 namespace F
 
-open CollectionsRingBufferImplRemoveFirstMatchingKVarSolutions
+open CollectionsRingBufferImpl1RemoveFirstMatchingKVarSolutions
 
 def k0 : Int → Slc Int → Int → Int → Int → Prop :=
   fun idx ring _ _ _ =>
@@ -31,8 +31,8 @@ theorem len_set (s : Slc Int)
   grind
 
 set_option maxHeartbeats 400000
-def CollectionsRingBufferImpl__RemoveFirstMatching_proof : CollectionsRingBufferImpl__RemoveFirstMatching := by
-  unfold CollectionsRingBufferImpl__RemoveFirstMatching
+def CollectionsRingBufferImpl__1__RemoveFirstMatching_proof : CollectionsRingBufferImpl__1__RemoveFirstMatching := by
+  unfold CollectionsRingBufferImpl__1__RemoveFirstMatching
   exists k0 ; exists k1 ; exists k2 ; exists k3
   exists k4 ; exists k5 ; exists k6 ; exists k7
   repeat (any_goals

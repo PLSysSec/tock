@@ -1,0 +1,4 @@
+import LeanProofs.Flux.VC.CollectionsRingBufferImpl__1__Push
+import LeanProofs.User.Proof.CollectionsRingBufferImpl__1__PushProof
+
+#check (F.CollectionsRingBufferImpl__1__Push_proof : F.CollectionsRingBufferImpl__1__Push)

@@ -1,0 +1,4 @@
+import LeanProofs.Flux.VC.CollectionsRingBufferImpl__1__Retain
+import LeanProofs.User.Proof.CollectionsRingBufferImpl__1__RetainProof
+
+#check (F.CollectionsRingBufferImpl__1__Retain_proof : F.CollectionsRingBufferImpl__1__Retain)

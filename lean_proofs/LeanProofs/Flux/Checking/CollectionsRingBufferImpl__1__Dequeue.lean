@@ -1,0 +1,4 @@
+import LeanProofs.Flux.VC.CollectionsRingBufferImpl__1__Dequeue
+import LeanProofs.User.Proof.CollectionsRingBufferImpl__1__DequeueProof
+
+#check (F.CollectionsRingBufferImpl__1__Dequeue_proof : F.CollectionsRingBufferImpl__1__Dequeue)
