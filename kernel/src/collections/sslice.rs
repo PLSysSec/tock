@@ -5,6 +5,9 @@ flux_rs::defs! {
     fn len<T>(s: Slc<T>) -> int;
     fn set<T>(s: Slc<T>, pos: int, val: T) -> Slc<T>;
     fn get<T>(s: Slc<T>, pos: int) -> T;
+    fn push<T>(s: Slc<T>, val: T) -> Slc<T>;
+    fn pop_front<T>(s: Slc<T>) -> Slc<T>;
+    fn append<T>(s1: Slc<T>, s2: Slc<T>) -> Slc<T>;
     fn subslice<T>(s: Slc<T>, l: int, r: int) -> Slc<T>;
 }
 
