@@ -1,0 +1,11 @@
+import LeanProofs.Flux.Prelude
+import LeanProofs.Flux.VC.PlatformMpuImpl__LemmaNoOverlapLeAddrImpliesNoOverlapAddr
+open Classical
+
+namespace F
+
+def PlatformMpuImpl__LemmaNoOverlapLeAddrImpliesNoOverlapAddr_proof : PlatformMpuImpl__LemmaNoOverlapLeAddrImpliesNoOverlapAddr := by
+  unfold PlatformMpuImpl__LemmaNoOverlapLeAddrImpliesNoOverlapAddr
+  sorry
+
+end F

@@ -1,0 +1,11 @@
+import LeanProofs.Flux.Prelude
+import LeanProofs.Flux.VC.PlatformMpuImpl__LemmaRegionCanAccessFlashImpliesNoAppBlockOverlaps
+open Classical
+
+namespace F
+
+def PlatformMpuImpl__LemmaRegionCanAccessFlashImpliesNoAppBlockOverlaps_proof : PlatformMpuImpl__LemmaRegionCanAccessFlashImpliesNoAppBlockOverlaps := by
+  unfold PlatformMpuImpl__LemmaRegionCanAccessFlashImpliesNoAppBlockOverlaps
+  sorry
+
+end F

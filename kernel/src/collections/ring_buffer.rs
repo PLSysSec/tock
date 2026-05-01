@@ -5,33 +5,48 @@
 //! Implementation of a ring buffer.
 
 use crate::collections::queue;
+use crate::collections::sslice::{MutSSlice, SSlice};
 
-#[flux_rs::refined_by(ring_len: int, hd: int, tl: int)]
-#[flux_rs::invariant(ring_len > 1)]
+#[flux_rs::refined_by(ring: Slc<T>, hd: int, tl: int)]
+#[flux_rs::invariant(len(ring) > 1)]
+#[flux_rs::invariant(0 <= hd && hd < len(ring))]
+#[flux_rs::invariant(0 <= tl && tl < len(ring))]
 pub struct RingBuffer<'a, T: 'a> {
-    #[field({&mut [T][ring_len] | ring_len > 1})]
-    ring: &'a mut [T],
-    #[field({usize[hd] | hd < ring_len})]
+    #[field({MutSSlice<T>[ring] | len(ring) > 1})]
+    ring: MutSSlice<'a, T>,
+    #[field({usize[hd] | hd < len(ring)})]
     head: usize,
-    #[field({usize[tl] | tl < ring_len})]
+    #[field({usize[tl] | tl < len(ring)})]
     tail: usize,
 }
 
 flux_rs::defs! {
-    fn next_index(x:int, ring_len: int) -> int { (x + 1) % ring_len }
-    fn empty(rb: RingBuffer) -> bool { rb.hd == rb.tl }
-    fn full(rb: RingBuffer) -> bool { rb.hd == next_index(rb.tl, rb.ring_len) }
-    fn next_hd(rb: RingBuffer) -> int { next_index(rb.hd, rb.ring_len) }
-    fn next_tl(rb: RingBuffer) -> int { next_index(rb.tl, rb.ring_len) }
+    fn ring_len<T>(rb: RingBuffer<T>) -> int {
+        len(rb.ring)
+    }
+    fn next_index(x:int, rlen: int) -> int { (x + 1) % rlen }
+    fn empty<T>(rb: RingBuffer<T>) -> bool { rb.hd == rb.tl }
+    fn full<T>(rb: RingBuffer<T>) -> bool { rb.hd == next_index(rb.tl, ring_len(rb)) }
+    fn next_hd<T>(rb: RingBuffer<T>) -> int { next_index(rb.hd, ring_len(rb)) }
+    fn next_tl<T>(rb: RingBuffer<T>) -> int { next_index(rb.tl, ring_len(rb)) }
+
+    fn lsslice<T>(s: RingBuffer<T>) -> Slc<T> {
+        if s.hd < s.tl {
+            subslice(s.ring, s.hd, s.tl)
+        } else {
+            subslice(s.ring, s.hd, len(s.ring) - 1)
+        }
+    }
 }
 
 impl<'a, T: Copy> RingBuffer<'a, T> {
-    #[flux_rs::sig(fn({&mut [T][@ring_len] | ring_len > 1}) -> RingBuffer<T>[ring_len, 0, 0])]
+    #[flux_rs::proven_externally]
+    #[flux_rs::sig(fn({&mut [T][@rl] | rl > 1}) -> RingBuffer<T>{ rb : ring_len(rb) == rl && rb.hd == 0 && rb.tl == 0 })]
     pub fn new(ring: &'a mut [T]) -> RingBuffer<'a, T> {
         RingBuffer {
             head: 0,
             tail: 0,
-            ring,
+            ring: MutSSlice::new(ring),
         }
     }
 
@@ -51,11 +66,11 @@ impl<'a, T: Copy> RingBuffer<'a, T> {
     /// - `(Some(left), Some(right))` if the head is after the tail. In that case, the logical
     /// contents of the buffer is `[left, right].concat()` (although physically the "left" slice is
     /// stored after the "right" slice).
-    pub fn as_slices(&'a self) -> (Option<&'a [T]>, Option<&'a [T]>) {
+    pub fn as_slices(&self) -> (Option<&[T]>, Option<&[T]>) {
         if self.head < self.tail {
-            (Some(&self.ring[self.head..self.tail]), None)
+            (Some(&self.ring.as_slice()[self.head..self.tail]), None)
         } else if self.head > self.tail {
-            let (left, right) = self.ring.split_at(self.head);
+            let (left, right) = self.ring.as_slice().split_at(self.head);
             (
                 Some(right),
                 if self.tail == 0 {
@@ -67,6 +82,34 @@ impl<'a, T: Copy> RingBuffer<'a, T> {
         } else {
             (None, None)
         }
+    }
+
+    #[flux_rs::proven_externally]
+    #[flux_rs::spec(fn(&Self[@slf]) ->
+        (
+            Option<SSlice<T>{ v : 
+                slf.hd < slf.tl => v == subslice(slf, slf.hd, slf.tl) &&
+                slf.hd > slf.tl => v == subslice(slf, slf.hd, len(v) - 1)
+            }>, 
+            Option<SSlice<T>{ v : slf.hd > slf.tl => v == subslice(slf, 0, slf.tl) }>
+        )
+    )]
+    pub fn as_sslices(&'a self) -> (Option<SSlice<'a, T>>, Option<SSlice<'a, T>>) {
+        if self.head < self.tail {
+            return (Some(self.ring.sub_slice(self.head,self.tail)), None)
+        }
+        if self.head > self.tail {
+            let (_, right) = self.ring.split_at(self.head);
+            return (
+                Some(right),
+                if self.tail == 0 {
+                    None
+                } else {
+                    Some(self.ring.sub_slice(0, self.tail))
+                },
+            )
+        } 
+        (None, None)
     }
 }
 
@@ -81,7 +124,11 @@ impl<T: Copy> queue::Queue<T> for RingBuffer<'_, T> {
         self.head == ((self.tail + 1) % self.ring.len())
     }
 
-    #[flux_rs::sig(fn(&RingBuffer<T>[@rb]) -> usize{r: r < rb.ring_len}) ]
+    #[flux_rs::sig(fn(&RingBuffer<T>[@rb]) -> usize[#rl]
+        ensures rb.tl  > rb.hd => rl == rb.tl - rb.hd,
+                rb.tl  < rb.hd => rl == ring_len(rb) - rb.hd + rb.tl,
+                rb.hd == rb.tl => rl == 0
+    )]
     fn len(&self) -> usize {
         if self.tail > self.head {
             self.tail - self.head
@@ -93,36 +140,37 @@ impl<T: Copy> queue::Queue<T> for RingBuffer<'_, T> {
         }
     }
 
+    #[flux_rs::proven_externally]
     #[flux_rs::sig(
-        fn(self: &strg RingBuffer<T>[@old], _) -> bool 
-            ensures self: RingBuffer<T>{ new: 
-                // either we're full and don't update
-                (full(old) => new.tl == old.tl && new.hd == old.hd)
-                &&
-                // or tail is incremented
-                (!full(old) => new.tl == next_tl(old) && new.hd == old.hd)
-            }
+        fn(self: &strg RingBuffer<T>[@old], T[@val]) -> bool[#success] 
+            ensures 
+                self: RingBuffer<T>[#new],
+                success  == !full(old),
+                !success => new == old,
+                success  => 
+                    new.hd == old.hd && new.tl == next_tl(old) && new.ring == set(old.ring, old.tl, val)
     )]
     fn enqueue(&mut self, val: T) -> bool {
         if self.is_full() {
             // Incrementing tail will overwrite head
             false
         } else {
-            self.ring[self.tail] = val;
+            self.ring.set(self.tail, val);
             self.tail = (self.tail + 1) % self.ring.len();
             true
         }
     }
 
+    #[flux_rs::proven_externally]
     #[flux_rs::sig(
-        fn(self: &strg Self[@old], _) -> Option<T> 
-            ensures self: Self{ new: 
-                // the buffer is full so we dequeue and then enqueue 
-                (full(old) => (new.hd == next_hd(old) && new.tl == next_tl(old)))
-                &&
-                // or we have space so we just enqueue
-                (!full(old) => (new.tl == next_tl(old) && new.hd == old.hd))
-            }
+        fn(self: &strg Self[@old], T[@val]) -> Option<T[get(old.ring, old.hd)]>[#res] 
+            ensures 
+                self: Self[#new],
+                res      == full(old),
+                new.ring == set(old.ring, old.tl, val),
+                new.tl   == next_tl(old),
+                res      => new.hd == next_hd(old),
+                !res     => new.hd == old.hd,
     )]
     fn push(&mut self, val: T) -> Option<T> {
         let result = if self.is_full() {
@@ -133,18 +181,20 @@ impl<T: Copy> queue::Queue<T> for RingBuffer<'_, T> {
             None
         };
 
-        self.ring[self.tail] = val;
+        self.ring.set(self.tail, val);
         self.tail = (self.tail + 1) % self.ring.len();
         result
     }
 
+    #[flux_rs::proven_externally]
     #[flux_rs::sig(
-        fn(self: &strg RingBuffer<T>[@old]) -> Option<T> 
-            ensures self: RingBuffer<T>{ new: 
-                (empty(old) => (new == old))
-                &&
-                (!empty(old) => new.hd == next_hd(old))
-             }
+        fn(self: &strg RingBuffer<T>[@old]) -> Option<T[get(old.ring, old.hd)]>[#res]
+            ensures self: Self[#new],
+                    res      == !empty(old),
+                    new.tl   == old.tl,
+                    new.ring == old.ring,
+                    res      => new.hd == next_hd(old),
+                    !res     => new.hd == old.hd,
     )]
     fn dequeue(&mut self) -> Option<T> {
         if self.has_elements() {
@@ -163,6 +213,7 @@ impl<T: Copy> queue::Queue<T> for RingBuffer<'_, T> {
     /// created by removing the element).
     ///
     /// If an element was removed, this function returns it as `Some(elem)`.
+    #[flux_rs::proven_externally]
     #[flux_rs::sig(
         fn(self: &strg Self, _) -> Option<_> ensures self: Self
     )]
@@ -180,7 +231,7 @@ impl<T: Copy> queue::Queue<T> for RingBuffer<'_, T> {
                 let mut next_slot = (slot + 1) % len;
                 // Move everything past this element forward in the ring
                 while next_slot != self.tail {
-                    self.ring[slot] = self.ring[next_slot];
+                    self.ring.set(slot, self.ring[next_slot]);
                     slot = next_slot;
                     next_slot = (next_slot + 1) % len;
                 }
@@ -193,13 +244,14 @@ impl<T: Copy> queue::Queue<T> for RingBuffer<'_, T> {
     }
 
     #[flux_rs::sig(
-        fn(self: &strg RingBuffer<T>[@old]) ensures self: RingBuffer<T>[old.ring_len, 0, 0]
+        fn(self: &strg RingBuffer<T>[@old]) ensures self: RingBuffer<T>[old.ring, 0, 0]
     )]
     fn empty(&mut self) {
         self.head = 0;
         self.tail = 0;
     }
 
+    #[flux_rs::proven_externally]
     #[flux_rs::sig(
         fn(self: &strg RingBuffer<T>, _) ensures self: RingBuffer<T>
     )]
@@ -218,7 +270,7 @@ impl<T: Copy> queue::Queue<T> for RingBuffer<'_, T> {
                 // When the predicate is true, move the current element to the
                 // destination if needed, and increment the destination index.
                 if src != dst {
-                    self.ring[dst] = self.ring[src];
+                    self.ring.set(dst, self.ring[src]);
                 }
                 dst = (dst + 1) % len;
             }
@@ -226,6 +278,45 @@ impl<T: Copy> queue::Queue<T> for RingBuffer<'_, T> {
         }
 
         self.tail = dst;
+    }
+}
+
+mod vec_queue {
+
+    use crate::RingBuffer;
+
+    #[flux_rs::opaque]
+    #[flux_rs::refined_by(elems: Slc<T>)]
+    struct VecQueue<T> {
+        inner: Vec<T>
+    }
+
+    #[flux_rs::trusted]
+    impl<T> VecQueue<T> {
+
+        #[flux_rs::spec(fn(self: &mut Self[@slf], T[@elem])
+            ensures self: Self[push(slf, elem)]
+        )]
+        fn push_back(&mut self, elem: T) {
+            self.inner.push(elem);
+        }
+
+        #[flux_rs::spec(fn(self: &mut Self[@slf], T[@elem])
+            ensures self: Self[pop_front(slf, elem)]
+        )]
+        fn pop_front(&mut self) {
+            if !self.inner.is_empty() {
+                self.inner.remove(0);
+            }
+        }
+    }
+
+    #[flux_rs::spec(fn(r: &mut RingBuffer<T>[@rb], v: &mut VecQueue<T>[@vq], T[@e], T[e]) -> bool[#res]
+        requires 
+    )]
+    fn push_correct<T>(r: &mut RingBuffer<'_, T>, v: &mut VecQueue<T>, e1: T, e2: T) -> bool {
+        v.push_back(e1);
+        r.enqueue(e2)
     }
 }
 

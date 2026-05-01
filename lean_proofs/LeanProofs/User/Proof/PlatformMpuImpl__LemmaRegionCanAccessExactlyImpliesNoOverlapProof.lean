@@ -1,0 +1,11 @@
+import LeanProofs.Flux.Prelude
+import LeanProofs.Flux.VC.PlatformMpuImpl__LemmaRegionCanAccessExactlyImpliesNoOverlap
+open Classical
+
+namespace F
+
+def PlatformMpuImpl__LemmaRegionCanAccessExactlyImpliesNoOverlap_proof : PlatformMpuImpl__LemmaRegionCanAccessExactlyImpliesNoOverlap := by
+  unfold PlatformMpuImpl__LemmaRegionCanAccessExactlyImpliesNoOverlap
+  sorry
+
+end F
