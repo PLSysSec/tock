@@ -6,3 +6,5 @@ import LeanProofs.Flux.Checking.CollectionsRingBufferImpl__1__Push
 import LeanProofs.Flux.Checking.CollectionsRingBufferImpl__1__Dequeue
 import LeanProofs.Flux.Checking.CollectionsRingBufferImpl__1__RemoveFirstMatching
 import LeanProofs.Flux.Checking.CollectionsRingBufferImpl__1__Retain
+import LeanProofs.Flux.Checking.CollectionsRingBufferVecQueuePushCorrect
+import LeanProofs.Flux.Checking.CollectionsRingBufferVecQueuePopCorrect

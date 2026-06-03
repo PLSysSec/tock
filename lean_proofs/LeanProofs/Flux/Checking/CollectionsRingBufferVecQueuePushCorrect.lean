@@ -1,0 +1,4 @@
+import LeanProofs.Flux.VC.CollectionsRingBufferVecQueuePushCorrect
+import LeanProofs.User.Proof.CollectionsRingBufferVecQueuePushCorrectProof
+
+#check (F.CollectionsRingBufferVecQueuePushCorrect_proof : F.CollectionsRingBufferVecQueuePushCorrect)

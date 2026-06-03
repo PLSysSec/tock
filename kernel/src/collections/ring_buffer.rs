@@ -29,14 +29,6 @@ flux_rs::defs! {
     fn full<T>(rb: RingBuffer<T>) -> bool { rb.hd == next_index(rb.tl, ring_len(rb)) }
     fn next_hd<T>(rb: RingBuffer<T>) -> int { next_index(rb.hd, ring_len(rb)) }
     fn next_tl<T>(rb: RingBuffer<T>) -> int { next_index(rb.tl, ring_len(rb)) }
-
-    fn lsslice<T>(s: RingBuffer<T>) -> Slc<T> {
-        if s.hd < s.tl {
-            subslice(s.ring, s.hd, s.tl)
-        } else {
-            subslice(s.ring, s.hd, len(s.ring) - 1)
-        }
-    }
 }
 
 impl<'a, T: Copy> RingBuffer<'a, T> {
@@ -89,7 +81,7 @@ impl<'a, T: Copy> RingBuffer<'a, T> {
         (
             Option<SSlice<T>{ v : 
                 slf.hd < slf.tl => v == subslice(slf.ring, slf.hd, slf.tl) &&
-                slf.hd > slf.tl => v == subslice(slf.ring, slf.hd, len(v) - 1)
+                slf.hd > slf.tl => v == subslice(slf.ring, slf.hd, len(v))
             }>, 
             Option<SSlice<T>{ v : slf.hd > slf.tl => v == subslice(slf.ring, 0, slf.tl) }>
         )
@@ -283,40 +275,56 @@ impl<T: Copy> queue::Queue<T> for RingBuffer<'_, T> {
 
 mod vec_queue {
 
-    use crate::RingBuffer;
+    use crate::collections::ring_buffer::RingBuffer;
+    use crate::collections::queue::Queue;
 
     #[flux_rs::opaque]
     #[flux_rs::refined_by(elems: Slc<T>)]
-    struct VecQueue<T> {
-        inner: Vec<T>
+    struct LQueue<T> {
+        inner: T
     }
 
     #[flux_rs::trusted]
-    impl<T> VecQueue<T> {
+    impl<T> LQueue<T> {
 
         #[flux_rs::spec(fn(self: &mut Self[@slf], T[@elem])
             ensures self: Self[push(slf, elem)]
         )]
-        fn push_back(&mut self, elem: T) {
-            self.inner.push(elem);
-        }
+        fn push_back(&mut self, elem: T) {}
 
-        #[flux_rs::spec(fn(self: &mut Self[@slf], T[@elem])
-            ensures self: Self[pop_front(slf, elem)]
+        #[flux_rs::spec(fn(self: &mut Self[@slf])
+            ensures self: Self[pop_front(slf)]
         )]
-        fn pop_front(&mut self) {
-            if !self.inner.is_empty() {
-                self.inner.remove(0);
-            }
-        }
+        fn pop_front(&mut self) {}
     }
 
-    #[flux_rs::spec(fn(r: &mut RingBuffer<T>[@rb], v: &mut VecQueue<T>[@vq], T[@e], T[e]) -> bool[#res]
-        requires 
+    #[flux_rs::proven_externally]
+    #[flux_rs::spec(fn(r: &mut RingBuffer<T>[@rb], v: &mut LQueue<T>[@vq], T[@e], T[e]) -> bool[#res]
+        requires rb.hd > rb.tl  => append(subslice(rb.ring, rb.hd, len(rb.ring)), subslice(rb.ring, 0, rb.tl)) == vq,
+                 rb.hd <= rb.tl => subslice(rb.ring, rb.hd, rb.tl) == vq,
+        ensures  r: RingBuffer<T>[#nrb],
+                 v: LQueue<T>[#nvq],
+                 (res && nrb.hd > nrb.tl)  => append(subslice(nrb.ring, nrb.hd, len(nrb.ring)), subslice(nrb.ring, 0, nrb.tl)) == nvq,
+                 (res && nrb.hd <= nrb.tl) => subslice(nrb.ring, nrb.hd, nrb.tl) == nvq,
     )]
-    fn push_correct<T>(r: &mut RingBuffer<'_, T>, v: &mut VecQueue<T>, e1: T, e2: T) -> bool {
+    fn push_correct<T: Copy>(r: &mut RingBuffer<'_, T>, v: &mut LQueue<T>, e1: T, e2: T) -> bool {
         v.push_back(e1);
         r.enqueue(e2)
+    }
+
+    #[flux_rs::proven_externally]
+    #[flux_rs::spec(fn(r: &mut RingBuffer<T>[@rb], v: &mut LQueue<T>[@vq])
+        requires rb.hd > rb.tl  => append(subslice(rb.ring, rb.hd, len(rb.ring)), subslice(rb.ring, 0, rb.tl)) == vq,
+                 rb.hd <= rb.tl => subslice(rb.ring, rb.hd, rb.tl) == vq,
+                 !empty(rb), len(vq) > 0
+        ensures r: RingBuffer<T>[#nrb],
+                v: LQueue<T>[#nvq],
+                nrb.hd > nrb.tl  => append(subslice(nrb.ring, nrb.hd, len(nrb.ring)), subslice(nrb.ring, 0, nrb.tl)) == nvq,
+                nrb.hd <= nrb.tl => subslice(nrb.ring, nrb.hd, nrb.tl) == nvq
+    )]
+    fn pop_correct<T: Copy>(r: &mut RingBuffer<'_, T>, v: &mut LQueue<T>) {
+        v.pop_front();
+        r.dequeue();
     }
 }
 

@@ -49,7 +49,7 @@ impl<'a, T> MutSSlice<'a, T> {
     }
 
     #[flux_rs::spec(fn(&Self[@slf], pos: usize{ pos < len(slf) })
-        -> (SSlice<T>[subslice(slf, 0, pos)], SSlice<T>[subslice(slf, pos, len(slf) - 1)])
+        -> (SSlice<T>[subslice(slf, 0, pos)], SSlice<T>[subslice(slf, pos, len(slf))])
     )]
     pub fn split_at(&'a self, pos: usize) -> (SSlice<'a, T>, SSlice<'a, T>) {
         let (left, right) = self.inner.split_at(pos);
