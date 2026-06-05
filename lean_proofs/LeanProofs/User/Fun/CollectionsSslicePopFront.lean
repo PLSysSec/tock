@@ -5,7 +5,9 @@ open Classical
 
 namespace F
 
-noncomputable def collections_sslice_pop_front : {t0 : Type} -> [Inhabited t0] -> (Slc t0) -> (Slc t0) := sorry
+@[grind]
+noncomputable def collections_sslice_pop_front : {t0 : Type} -> [Inhabited t0] -> (Slc t0) -> (Slc t0) :=
+  fun l => l.drop 1
 
 
 end F
