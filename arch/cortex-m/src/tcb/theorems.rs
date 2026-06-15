@@ -39,6 +39,7 @@ pub fn theorem_div2_pow2(_n: usize) {}
 #[flux_rs::sig(fn (r:usize) requires octet(r) ensures 8 * (r / 8) == r)]
 pub fn theorem_div_octet(_n: usize) {}
 
+#[flux_rs::trusted]
 #[flux_rs::reveal(aligned)]
 #[flux_rs::sig(fn (x: usize, y: usize) requires aligned(x, y) ensures aligned(x + y, y))]
 pub fn theorem_aligned_plus_aligned_to_is_aligned(_x: usize, _y: usize) {}

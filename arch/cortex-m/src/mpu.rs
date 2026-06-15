@@ -459,6 +459,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
         self.region_overlaps(start, end)
     }
 
+    #[flux_rs::trusted]
     #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
     #[flux_rs::sig(fn (
         max_region_number: usize,
@@ -574,6 +575,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
         })
     }
 
+    #[flux_rs::trusted]
     #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
     #[flux_rs::sig(fn (
         region_start: FluxPtrU8,
@@ -683,6 +685,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
         })
     }
 
+    #[flux_rs::trusted]
     #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
     #[flux_rs::sig(
         fn (

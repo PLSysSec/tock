@@ -1,0 +1,4 @@
+import LeanProofs.Flux.VC.TcbTheoremsTheoremPow2LeAligned
+import LeanProofs.User.Proof.TcbTheoremsTheoremPow2LeAlignedProof
+
+#check (F.TcbTheoremsTheoremPow2LeAligned_proof : F.TcbTheoremsTheoremPow2LeAligned)

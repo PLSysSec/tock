@@ -1,3 +1,4 @@
+import LeanProofs.Flux.Fun.TcbDefsPow2
 namespace Nat
 
 def bit (b : Bool) : Nat → Nat := cond b (2 * · + 1) (2 * ·)
@@ -47,11 +48,8 @@ theorem le_max_of_nat_eq_of_nat {w : Nat} (x y : Nat) :
 def pow2 (n : Nat) : Bool :=
   (n > 0) && ((n &&& (n - 1)) == 0)
 
-def i_pow2 (n : Int) : Bool :=
-  (let a3 := (BitVec.ofInt 32 n); ((n > 0) && ((BitVec.and a3 (BitVec.sub a3 1#32)) = 0#32)))
-
-theorem i_pow2_eq_pow2 (x: Nat) : (x < 2 ^ 32) -> (i_pow2 x <-> pow2 x) := by
-  unfold i_pow2 pow2
+theorem tcb_defs_pow2_eq_pow2 (x: Nat) : (x < 2 ^ 32) -> (F.tcb_defs_pow2 x <-> pow2 x) := by
+  unfold F.tcb_defs_pow2 pow2
   simp
   intros x_in_bounds xgt0
   apply Iff.intro
@@ -128,16 +126,16 @@ theorem pow2_isPowerOfTwo (x : Nat) : pow2 x <-> x.isPowerOfTwo := by
     · simp_all ; apply Nat.pow_pos ; simp
     · induction n generalizing x <;> simp_all
 
-theorem i_pow2_0_is_power_of_2 (x: Nat) : (x < 2 ^ 32) -> (i_pow2 x <-> x.isPowerOfTwo) := by
+theorem tcb_defs_pow2_0_is_power_of_2 (x: Nat) : (x < 2 ^ 32) -> (F.tcb_defs_pow2 x <-> x.isPowerOfTwo) := by
   intro x_in_bounds
   apply Iff.intro
   case _ =>
     intro x_pow2
     rw [← pow2_isPowerOfTwo x]
-    apply (i_pow2_eq_pow2 x x_in_bounds).mp
+    apply (tcb_defs_pow2_eq_pow2 x x_in_bounds).mp
     exact x_pow2
   case _ =>
     intro x_pow2
-    apply (i_pow2_eq_pow2 x x_in_bounds).mpr
+    apply (tcb_defs_pow2_eq_pow2 x x_in_bounds).mpr
     rw [pow2_isPowerOfTwo]
     exact x_pow2
