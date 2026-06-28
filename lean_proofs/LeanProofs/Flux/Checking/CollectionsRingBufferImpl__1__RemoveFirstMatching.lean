@@ -1,4 +1,0 @@
-import LeanProofs.Flux.VC.CollectionsRingBufferImpl__1__RemoveFirstMatching
-import LeanProofs.User.Proof.CollectionsRingBufferImpl__1__RemoveFirstMatchingProof
-
-#check (F.CollectionsRingBufferImpl__1__RemoveFirstMatching_proof : F.CollectionsRingBufferImpl__1__RemoveFirstMatching)

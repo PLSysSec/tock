@@ -1,6 +1,8 @@
 import LeanProofs.Flux.Prelude
 import LeanProofs.User.Struct.Slc
 open Classical
+set_option linter.unusedVariables false
+
 
 namespace F
 

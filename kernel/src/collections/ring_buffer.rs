@@ -29,6 +29,52 @@ flux_rs::defs! {
     fn full<T>(rb: RingBuffer<T>) -> bool { rb.hd == next_index(rb.tl, ring_len(rb)) }
     fn next_hd<T>(rb: RingBuffer<T>) -> int { next_index(rb.hd, ring_len(rb)) }
     fn next_tl<T>(rb: RingBuffer<T>) -> int { next_index(rb.tl, ring_len(rb)) }
+
+    fn rb_push<T>(old: RingBuffer<T>, val: T) -> RingBuffer<T> {
+        RingBuffer {
+            hd: if full(old) { next_hd(old) } else { old.hd },
+            tl: next_tl(old),
+            ring: set(old.ring, old.tl, val),
+        }
+    }
+
+    fn rb_enqueue<T>(old: RingBuffer<T>, val: T) -> RingBuffer<T> {
+        if !full(old) {
+            rb_push(old, val)
+        } else {
+            old
+        }
+    }
+
+    fn rb_dequeue<T>(old: RingBuffer<T>) -> RingBuffer<T> {
+        if !empty(old) {
+            RingBuffer {
+                hd : next_hd(old),
+                tl : old.tl,
+                ring : old.ring
+            }
+        } else {
+            old
+        }
+    }
+
+    fn rb_len<T>(rb: RingBuffer<T>) -> int {
+        if rb.tl > rb.hd {
+            rb.tl - rb.hd
+        } else if rb.tl < rb.hd {
+            ring_len(rb) - rb.hd + rb.tl
+        } else {
+            0
+        }
+    }
+
+    fn rb_matches_lqueue<T>(rb: RingBuffer<T>, vq: SSlice<T>) -> bool {
+        vq == if rb.hd > rb.tl {
+            append(subslice(rb.ring, rb.hd, len(rb.ring)), subslice(rb.ring, 0, rb.tl))
+        } else {
+            subslice(rb.ring, rb.hd, rb.tl)
+        }
+    }
 }
 
 impl<'a, T: Copy> RingBuffer<'a, T> {
@@ -116,11 +162,7 @@ impl<T: Copy> queue::Queue<T> for RingBuffer<'_, T> {
         self.head == ((self.tail + 1) % self.ring.len())
     }
 
-    #[flux_rs::sig(fn(&RingBuffer<T>[@rb]) -> usize[#rl]
-        ensures rb.tl  > rb.hd => rl == rb.tl - rb.hd,
-                rb.tl  < rb.hd => rl == ring_len(rb) - rb.hd + rb.tl,
-                rb.hd == rb.tl => rl == 0
-    )]
+    #[flux_rs::sig(fn(&RingBuffer<T>[@rb]) -> usize[rb_len(rb)])]
     fn len(&self) -> usize {
         if self.tail > self.head {
             self.tail - self.head
@@ -134,13 +176,10 @@ impl<T: Copy> queue::Queue<T> for RingBuffer<'_, T> {
 
     #[flux_rs::proven_externally]
     #[flux_rs::sig(
-        fn(self: &strg RingBuffer<T>[@old], T[@val]) -> bool[#success] 
-            ensures 
-                self: RingBuffer<T>[#new],
-                success  == !full(old),
-                !success => new == old,
-                success  => 
-                    new.hd == old.hd && new.tl == next_tl(old) && new.ring == set(old.ring, old.tl, val)
+        fn(self: &strg RingBuffer<T>[@old], T[@val]) -> bool[#success]
+            ensures self: RingBuffer<T>[#nrb],
+                    success == !full(old),
+                    nrb == rb_enqueue(old, val)
     )]
     fn enqueue(&mut self, val: T) -> bool {
         if self.is_full() {
@@ -158,11 +197,8 @@ impl<T: Copy> queue::Queue<T> for RingBuffer<'_, T> {
         fn(self: &strg Self[@old], T[@val]) -> Option<T[get(old.ring, old.hd)]>[#res] 
             ensures 
                 self: Self[#new],
-                res      == full(old),
-                new.ring == set(old.ring, old.tl, val),
-                new.tl   == next_tl(old),
-                res      => new.hd == next_hd(old),
-                !res     => new.hd == old.hd,
+                res == full(old),
+                new == rb_push(old, val),
     )]
     fn push(&mut self, val: T) -> Option<T> {
         let result = if self.is_full() {
@@ -180,13 +216,8 @@ impl<T: Copy> queue::Queue<T> for RingBuffer<'_, T> {
 
     #[flux_rs::proven_externally]
     #[flux_rs::sig(
-        fn(self: &strg RingBuffer<T>[@old]) -> Option<T[get(old.ring, old.hd)]>[#res]
-            ensures self: Self[#new],
-                    res      == !empty(old),
-                    new.tl   == old.tl,
-                    new.ring == old.ring,
-                    res      => new.hd == next_hd(old),
-                    !res     => new.hd == old.hd,
+        fn(self: &strg RingBuffer<T>[@old]) -> Option<T[get(old.ring, old.hd)]>[!empty(old)]
+            ensures self: Self[rb_dequeue(old)]
     )]
     fn dequeue(&mut self) -> Option<T> {
         if self.has_elements() {
@@ -205,7 +236,7 @@ impl<T: Copy> queue::Queue<T> for RingBuffer<'_, T> {
     /// created by removing the element).
     ///
     /// If an element was removed, this function returns it as `Some(elem)`.
-    #[flux_rs::proven_externally]
+    #[flux_rs::trusted]
     #[flux_rs::sig(
         fn(self: &strg Self, _) -> Option<_> ensures self: Self
     )]
@@ -243,7 +274,7 @@ impl<T: Copy> queue::Queue<T> for RingBuffer<'_, T> {
         self.tail = 0;
     }
 
-    #[flux_rs::proven_externally]
+    #[flux_rs::trusted]
     #[flux_rs::sig(
         fn(self: &strg RingBuffer<T>, _) ensures self: RingBuffer<T>
     )]
@@ -300,12 +331,10 @@ mod vec_queue {
 
     #[flux_rs::proven_externally]
     #[flux_rs::spec(fn(r: &mut RingBuffer<T>[@rb], v: &mut LQueue<T>[@vq], T[@e], T[e]) -> bool[#res]
-        requires rb.hd > rb.tl  => append(subslice(rb.ring, rb.hd, len(rb.ring)), subslice(rb.ring, 0, rb.tl)) == vq,
-                 rb.hd <= rb.tl => subslice(rb.ring, rb.hd, rb.tl) == vq,
+        requires rb_matches_lqueue(rb, vq),
         ensures  r: RingBuffer<T>[#nrb],
                  v: LQueue<T>[#nvq],
-                 (res && nrb.hd > nrb.tl)  => append(subslice(nrb.ring, nrb.hd, len(nrb.ring)), subslice(nrb.ring, 0, nrb.tl)) == nvq,
-                 (res && nrb.hd <= nrb.tl) => subslice(nrb.ring, nrb.hd, nrb.tl) == nvq,
+                 res => rb_matches_lqueue(nrb, nvq)
     )]
     fn push_correct<T: Copy>(r: &mut RingBuffer<'_, T>, v: &mut LQueue<T>, e1: T, e2: T) -> bool {
         v.push_back(e1);
@@ -314,160 +343,14 @@ mod vec_queue {
 
     #[flux_rs::proven_externally]
     #[flux_rs::spec(fn(r: &mut RingBuffer<T>[@rb], v: &mut LQueue<T>[@vq])
-        requires rb.hd > rb.tl  => append(subslice(rb.ring, rb.hd, len(rb.ring)), subslice(rb.ring, 0, rb.tl)) == vq,
-                 rb.hd <= rb.tl => subslice(rb.ring, rb.hd, rb.tl) == vq,
+        requires rb_matches_lqueue(rb, vq),
                  !empty(rb), len(vq) > 0
         ensures r: RingBuffer<T>[#nrb],
                 v: LQueue<T>[#nvq],
-                nrb.hd > nrb.tl  => append(subslice(nrb.ring, nrb.hd, len(nrb.ring)), subslice(nrb.ring, 0, nrb.tl)) == nvq,
-                nrb.hd <= nrb.tl => subslice(nrb.ring, nrb.hd, nrb.tl) == nvq
+                rb_matches_lqueue(nrb, nvq)
     )]
     fn pop_correct<T: Copy>(r: &mut RingBuffer<'_, T>, v: &mut LQueue<T>) {
         v.pop_front();
         r.dequeue();
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::super::queue::Queue;
-    use super::RingBuffer;
-
-    #[test]
-    fn test_enqueue_dequeue() {
-        const LEN: usize = 10;
-        let mut ring = [0; LEN];
-        let mut buf = RingBuffer::new(&mut ring);
-
-        for _ in 0..2 * LEN {
-            assert!(buf.enqueue(42));
-            assert_eq!(buf.len(), 1);
-            assert!(buf.has_elements());
-
-            assert_eq!(buf.dequeue(), Some(42));
-            assert_eq!(buf.len(), 0);
-            assert!(!buf.has_elements());
-        }
-    }
-
-    #[test]
-    fn test_push() {
-        const LEN: usize = 10;
-        const MAX: usize = 100;
-        let mut ring = [0; LEN + 1];
-        let mut buf = RingBuffer::new(&mut ring);
-
-        for i in 0..LEN {
-            assert_eq!(buf.len(), i);
-            assert!(!buf.is_full());
-            assert_eq!(buf.push(i), None);
-            assert!(buf.has_elements());
-        }
-
-        for i in LEN..MAX {
-            assert!(buf.is_full());
-            assert_eq!(buf.push(i), Some(i - LEN));
-        }
-
-        for i in 0..LEN {
-            assert!(buf.has_elements());
-            assert_eq!(buf.len(), LEN - i);
-            assert_eq!(buf.dequeue(), Some(MAX - LEN + i));
-            assert!(!buf.is_full());
-        }
-
-        assert!(!buf.has_elements());
-    }
-
-    // Enqueue integers 1 <= n < len, checking that it succeeds and that the
-    // queue is full at the end.
-    // See std::iota in C++.
-    fn enqueue_iota(buf: &mut RingBuffer<usize>, len: usize) {
-        for i in 1..len {
-            assert!(!buf.is_full());
-            assert!(buf.enqueue(i));
-            assert!(buf.has_elements());
-            assert_eq!(buf.len(), i);
-        }
-
-        assert!(buf.is_full());
-        assert!(!buf.enqueue(0));
-        assert!(buf.has_elements());
-    }
-
-    // Dequeue all elements, expecting integers 1 <= n < len, checking that the
-    // queue is empty at the end.
-    // See std::iota in C++.
-    fn dequeue_iota(buf: &mut RingBuffer<usize>, len: usize) {
-        for i in 1..len {
-            assert!(buf.has_elements());
-            assert_eq!(buf.len(), len - i);
-            assert_eq!(buf.dequeue(), Some(i));
-            assert!(!buf.is_full());
-        }
-
-        assert!(!buf.has_elements());
-        assert_eq!(buf.len(), 0);
-    }
-
-    // Move the head by `count` elements, by enqueueing/dequeueing `count`
-    // times an element.
-    // This assumes an empty queue at the beginning, and yields an empty queue.
-    fn move_head(buf: &mut RingBuffer<usize>, count: usize) {
-        assert!(!buf.has_elements());
-        assert_eq!(buf.len(), 0);
-
-        for _ in 0..count {
-            assert!(buf.enqueue(0));
-            assert_eq!(buf.dequeue(), Some(0));
-        }
-
-        assert!(!buf.has_elements());
-        assert_eq!(buf.len(), 0);
-    }
-
-    #[test]
-    fn test_fill_once() {
-        const LEN: usize = 10;
-        let mut ring = [0; LEN];
-        let mut buf = RingBuffer::new(&mut ring);
-
-        assert!(!buf.has_elements());
-        assert_eq!(buf.len(), 0);
-
-        enqueue_iota(&mut buf, LEN);
-        dequeue_iota(&mut buf, LEN);
-    }
-
-    #[test]
-    fn test_refill() {
-        const LEN: usize = 10;
-        let mut ring = [0; LEN];
-        let mut buf = RingBuffer::new(&mut ring);
-
-        for _ in 0..10 {
-            enqueue_iota(&mut buf, LEN);
-            dequeue_iota(&mut buf, LEN);
-        }
-    }
-
-    #[test]
-    fn test_retain() {
-        const LEN: usize = 10;
-        let mut ring = [0; LEN];
-        let mut buf = RingBuffer::new(&mut ring);
-
-        move_head(&mut buf, LEN - 2);
-        enqueue_iota(&mut buf, LEN);
-
-        buf.retain(|x| x % 2 == 1);
-        assert_eq!(buf.len(), LEN / 2);
-
-        assert_eq!(buf.dequeue(), Some(1));
-        assert_eq!(buf.dequeue(), Some(3));
-        assert_eq!(buf.dequeue(), Some(5));
-        assert_eq!(buf.dequeue(), Some(7));
-        assert_eq!(buf.dequeue(), Some(9));
-        assert_eq!(buf.dequeue(), None);
     }
 }

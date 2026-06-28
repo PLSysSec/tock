@@ -1,6 +1,8 @@
 import LeanProofs.Flux.Prelude
 import LeanProofs.Flux.VC.CollectionsRingBufferImpl__0__New
 open Classical
+set_option linter.unusedVariables false
+
 
 namespace F
 

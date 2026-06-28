@@ -1,6 +1,8 @@
 import LeanProofs.Flux.Prelude
 import LeanProofs.Flux.VC.CollectionsRingBufferVecQueuePushCorrect
 open Classical
+set_option linter.unusedVariables false
+
 
 namespace F
 
@@ -24,58 +26,59 @@ theorem slice00 (s : Slc Int)
 
 def CollectionsRingBufferVecQueuePushCorrect_proof : CollectionsRingBufferVecQueuePushCorrect := by
   unfold CollectionsRingBufferVecQueuePushCorrect
-  intro rb vq elem c1 c2 _ _ _ success
-  intro nrb _ _ _ seq _ ifs
-  and_intros
-  · intro h ; rcases h with ⟨sh, hdgttl⟩
-    have := ifs sh ; rcases this  with ⟨⟨nrbhdeq, nrbtleq⟩, nrbringeq⟩
+  intro rb vq elem vqeq c1 c2 _ success nrb _ _ _ seq nrbeq successHyp
+  rw [seq] at successHyp
+  rw [if_pos successHyp] at nrbeq
+  have nrbtleq : nrb.tl = (rb.tl + 1) % (collections_sslice_len rb.ring) := by rw [nrbeq]
+  have nrbringeq : nrb.ring = collections_sslice_set rb.ring rb.tl elem := by rw [nrbeq]
+  by_cases hdgttl : nrb.hd > nrb.tl
+  · rw [if_pos hdgttl]
     by_cases h : rb.hd > rb.tl
-    · have := c1 h
-      rw [←this]
+    · rw [if_pos h] at vqeq
+      rw [vqeq]
       unfold collections_sslice_append collections_sslice_push
-      have : collections_sslice_subslice nrb.ring nrb.hd (collections_sslice_len nrb.ring) = collections_sslice_subslice rb.ring rb.hd (collections_sslice_len rb.ring) := by
+      have heq : collections_sslice_subslice nrb.ring nrb.hd (collections_sslice_len nrb.ring) = collections_sslice_subslice rb.ring rb.hd (collections_sslice_len rb.ring) := by
         grind [slice_set]
-      rw [List.append_assoc, this, List.append_cancel_left_eq]
-      have : nrb.tl = rb.tl + 1 := by
+      rw [List.append_assoc, heq, List.append_cancel_left_eq]
+      have htl : nrb.tl = rb.tl + 1 := by
         grind [←Int.emod_eq_of_lt]
-      rw [this, nrbringeq]
+      rw [htl, nrbringeq]
       grind [slice_set_push]
     · by_cases h' : rb.tl = collections_sslice_len rb.ring - 1
-      · have : nrb.tl = 0 := by
+      · have htl : nrb.tl = 0 := by
           rw [nrbtleq, h'] ; simp
-        rw [this]
+        rw [htl]
+        rw [if_neg h] at vqeq
         simp at h
-        have := c2 h
         have foo : collections_sslice_len rb.ring = collections_sslice_len nrb.ring := by grind
-        rw [←this, slice00, collections_sslice_append, collections_sslice_push, List.append_nil]
+        rw [vqeq, slice00, collections_sslice_append, collections_sslice_push, List.append_nil]
         rw [←foo, nrbringeq]
-        conv => lhs ; arg 3 ; rw [←Int.sub_add_cancel (collections_sslice_len rb.ring) 1]
+        conv => rhs ; arg 3 ; rw [←Int.sub_add_cancel (collections_sslice_len rb.ring) 1]
         rw [←h']
         grind [slice_set_push]
-      · have : nrb.tl = rb.tl + 1 := by
+      · have htl : nrb.tl = rb.tl + 1 := by
           rw [nrbtleq]
           apply Int.emod_eq_of_lt
           omega
           omega
         grind
-  · intro h ; rcases h with ⟨sh, hdgttl⟩
-    have := ifs sh ; rcases this  with ⟨⟨nrbhdeq, nrbtleq⟩, nrbringeq⟩
+  · rw [if_neg hdgttl]
     by_cases h : rb.hd > rb.tl
-    · have := c1 h
-      by_cases rb.tl = collections_sslice_len rb.ring - 1
+    · rw [if_pos h] at vqeq
+      by_cases h'' : rb.tl = collections_sslice_len rb.ring - 1
       · grind
-      · rw [← this]
-        have : nrb.tl = rb.tl + 1 := by grind [←Int.emod_eq_of_lt]
-        rw [this, nrbhdeq, nrbringeq]
+      · rw [vqeq]
+        have htl : nrb.tl = rb.tl + 1 := by grind [←Int.emod_eq_of_lt]
+        rw [htl, nrbringeq]
         grind
-    · simp at h
-      have := c2 h
-      rw [← this, nrbhdeq]
-      by_cases rb.tl = collections_sslice_len rb.ring - 1
+    · rw [if_neg h] at vqeq
+      rw [vqeq]
+      simp at h
+      by_cases h'' : rb.tl = collections_sslice_len rb.ring - 1
       · simp_all ; grind
-      · have : nrb.tl = rb.tl + 1 := by
+      · have htl : nrb.tl = rb.tl + 1 := by
           simp_all ; grind [←Int.emod_eq_of_lt]
-        rw [this, nrbringeq, collections_sslice_push]
+        rw [htl, nrbringeq, collections_sslice_push]
         grind [slice_set_push]
 
 end F
