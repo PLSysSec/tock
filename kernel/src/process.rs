@@ -35,6 +35,10 @@ pub use crate::process_policies::ProcessFaultPolicy;
 pub use crate::process_printer::{ProcessPrinter, ProcessPrinterContext};
 pub use crate::process_standard::ProcessStandard;
 
+flux_rs::defs! {
+    use flux_support::flux_ptr::valid_size;
+}
+
 use flux_support::capability::*;
 /// Userspace process identifier.
 ///

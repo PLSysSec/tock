@@ -43,6 +43,10 @@ use crate::utilities::cells::{MapCell, NumericCellExt, OptionalCell};
 
 use tock_tbf::types::CommandPermissions;
 
+flux_rs::defs! {
+    use flux_support::flux_ptr::valid_size;
+}
+
 /// State for helping with debugging apps.
 ///
 /// These pointers and counters are not strictly required for kernel operation,

@@ -10,9 +10,7 @@ use flux_support::capability::*;
 use flux_support::*;
 
 flux_rs::defs! {
-    fn valid_size(x: int) -> bool {
-        0 <= x && x <= u32::MAX
-    }
+    use flux_support::flux_ptr::valid_size;
 }
 
 #[derive(Copy, Clone, Debug)]

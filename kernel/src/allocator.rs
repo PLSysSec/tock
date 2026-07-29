@@ -7,6 +7,10 @@ use crate::{
     process::{Error, ProcessCustomGrantIdentifier},
 };
 
+flux_rs::defs! {
+    use flux_support::flux_ptr::valid_size;
+}
+
 pub(crate) enum AllocateAppMemoryError {
     HeapError,
     FlashError,

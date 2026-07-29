@@ -142,6 +142,10 @@ use crate::ErrorCode;
 #[allow(clippy::wildcard_imports)]
 use flux_support::*;
 
+flux_rs::defs! {
+    use flux_support::flux_ptr::valid_size;
+}
+
 /// Tracks how many upcalls a grant instance supports automatically.
 pub trait UpcallSize {
     /// The number of upcalls the grant supports.
