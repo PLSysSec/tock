@@ -1,5 +1,11 @@
  use flux_support::FluxPtrU8;
 
+flux_rs::defs! {
+    use flux_support::{flux_ptr::valid_size, flux_register_interface::bv32};
+    use crate::tcb::defs::{pow2, exp2, enabled_srd_mask, least_five_bits, aligned, to_pow2, half_max};
+}
+
+
 #[flux_rs::trusted(reason = "bitwise arith")]
 #[flux_rs::sig(fn(num: u32) -> u32{r: (r < 32) && (num > 1 => r > 0) && (pow2(num) => (bv32(num) == exp2(bv32(r))))})]
 pub fn log_base_two(num: u32) -> u32 {

@@ -2,6 +2,14 @@
 use crate::mpu::RegionAttributes;
 use flux_support::{FieldValueU32, FluxPtr};
 
+flux_rs::defs! {
+    use flux_support::flux_register_interface::bv32;
+    use crate::tcb::defs::{
+        aligned, pow2, least_five_bits, octet, last_subregion_from_logical, subregions_disabled_bit_set, to_pow2,
+        first_subregion_from_logical, enabled_srd_mask, disabled_srd_mask,
+    };
+}
+
 /* a bunch of theorems and proof code */
 #[flux_rs::reveal(aligned)]
 #[flux_rs::sig(fn (usize[@x], usize[@y]) requires x > 0 && aligned(x, y) ensures x >= y)]

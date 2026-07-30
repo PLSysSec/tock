@@ -3,9 +3,9 @@
 mod extern_specs;
 mod flux_arr;
 mod flux_pair;
-mod flux_ptr;
+pub mod flux_ptr;
 mod flux_range;
-mod flux_register_interface;
+pub mod flux_register_interface;
 mod math;
 use core::panic;
 pub use flux_arr::*;

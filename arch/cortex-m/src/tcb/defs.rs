@@ -4,10 +4,10 @@ use kernel::platform::mpu;
 
 /* our actual flux defs */
 flux_rs::defs! {
-    fn valid_size(x: int) -> bool { 0 <= x && x <= u32::MAX }
+    use flux_support::{flux_register_interface::bv32, flux_ptr::valid_size};
+
     fn half_max(r: int) -> bool { r <= u32::MAX / 2 + 1}
 
-    fn bv32(x:int) -> bitvec<32> { bv_int_to_bv32(x) }
     fn bit(reg: bitvec<32>, power_of_two: bitvec<32>) -> bool { reg & power_of_two != 0}
     fn extract(reg: bitvec<32>, mask:int, offset: int) -> bitvec<32> { (reg & bv32(mask)) >> bv32(offset) }
 

@@ -17,8 +17,7 @@ use kernel::utilities::cells::OptionalCell;
 use kernel::utilities::registers::FieldValue;
 
 flux_rs::defs! {
-
-    fn valid_size(x: int) -> bool { 0 <= x && x <= u32::MAX }
+    use flux_support::flux_ptr::valid_size;
 
     fn is_empty(r: PMPUserRegion) -> bool {
         r.start >= r.end
@@ -1624,6 +1623,7 @@ pub mod simple {
     }
 
     flux_rs::defs! {
+        use super::{extract, bit, all_regions_configured_correctly_up_to};
 
         fn available_region_setup(i: int, old: HardwareState, new: HardwareState) -> bool {
             let cfg = map_select(new.pmpcfg_registers, i / 4);

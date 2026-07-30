@@ -22,6 +22,17 @@ use kernel::utilities::math;
 use kernel::utilities::registers::interfaces::{Readable, Writeable};
 use kernel::utilities::registers::{FieldValue, ReadOnly, ReadWrite};
 
+flux_rs::defs! {
+    use flux_support::{flux_ptr::valid_size, flux_register_interface::bv32};
+    use crate::tcb::defs::{
+        rbar_region_number, rbar_region_start, rbar_valid_bit_set, rasr_global_region_enabled, rasr_region_size, 
+        first_subregion_from_logical, last_subregion_from_logical, 
+        subregions_enabled_exactly, subregions_enabled_bit_set, subregions_disabled_bit_set, 
+        perms_match_exactly, enabled_srd_mask, half_max, pow2, aligned, exp2, octet, least_five_bits,
+        region_overlaps
+    };
+}
+
 extern crate flux_core;
 /// MPU Registers for the Cortex-M3, Cortex-M4 and Cortex-M7 families
 /// Described in section 4.5 of
