@@ -157,7 +157,7 @@ impl FluxPtr {
         let n = self.as_usize();
         if offset <= u32::MAX as usize {
             // offset in bounds; test addition
-            n + offset <= (u32::MAX as usize)
+            n <= (u32::MAX as usize) - offset
         } else {
             // offset itself is out of bounds
             false

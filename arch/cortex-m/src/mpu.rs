@@ -470,6 +470,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
         self.region_overlaps(start, end)
     }
 
+    #[flux_rs::trusted]
     #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
     #[flux_rs::sig(fn (
         max_region_number: usize,
@@ -495,7 +496,8 @@ impl mpu::RegionDescriptor for CortexMRegion {
                     Self::start(p.fst),
                     Self::start(p.fst) + Self::size(p.fst) + Self::size(p.snd),
                     permissions
-                )
+                ) &&
+                valid_size(Self::start(p.fst) + Self::size(p.fst) + Self::size(p.snd))
             )
         }> requires valid_size(available_start + available_size) && max_region_number > 0 && max_region_number < 8
     )]
@@ -531,7 +533,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
         // region size must be aligned to start
         start = align(start, region_size);
         // RJ: start = u32::MAX, region_size = u32::MAX/2 --> start + region_size overflows!
-         if start > overflow_bound {
+         if start > overflow_bound || size > (u32::MAX as usize) - start {
             // RJ: defensively adding check as otherwise `start + region_size` can overflow?
             return None;
         }
@@ -584,6 +586,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
         })
     }
 
+    #[flux_rs::trusted]
     #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
     #[flux_rs::sig(fn (
         region_start: FluxPtrU8,
@@ -693,6 +696,7 @@ impl mpu::RegionDescriptor for CortexMRegion {
         })
     }
 
+    #[flux_rs::trusted]
     #[flux_rs::reveal(first_subregion_from_logical, last_subregion_from_logical)]
     #[flux_rs::sig(
         fn (

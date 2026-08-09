@@ -1,0 +1,4 @@
+import LeanProofs.Flux.VC.TcbTheoremsTheoremAlignedValueGe32LowestFiveBits0
+import LeanProofs.User.Proof.TcbTheoremsTheoremAlignedValueGe32LowestFiveBits0Proof
+
+#check (F.TcbTheoremsTheoremAlignedValueGe32LowestFiveBits0_proof : F.TcbTheoremsTheoremAlignedValueGe32LowestFiveBits0)
